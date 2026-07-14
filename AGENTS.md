@@ -24,6 +24,7 @@
 
 ## DTO and API rules
 
+- Define endpoint mappings and OpenAPI annotations in feature-specific `*Api` interfaces, and have controllers implement those interfaces.
 - Do not expose JPA entities directly through HTTP request or response bodies.
 - Use separate request and response DTOs; Java records are preferred for immutable DTOs.
 - Apply Bean Validation to incoming request DTOs and handle validation failures consistently.
@@ -33,12 +34,18 @@
 ## JPA and database rules
 
 - Do not use Lombok `@Data` on JPA entities.
+- Prefer Lombok `@Getter` over manually implemented boilerplate getters on entities and simple model classes.
 - Avoid public setters on entities; express state changes through meaningful domain methods.
 - Define transaction boundaries in the service layer. Use read-only transactions for queries where appropriate.
 - Avoid unbounded collection loading and N+1 queries. Add fetch joins, entity graphs, or projections only after confirming the query requirement.
 - Manage schema changes with versioned Flyway migrations under `src/main/resources/db/migration`.
 - Do not use Hibernate automatic schema creation as a substitute for migrations.
 - Do not commit database passwords. Read connection details from environment variables.
+
+## Exception handling
+
+- Represent API error types with `ApiResponseCode` and throw them through `CustomException.of(...)`.
+- Handle `CustomException` centrally in `GlobalExceptionHandler`; do not create one exception class for each resource or status code.
 
 ## Testing and verification
 
