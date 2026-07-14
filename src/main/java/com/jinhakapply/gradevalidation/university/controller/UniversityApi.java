@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 @Tag(name = "Universities", description = "대학교 정보 API")
-@RequestMapping("/api/v1/universities")
+@RequestMapping("/api/universities")
 public interface UniversityApi {
 
     @Operation(summary = "대학교 등록")

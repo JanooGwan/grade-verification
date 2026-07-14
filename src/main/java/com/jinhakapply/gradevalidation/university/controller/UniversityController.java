@@ -20,7 +20,7 @@ public class UniversityController implements UniversityApi {
     @Override
     public ResponseEntity<UniversityResponse> create(CreateUniversityRequest request) {
         UniversityResponse response = universityService.create(request);
-        return ResponseEntity.created(URI.create("/api/v1/universities/" + response.id())).body(response);
+        return ResponseEntity.created(URI.create("/api/universities/" + response.id())).body(response);
     }
 
     @Override
