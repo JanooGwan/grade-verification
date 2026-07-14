@@ -1,4 +1,4 @@
-package com.example.grade_validation;
+package com.jinhakapply.gradevalidation;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
