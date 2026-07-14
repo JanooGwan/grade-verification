@@ -7,62 +7,40 @@ import com.jinhakapply.gradevalidation.university.dto.CreateUniversityRequest;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.dto.UpdateUniversityRequest;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Universities", description = "대학 기준정보 API")
 @RestController
-@RequestMapping("/api/v1/universities")
-public class UniversityController {
+@RequiredArgsConstructor
+public class UniversityController implements UniversityApi {
 
-	private final UniversityService universityService;
+    private final UniversityService universityService;
 
-	public UniversityController(UniversityService universityService) {
-		this.universityService = universityService;
-	}
+    @Override
+    public ResponseEntity<UniversityResponse> create(CreateUniversityRequest request) {
+        UniversityResponse response = universityService.create(request);
+        return ResponseEntity.created(URI.create("/api/v1/universities/" + response.id())).body(response);
+    }
 
-	@Operation(summary = "대학 등록")
-	@PostMapping
-	public ResponseEntity<UniversityResponse> create(@Valid @RequestBody CreateUniversityRequest request) {
-		UniversityResponse response = universityService.create(request);
-		return ResponseEntity.created(URI.create("/api/v1/universities/" + response.id())).body(response);
-	}
+    @Override
+    public List<UniversityResponse> findAll() {
+        return universityService.findAll();
+    }
 
-	@Operation(summary = "대학 목록 조회")
-	@GetMapping
-	public List<UniversityResponse> findAll() {
-		return universityService.findAll();
-	}
+    @Override
+    public UniversityResponse findById(Long universityId) {
+        return universityService.findById(universityId);
+    }
 
-	@Operation(summary = "대학 단건 조회")
-	@GetMapping("/{universityId}")
-	public UniversityResponse findById(@PathVariable Long universityId) {
-		return universityService.findById(universityId);
-	}
+    @Override
+    public UniversityResponse update(Long universityId, UpdateUniversityRequest request) {
+        return universityService.update(universityId, request);
+    }
 
-	@Operation(summary = "대학 수정")
-	@PutMapping("/{universityId}")
-	public UniversityResponse update(
-			@PathVariable Long universityId,
-			@Valid @RequestBody UpdateUniversityRequest request
-	) {
-		return universityService.update(universityId, request);
-	}
-
-	@Operation(summary = "대학 삭제")
-	@DeleteMapping("/{universityId}")
-	public ResponseEntity<Void> delete(@PathVariable Long universityId) {
-		universityService.delete(universityId);
-		return ResponseEntity.noContent().build();
-	}
+    @Override
+    public ResponseEntity<Void> delete(Long universityId) {
+        universityService.delete(universityId);
+        return ResponseEntity.noContent().build();
+    }
 }
