@@ -24,6 +24,7 @@
 
 ## DTO and API rules
 
+- Start public backend endpoints with `/api` and do not add a version segment unless the user explicitly requests one.
 - Define endpoint mappings and OpenAPI annotations in feature-specific `*Api` interfaces, and have controllers implement those interfaces.
 - Do not expose JPA entities directly through HTTP request or response bodies.
 - Use separate request and response DTOs; Java records are preferred for immutable DTOs.
