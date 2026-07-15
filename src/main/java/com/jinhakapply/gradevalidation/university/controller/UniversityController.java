@@ -24,18 +24,18 @@ public class UniversityController implements UniversityApi {
     }
 
     @Override
-    public List<UniversityResponse> findAll() {
-        return universityService.findAll();
+    public ResponseEntity<List<UniversityResponse>> findAll() {
+        return ResponseEntity.ok(universityService.findAll());
     }
 
     @Override
-    public UniversityResponse findById(Long universityId) {
-        return universityService.findById(universityId);
+    public ResponseEntity<UniversityResponse> findById(Long universityId) {
+        return ResponseEntity.ok(universityService.findById(universityId));
     }
 
     @Override
-    public UniversityResponse update(Long universityId, UpdateUniversityRequest request) {
-        return universityService.update(universityId, request);
+    public ResponseEntity<UniversityResponse> update(Long universityId, UpdateUniversityRequest request) {
+        return ResponseEntity.ok(universityService.update(universityId, request));
     }
 
     @Override

@@ -27,15 +27,15 @@ public interface UniversityApi {
 
     @Operation(summary = "대학교 목록 조회")
     @GetMapping
-    List<UniversityResponse> findAll();
+    ResponseEntity<List<UniversityResponse>> findAll();
 
     @Operation(summary = "대학교 단건 조회")
     @GetMapping("/{universityId}")
-    UniversityResponse findById(@PathVariable Long universityId);
+    ResponseEntity<UniversityResponse> findById(@PathVariable Long universityId);
 
     @Operation(summary = "대학교 수정")
     @PutMapping("/{universityId}")
-    UniversityResponse update(
+    ResponseEntity<UniversityResponse> update(
         @PathVariable Long universityId,
         @Valid @RequestBody UpdateUniversityRequest request
     );

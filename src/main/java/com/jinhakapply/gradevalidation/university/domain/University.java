@@ -2,7 +2,7 @@ package com.jinhakapply.gradevalidation.university.domain;
 
 import static lombok.AccessLevel.PROTECTED;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -37,16 +37,16 @@ public class University {
     private boolean active;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
 
     private University(String code, String name) {
         this.code = code;
         this.name = name;
         this.active = true;
-        Instant now = Instant.now();
+        LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -58,6 +58,6 @@ public class University {
     public void update(String name, boolean active) {
         this.name = name;
         this.active = active;
-        this.updatedAt = Instant.now();
+        this.updatedAt = LocalDateTime.now();
     }
 }

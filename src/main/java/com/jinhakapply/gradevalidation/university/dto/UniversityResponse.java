@@ -1,6 +1,6 @@
 package com.jinhakapply.gradevalidation.university.dto;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 import com.jinhakapply.gradevalidation.university.domain.University;
 
@@ -9,8 +9,8 @@ public record UniversityResponse(
 		String code,
 		String name,
 		boolean active,
-		Instant createdAt,
-		Instant updatedAt
+		LocalDateTime createdAt,
+		LocalDateTime updatedAt
 ) {
 	public static UniversityResponse from(University university) {
 		return new UniversityResponse(
