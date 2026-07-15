@@ -23,8 +23,25 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 30MB
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
+
+logging:
+  file:
+    name: ${LOG_FILE:logs/grade-validation.log}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId:-}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId:-}] %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 20MB
+      max-history: 30
+      total-size-cap: 1GB
