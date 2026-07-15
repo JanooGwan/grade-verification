@@ -3,7 +3,8 @@
 ## Project scope
 
 - This repository contains the backend for the university grade-validation system.
-- Preserve existing user changes and do not commit, push, or rewrite Git history unless explicitly requested.
+- Preserve existing user changes and never rewrite Git history unless explicitly requested.
+- After completing and verifying a coherent unit of work, create a focused commit and push it to the current working branch without waiting for a separate user request.
 - Never add real applicant data, student records, resident registration numbers, credentials, or other sensitive information to source code, fixtures, logs, or documentation.
 
 ## Technology
@@ -66,4 +67,4 @@
 - Run Git commands from this repository, not from the parent `project` or `입학관리` directory.
 - Do not include frontend or surrounding business-document files in backend commits.
 - Work on `develop` unless the user requests another branch.
-- Keep commits small and focused on one coherent change, and push completed work when the user has explicitly authorized it.
+- Keep commits small and focused on one coherent change, and push verified completed work to `origin/develop` by default.
