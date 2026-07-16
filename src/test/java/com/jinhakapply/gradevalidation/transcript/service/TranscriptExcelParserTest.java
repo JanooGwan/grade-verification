@@ -69,6 +69,29 @@ class TranscriptExcelParserTest {
         }
     }
 
+    @Test
+    void classifiesOnlyEnglishRelatedForeignLanguageCoursesAsEnglish() throws Exception {
+        String[] headers = {
+            "수험번호", "성명", "학년", "학기", "교과구분", "과목명", "석차등급", "단위수"
+        };
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("학생부");
+            writeRow(sheet.createRow(0), headers);
+            writeRow(sheet.createRow(1), new Object[] {
+                "A-001", "홍길동", 1, 1, "외국어에 관한 교과", "영어회화", 2, 3
+            });
+            writeRow(sheet.createRow(2), new Object[] {
+                "A-001", "홍길동", 1, 1, "제2외국어", "일본어회화", 1, 3
+            });
+
+            TranscriptExcelParseResult result = parser.parse(file(workbook));
+
+            assertThat(result.errors()).isEmpty();
+            assertThat(result.rows()).extracting(TranscriptExcelRow::subjectCategory)
+                .containsExactly(SubjectCategory.ENGLISH, SubjectCategory.OTHER);
+        }
+    }
+
     private MockMultipartFile file(XSSFWorkbook workbook) throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         workbook.write(output);

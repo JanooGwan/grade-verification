@@ -61,6 +61,8 @@ public class EvaluationRule {
     @Enumerated(EnumType.STRING)
     @Column(name = "achievement_conversion", nullable = false, length = 30) private AchievementConversion achievementConversion;
     @Column(name = "include_third_year_second_semester", nullable = false) private boolean includeThirdYearSecondSemester;
+    @Column(name = "include_third_year_second_semester_for_graduates", nullable = false)
+    private boolean includeThirdYearSecondSemesterForGraduates;
     @Column(name = "include_professional_courses", nullable = false) private boolean includeProfessionalCourses;
     @Column(name = "normalize_grade_weights", nullable = false) private boolean normalizeGradeWeights;
     @Column(name = "intermediate_scale", nullable = false) private int intermediateScale;
@@ -122,6 +124,7 @@ public class EvaluationRule {
         List<BigDecimal> subjectWeights, List<BigDecimal> gradeScores, SelectionStrategy selectionStrategy,
         int selectionCount, int achievementSelectionCount, ScoreAggregation scoreAggregation,
         AchievementConversion achievementConversion, boolean includeThirdYearSecondSemester,
+        boolean includeThirdYearSecondSemesterForGraduates,
         boolean includeProfessionalCourses, boolean normalizeGradeWeights, int intermediateScale, RoundingMode intermediateRounding,
         int finalScale, RoundingMode finalRounding, BigDecimal scoreMultiplier,
         List<BigDecimal> achievementGrades, List<BigDecimal> achievementScores, List<Integer> subjectPriorities,
@@ -143,6 +146,7 @@ public class EvaluationRule {
         rule.scoreAggregation = scoreAggregation;
         rule.achievementConversion = achievementConversion;
         rule.includeThirdYearSecondSemester = includeThirdYearSecondSemester;
+        rule.includeThirdYearSecondSemesterForGraduates = includeThirdYearSecondSemesterForGraduates;
         rule.includeProfessionalCourses = includeProfessionalCourses;
         rule.normalizeGradeWeights = normalizeGradeWeights;
         rule.intermediateScale = intermediateScale;

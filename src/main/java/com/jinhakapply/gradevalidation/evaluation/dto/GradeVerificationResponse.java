@@ -18,6 +18,7 @@ public record GradeVerificationResponse(
 ) {
     public record CourseCalculation(
         String courseName, int schoolYear, int semester, SubjectCategory subjectCategory,
+        SubjectCategory appliedSubjectCategory,
         Integer grade, AchievementLevel achievement, BigDecimal effectiveGrade,
         BigDecimal convertedScore, BigDecimal gradeWeight,
         BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedWeight,

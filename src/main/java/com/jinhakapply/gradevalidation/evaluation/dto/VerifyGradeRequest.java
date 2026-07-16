@@ -16,8 +16,13 @@ import jakarta.validation.constraints.Size;
 
 public record VerifyGradeRequest(
     @NotNull Long ruleId,
+    boolean graduated,
     @NotEmpty List<@Valid CourseGrade> courses
 ) {
+    public VerifyGradeRequest(Long ruleId, List<CourseGrade> courses) {
+        this(ruleId, false, courses);
+    }
+
     public record CourseGrade(
         @Min(1) @Max(3) int schoolYear,
         @Min(1) @Max(2) int semester,

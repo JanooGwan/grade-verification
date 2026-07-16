@@ -31,6 +31,7 @@ public record CreateEvaluationRuleRequest(
     @NotNull ScoreAggregation scoreAggregation,
     @NotNull AchievementConversion achievementConversion,
     boolean includeThirdYearSecondSemester,
+    boolean includeThirdYearSecondSemesterForGraduates,
     boolean includeProfessionalCourses,
     boolean normalizeGradeWeights,
     @Min(0) @Max(8) int intermediateScale,

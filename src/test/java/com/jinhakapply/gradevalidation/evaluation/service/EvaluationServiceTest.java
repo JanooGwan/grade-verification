@@ -88,7 +88,7 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void choosesScienceOrSocialByTotalCreditsForEngineeringUniversityRule() {
+    void choosesScienceOrSocialByTotalCreditsForBusinessRule() {
         mockRule(rule(SelectionStrategy.CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N, 4,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
             decimals("1", "1", "1", "1", "1", "0")));
@@ -103,6 +103,95 @@ class EvaluationServiceTest {
 
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::courseName).contains("과학").doesNotContain("사회");
+    }
+
+    @Test
+    void choosesSocialWhenBusinessOptionalSubjectCreditsAreEqual() {
+        mockRule(rule(SelectionStrategy.CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0")));
+        VerifyGradeRequest request = new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3"),
+            course(1, 1, SubjectCategory.ENGLISH, "영어", 2, "3"),
+            course(1, 1, SubjectCategory.SOCIAL, "사회문화", 4, "4"),
+            course(1, 1, SubjectCategory.SCIENCE, "물리학", 1, "4"),
+            course(1, 1, SubjectCategory.SOCIAL, "한국사", 1, "3"),
+            course(2, 1, SubjectCategory.SOCIAL, "한국사 심화", 2, "3")));
+
+        GradeVerificationResponse response = service.verify(request);
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .contains("사회문화", "한국사").doesNotContain("물리학", "한국사 심화");
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("한국사"))
+            .extracting(GradeVerificationResponse.CourseCalculation::appliedSubjectCategory)
+            .containsExactly(SubjectCategory.SOCIAL);
+    }
+
+    @Test
+    void engineeringRuleAlwaysUsesScienceAndTreatsOneKoreanHistoryCourseAsScience() {
+        mockRule(rule(SelectionStrategy.CORE_SCIENCE_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0")));
+        VerifyGradeRequest request = new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3"),
+            course(1, 1, SubjectCategory.ENGLISH, "영어", 2, "3"),
+            course(1, 1, SubjectCategory.SOCIAL, "사회문화", 1, "6"),
+            course(1, 1, SubjectCategory.SCIENCE, "물리학", 4, "3"),
+            course(1, 1, SubjectCategory.SOCIAL, "한국사", 1, "3"),
+            course(2, 1, SubjectCategory.SOCIAL, "한국사 심화", 2, "3")));
+
+        GradeVerificationResponse response = service.verify(request);
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .contains("물리학", "한국사").doesNotContain("사회문화", "한국사 심화");
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("한국사"))
+            .extracting(GradeVerificationResponse.CourseCalculation::appliedSubjectCategory)
+            .containsExactly(SubjectCategory.SCIENCE);
+    }
+
+    @Test
+    void appliesFourRegularAndTwoCareerCoursesPerSubject() {
+        mockRule(rule(SelectionStrategy.CORE_SCIENCE_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0")));
+        VerifyGradeRequest request = new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.SCIENCE, "과학1", 1, "3"),
+            course(1, 2, SubjectCategory.SCIENCE, "과학2", 2, "3"),
+            course(2, 1, SubjectCategory.SCIENCE, "과학3", 3, "3"),
+            course(2, 2, SubjectCategory.SCIENCE, "과학4", 4, "3"),
+            course(3, 1, SubjectCategory.SCIENCE, "과학5", 5, "3"),
+            careerCourse(1, 1, SubjectCategory.SCIENCE, "진로1", AchievementLevel.A, "3"),
+            careerCourse(2, 1, SubjectCategory.SCIENCE, "진로2", AchievementLevel.B, "3"),
+            careerCourse(3, 1, SubjectCategory.SCIENCE, "진로3", AchievementLevel.C, "3")));
+
+        GradeVerificationResponse response = service.verify(request);
+
+        assertThat(response.includedCourseCount()).isEqualTo(6);
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("과학1", "과학2", "과학3", "과학4", "진로1", "진로2");
+    }
+
+    @Test
+    void includesThirdYearSecondSemesterOnlyForGraduatesWhenConfigured() {
+        EvaluationRule graduateRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(graduateRule, "includeThirdYearSecondSemesterForGraduates", true);
+        mockRule(graduateRule);
+        List<VerifyGradeRequest.CourseGrade> courses = List.of(
+            course(3, 1, SubjectCategory.KOREAN, "화법과작문", 3, "3"),
+            course(3, 2, SubjectCategory.KOREAN, "독서", 1, "3"));
+
+        GradeVerificationResponse expectedGraduate = service.verify(new VerifyGradeRequest(1L, true, courses));
+        GradeVerificationResponse expectedGraduation = service.verify(new VerifyGradeRequest(1L, false, courses));
+
+        assertThat(expectedGraduate.includedCourseCount()).isEqualTo(2);
+        assertThat(expectedGraduation.includedCourseCount()).isEqualTo(1);
     }
 
     @Test
@@ -155,7 +244,8 @@ class EvaluationServiceTest {
         University university = University.create("TEST", "테스트대학교");
         EvaluationRule rule = EvaluationRule.create(university, "테스트 규칙", 2027, "학생부교과", "전체", 1,
             gradeWeights, subjectWeights, decimals("100", "95", "90", "85", "80", "70", "60", "50", "40"),
-            selection, selectionCount, 2, aggregation, achievementConversion, false, false, false, 4, RoundingMode.HALF_UP,
+            selection, selectionCount, 2, aggregation, achievementConversion, false, false, false, false,
+            4, RoundingMode.HALF_UP,
             4, RoundingMode.HALF_UP, BigDecimal.ONE, decimals("1", "3", "5"), decimals("100", "95", "90"),
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);
         rule.markVerified("tester", null);
@@ -167,6 +257,12 @@ class EvaluationServiceTest {
         String name, int grade, String credits) {
         return new VerifyGradeRequest.CourseGrade(year, semester, category, name, grade, null,
             null, null, null, null, false, false, new BigDecimal(credits));
+    }
+
+    private static VerifyGradeRequest.CourseGrade careerCourse(int year, int semester, SubjectCategory category,
+        String name, AchievementLevel achievement, String credits) {
+        return new VerifyGradeRequest.CourseGrade(year, semester, category, name, null, achievement,
+            null, null, null, null, true, false, new BigDecimal(credits));
     }
 
     private static List<BigDecimal> decimals(String... values) {

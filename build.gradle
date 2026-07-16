@@ -43,3 +43,30 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+def windowsWithNonAsciiProjectPath = System.getProperty('os.name').toLowerCase().contains('windows')
+	&& projectDir.absolutePath.find(/[^\x00-\x7F]/) != null
+
+if (windowsWithNonAsciiProjectPath) {
+	def asciiTestRuntimeDirectory = new File(
+		System.getProperty('java.io.tmpdir'),
+		"grade-validation-test-${Integer.toUnsignedString(projectDir.absolutePath.hashCode())}"
+	)
+	def mainTestRuntimeJar = tasks.register('mainTestRuntimeJar', Jar) {
+		archiveFileName = 'main-test-runtime.jar'
+		destinationDirectory = asciiTestRuntimeDirectory
+		from sourceSets.main.output
+	}
+	def testRuntimeJar = tasks.register('testRuntimeJar', Jar) {
+		archiveFileName = 'test-runtime.jar'
+		destinationDirectory = asciiTestRuntimeDirectory
+		from sourceSets.test.output
+	}
+
+	tasks.named('test') {
+		// Gradle's Windows worker argfile corrupts non-ASCII class-directory paths.
+		// ASCII-path jars keep the worker classpath loadable without moving the project.
+		dependsOn mainTestRuntimeJar, testRuntimeJar
+		classpath = files(testRuntimeJar, mainTestRuntimeJar) + configurations.testRuntimeClasspath
+	}
+}

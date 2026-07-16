@@ -66,7 +66,8 @@ public class EvaluationService {
             request.admissionType(), request.recruitmentUnit(), request.version(), request.gradeWeights(),
             request.subjectWeights(), request.gradeScores(), request.selectionStrategy(), request.selectionCount(),
             request.achievementSelectionCount(), request.scoreAggregation(), request.achievementConversion(),
-            request.includeThirdYearSecondSemester(), request.includeProfessionalCourses(), request.normalizeGradeWeights(), request.intermediateScale(),
+            request.includeThirdYearSecondSemester(), request.includeThirdYearSecondSemesterForGraduates(),
+            request.includeProfessionalCourses(), request.normalizeGradeWeights(), request.intermediateScale(),
             request.intermediateRounding(), request.finalScale(), request.finalRounding(), request.scoreMultiplier(),
             request.achievementGrades(), request.achievementScores(), request.subjectPriorities(),
             request.sourceDocument(), request.sourcePages(), request.interpretationNote(), request.changeSummary());
@@ -129,9 +130,10 @@ public class EvaluationService {
         if (!rule.isPublished()) {
             throw CustomException.of(INVALID_EVALUATION_RULE_STATUS, "게시된 규칙만 성적 계산에 사용할 수 있습니다.");
         }
-        List<Candidate> candidates = prepareCandidates(rule, request.courses());
-        Set<Integer> selectedIndexes = selectCourses(rule, candidates.stream().filter(Candidate::eligible).toList());
-        Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(rule, candidates, selectedIndexes);
+        List<Candidate> candidates = prepareCandidates(rule, request.courses(), request.graduated());
+        CourseSelection selection = selectCourses(rule, candidates.stream().filter(Candidate::eligible).toList());
+        Set<Integer> selectedIndexes = selection.indexes();
+        Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(rule, candidates, selection);
 
         BigDecimal totalWeight = BigDecimal.ZERO;
         BigDecimal totalConvertedScore = BigDecimal.ZERO;
@@ -142,7 +144,8 @@ public class EvaluationService {
         for (Candidate candidate : candidates) {
             VerifyGradeRequest.CourseGrade course = candidate.course();
             BigDecimal gradeWeight = rule.gradeWeight(course.schoolYear());
-            BigDecimal subjectWeight = rule.subjectWeight(course.subjectCategory());
+            SubjectCategory appliedSubjectCategory = selection.appliedSubjectCategory(candidate);
+            BigDecimal subjectWeight = rule.subjectWeight(appliedSubjectCategory);
             boolean selected = candidate.eligible() && selectedIndexes.contains(candidate.index());
             BigDecimal appliedWeight = course.credits().multiply(gradeWeight).multiply(subjectWeight);
             if (selected && rule.isNormalizeGradeWeights()) {
@@ -160,7 +163,7 @@ public class EvaluationService {
                 totalConvertedScore = totalConvertedScore.add(weightedScore);
             }
             calculations.add(new CourseCalculation(course.courseName().trim(), course.schoolYear(), course.semester(),
-                course.subjectCategory(), course.grade(), course.achievement(), candidate.effectiveGrade(),
+                course.subjectCategory(), appliedSubjectCategory, course.grade(), course.achievement(), candidate.effectiveGrade(),
                 candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedWeight,
                 weightedScore, selected, exclusionReason));
         }
@@ -183,14 +186,16 @@ public class EvaluationService {
             included, calculations.size() - included, calculations, warnings);
     }
 
-    private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses) {
+    private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,
+        boolean graduated) {
         List<Candidate> candidates = new ArrayList<>();
         for (int index = 0; index < courses.size(); index++) {
             VerifyGradeRequest.CourseGrade course = courses.get(index);
             String exclusionReason = null;
             if (rule.gradeWeight(course.schoolYear()).signum() == 0) exclusionReason = "학년 반영 비율이 0입니다.";
-            else if (rule.subjectWeight(course.subjectCategory()).signum() == 0) exclusionReason = "반영하지 않는 교과입니다.";
-            else if (course.schoolYear() == 3 && course.semester() == 2 && !rule.isIncludeThirdYearSecondSemester())
+            else if (!hasEligibleSubjectWeight(rule, course)) exclusionReason = "반영하지 않는 교과입니다.";
+            else if (course.schoolYear() == 3 && course.semester() == 2
+                && !includesThirdYearSecondSemester(rule, graduated))
                 exclusionReason = "3학년 2학기는 이 규칙의 반영 범위가 아닙니다.";
             else if (course.professionalCourse() && !rule.isIncludeProfessionalCourses())
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
@@ -203,13 +208,28 @@ public class EvaluationService {
         return candidates;
     }
 
+    private boolean includesThirdYearSecondSemester(EvaluationRule rule, boolean graduated) {
+        return rule.isIncludeThirdYearSecondSemester()
+            || (graduated && rule.isIncludeThirdYearSecondSemesterForGraduates());
+    }
+
+    private boolean hasEligibleSubjectWeight(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
+        if (!isKoreanHistory(course)) return rule.subjectWeight(course.subjectCategory()).signum() > 0;
+        return switch (rule.getSelectionStrategy()) {
+            case CORE_SCIENCE_TOP_N -> rule.subjectWeight(SubjectCategory.SCIENCE).signum() > 0;
+            case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> rule.subjectWeight(SubjectCategory.SOCIAL).signum() > 0
+                || rule.subjectWeight(SubjectCategory.SCIENCE).signum() > 0;
+            default -> rule.subjectWeight(course.subjectCategory()).signum() > 0;
+        };
+    }
+
     private Map<Integer, BigDecimal> calculateYearWeightDenominators(EvaluationRule rule, List<Candidate> candidates,
-        Set<Integer> selectedIndexes) {
+        CourseSelection selection) {
         if (!rule.isNormalizeGradeWeights()) return Map.of();
         Map<Integer, BigDecimal> denominators = new HashMap<>();
-        candidates.stream().filter(candidate -> selectedIndexes.contains(candidate.index())).forEach(candidate -> {
+        candidates.stream().filter(candidate -> selection.indexes().contains(candidate.index())).forEach(candidate -> {
             VerifyGradeRequest.CourseGrade course = candidate.course();
-            BigDecimal weight = course.credits().multiply(rule.subjectWeight(course.subjectCategory()));
+            BigDecimal weight = course.credits().multiply(rule.subjectWeight(selection.appliedSubjectCategory(candidate)));
             denominators.merge(course.schoolYear(), weight, BigDecimal::add);
         });
         return denominators;
@@ -245,18 +265,19 @@ public class EvaluationService {
         return lowerScore.add(upperScore.subtract(lowerScore).multiply(fraction));
     }
 
-    private Set<Integer> selectCourses(EvaluationRule rule, List<Candidate> eligible) {
-        if (eligible.isEmpty()) return Set.of();
+    private CourseSelection selectCourses(EvaluationRule rule, List<Candidate> eligible) {
+        if (eligible.isEmpty()) return CourseSelection.empty();
         return switch (rule.getSelectionStrategy()) {
-            case ALL_COURSES -> indexesOf(eligible);
-            case TOP_N_COURSES -> indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList());
-            case TOP_N_COURSES_PER_SUBJECT -> selectTopCoursesPerSubject(rule, eligible);
+            case ALL_COURSES -> CourseSelection.of(indexesOf(eligible));
+            case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
+            case TOP_N_COURSES_PER_SUBJECT -> CourseSelection.of(selectTopCoursesPerSubject(rule, eligible));
+            case CORE_SCIENCE_TOP_N -> selectCoreScienceSubjects(rule, eligible);
             case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible);
-            case TOP_N_SEMESTERS -> selectTopGroups(rule, eligible,
-                candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(), rule.getSelectionCount(), null);
-            case TOP_N_SUBJECTS -> selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
-                rule.getSelectionCount(), rule.getSubjectPriorities());
-            case BEST_SEMESTER_PER_GRADE -> selectBestSemesterPerGrade(eligible);
+            case TOP_N_SEMESTERS -> CourseSelection.of(selectTopGroups(rule, eligible,
+                candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(), rule.getSelectionCount(), null));
+            case TOP_N_SUBJECTS -> CourseSelection.of(selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
+                rule.getSelectionCount(), rule.getSubjectPriorities()));
+            case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
     }
 
@@ -273,22 +294,81 @@ public class EvaluationService {
         return selected;
     }
 
-    private Set<Integer> selectCoreAndBestOptionalSubject(EvaluationRule rule, List<Candidate> eligible) {
-        Set<SubjectCategory> selectedSubjects = new LinkedHashSet<>(List.of(
-            SubjectCategory.KOREAN, SubjectCategory.MATH, SubjectCategory.ENGLISH));
-        List<SubjectCategory> optionalSubjects = List.of(SubjectCategory.SOCIAL, SubjectCategory.SCIENCE);
-        SubjectCategory optional = optionalSubjects.stream().max(Comparator
-            .comparing((SubjectCategory category) -> totalCredits(eligible, category))
-            .thenComparing(category -> -rule.getSubjectPriorities().getOrDefault(category, Integer.MAX_VALUE)))
-            .orElse(SubjectCategory.SOCIAL);
-        selectedSubjects.add(optional);
-        return selectTopCoursesPerSubject(rule, eligible.stream()
-            .filter(candidate -> selectedSubjects.contains(candidate.course().subjectCategory())).toList());
+    private CourseSelection selectCoreScienceSubjects(EvaluationRule rule, List<Candidate> eligible) {
+        Set<SubjectCategory> selectedSubjects = Set.of(
+            SubjectCategory.KOREAN, SubjectCategory.MATH, SubjectCategory.ENGLISH, SubjectCategory.SCIENCE);
+        Map<Integer, SubjectCategory> appliedSubjects = new HashMap<>();
+        eligible.stream().filter(this::isKoreanHistory)
+            .forEach(candidate -> appliedSubjects.put(candidate.index(), SubjectCategory.SCIENCE));
+        List<Candidate> included = eligible.stream()
+            .filter(candidate -> selectedSubjects.contains(appliedSubjects.getOrDefault(
+                candidate.index(), candidate.course().subjectCategory())))
+            .toList();
+        Set<Integer> selected = selectTopCoursesPerAppliedSubject(rule, included, appliedSubjects, true);
+        return new CourseSelection(selected, appliedSubjects);
     }
 
-    private BigDecimal totalCredits(List<Candidate> candidates, SubjectCategory category) {
+    private CourseSelection selectCoreAndBestOptionalSubject(EvaluationRule rule, List<Candidate> eligible) {
+        List<SubjectCategory> optionalSubjects = List.of(SubjectCategory.SOCIAL, SubjectCategory.SCIENCE);
+        SubjectCategory optional = optionalSubjects.stream().max(Comparator
+            .comparing((SubjectCategory category) -> totalCreditsExcludingKoreanHistory(eligible, category))
+            .thenComparing(category -> -rule.getSubjectPriorities().getOrDefault(category, Integer.MAX_VALUE)))
+            .orElse(SubjectCategory.SOCIAL);
+        Set<SubjectCategory> selectedSubjects = Set.of(
+            SubjectCategory.KOREAN, SubjectCategory.MATH, SubjectCategory.ENGLISH, optional);
+        Map<Integer, SubjectCategory> appliedSubjects = new HashMap<>();
+        eligible.stream().filter(this::isKoreanHistory)
+            .forEach(candidate -> appliedSubjects.put(candidate.index(), optional));
+        List<Candidate> included = eligible.stream()
+            .filter(candidate -> selectedSubjects.contains(appliedSubjects.getOrDefault(
+                candidate.index(), candidate.course().subjectCategory())))
+            .toList();
+        Set<Integer> selected = selectTopCoursesPerAppliedSubject(rule, included, appliedSubjects, true);
+        return new CourseSelection(selected, appliedSubjects);
+    }
+
+    private BigDecimal totalCreditsExcludingKoreanHistory(List<Candidate> candidates, SubjectCategory category) {
         return candidates.stream().filter(candidate -> candidate.course().subjectCategory() == category)
+            .filter(candidate -> !isKoreanHistory(candidate))
             .map(candidate -> candidate.course().credits()).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Set<Integer> selectTopCoursesPerAppliedSubject(EvaluationRule rule, List<Candidate> eligible,
+        Map<Integer, SubjectCategory> appliedSubjects, boolean limitKoreanHistory) {
+        Set<Integer> selected = new LinkedHashSet<>();
+        Map<SubjectCategory, List<Candidate>> bySubject = eligible.stream().collect(Collectors.groupingBy(
+            candidate -> appliedSubjects.getOrDefault(candidate.index(), candidate.course().subjectCategory()),
+            () -> new EnumMap<>(SubjectCategory.class), Collectors.toList()));
+        Set<Integer> koreanHistoryIndexes = eligible.stream().filter(this::isKoreanHistory)
+            .map(Candidate::index).collect(Collectors.toSet());
+        for (List<Candidate> subjectCourses : bySubject.values()) {
+            addTopCourses(selected, subjectCourses.stream().filter(candidate -> !candidate.course().careerSubject()).toList(),
+                rule.getSelectionCount(), limitKoreanHistory, koreanHistoryIndexes);
+            addTopCourses(selected, subjectCourses.stream().filter(candidate -> candidate.course().careerSubject()).toList(),
+                rule.getAchievementSelectionCount(), limitKoreanHistory, koreanHistoryIndexes);
+        }
+        return selected;
+    }
+
+    private void addTopCourses(Set<Integer> selected, List<Candidate> candidates, int limit,
+        boolean limitKoreanHistory, Set<Integer> koreanHistoryIndexes) {
+        int added = 0;
+        boolean koreanHistorySelected = selected.stream().anyMatch(koreanHistoryIndexes::contains);
+        for (Candidate candidate : candidates.stream().sorted(courseComparator()).toList()) {
+            if (added >= limit) break;
+            if (limitKoreanHistory && isKoreanHistory(candidate) && koreanHistorySelected) continue;
+            selected.add(candidate.index());
+            added++;
+            if (isKoreanHistory(candidate)) koreanHistorySelected = true;
+        }
+    }
+
+    private boolean isKoreanHistory(Candidate candidate) {
+        return isKoreanHistory(candidate.course());
+    }
+
+    private boolean isKoreanHistory(VerifyGradeRequest.CourseGrade course) {
+        return course.courseName().replaceAll("\\s", "").contains("한국사");
     }
 
     private <K> Set<Integer> selectTopGroups(EvaluationRule rule, List<Candidate> eligible,
@@ -398,6 +478,23 @@ public class EvaluationService {
     ) {
         boolean eligible() {
             return exclusionReason == null;
+        }
+    }
+
+    private record CourseSelection(
+        Set<Integer> indexes,
+        Map<Integer, SubjectCategory> appliedSubjectCategories
+    ) {
+        static CourseSelection empty() {
+            return new CourseSelection(Set.of(), Map.of());
+        }
+
+        static CourseSelection of(Set<Integer> indexes) {
+            return new CourseSelection(indexes, Map.of());
+        }
+
+        SubjectCategory appliedSubjectCategory(Candidate candidate) {
+            return appliedSubjectCategories.getOrDefault(candidate.index(), candidate.course().subjectCategory());
         }
     }
 }

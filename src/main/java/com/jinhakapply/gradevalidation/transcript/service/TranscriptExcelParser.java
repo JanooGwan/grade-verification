@@ -175,7 +175,7 @@ class TranscriptExcelParser {
             graduationYear,
             schoolYear,
             semester,
-            parseSubjectCategory(subjectText),
+            parseSubjectCategory(subjectText, courseName),
             courseName,
             grade,
             achievement,
@@ -320,8 +320,14 @@ class TranscriptExcelParser {
         };
     }
 
-    private SubjectCategory parseSubjectCategory(String value) {
+    private SubjectCategory parseSubjectCategory(String value, String courseName) {
         String normalized = normalize(value);
+        if (normalized.contains("외국어") || normalized.contains("제2외국어")) {
+            String normalizedCourseName = normalize(courseName);
+            return normalizedCourseName.contains("영어") || normalizedCourseName.contains("english")
+                ? SubjectCategory.ENGLISH
+                : SubjectCategory.OTHER;
+        }
         if (normalized.contains("국어") || normalized.equals("korean")) {
             return SubjectCategory.KOREAN;
         }

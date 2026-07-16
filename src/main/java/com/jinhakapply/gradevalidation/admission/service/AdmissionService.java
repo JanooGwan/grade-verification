@@ -199,7 +199,10 @@ public class AdmissionService {
         List<StudentTranscriptCourse> courses = courseRepository
             .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
         VerifyGradeRequest request = new VerifyGradeRequest(
-            candidates.getFirst().getId(), courses.stream().map(this::toCourseGrade).toList()
+            candidates.getFirst().getId(),
+            application.getStudent().getGraduationYear() != null
+                && application.getStudent().getGraduationYear() < application.getStudent().getAdmissionYear(),
+            courses.stream().map(this::toCourseGrade).toList()
         );
         EvaluationRule rule = candidates.getFirst();
         var result = evaluationService.verify(request);
