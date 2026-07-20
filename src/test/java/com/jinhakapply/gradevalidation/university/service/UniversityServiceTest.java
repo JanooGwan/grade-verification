@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
+import java.util.List;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Sort;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class UniversityServiceTest {
@@ -77,5 +80,47 @@ class UniversityServiceTest {
         assertThatThrownBy(() -> universityService.findById(99L))
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(UNIVERSITY_NOT_FOUND));
+    }
+
+    @Test
+    void findsUniversitiesSortedByName() {
+        University first = university(1L, "AAA", "가 대학교");
+        University second = university(2L, "BBB", "나 대학교");
+        Sort sort = Sort.by(Sort.Direction.ASC, "name");
+        when(universityRepository.findAll(sort)).thenReturn(List.of(first, second));
+
+        var response = universityService.findAll();
+
+        assertThat(response).extracting(item -> item.name())
+            .containsExactly("가 대학교", "나 대학교");
+    }
+
+    @Test
+    void updatesUniversityNameAndActiveState() {
+        University university = university(1L, "TUK", "기존 이름");
+        when(universityRepository.findById(1L)).thenReturn(Optional.of(university));
+
+        var response = universityService.update(
+            1L, new com.jinhakapply.gradevalidation.university.dto.UpdateUniversityRequest(" 변경 이름 ", false)
+        );
+
+        assertThat(response.name()).isEqualTo("변경 이름");
+        assertThat(response.active()).isFalse();
+    }
+
+    @Test
+    void deletesExistingUniversity() {
+        University university = university(1L, "TUK", "한국공학대학교");
+        when(universityRepository.findById(1L)).thenReturn(Optional.of(university));
+
+        universityService.delete(1L);
+
+        verify(universityRepository).delete(university);
+    }
+
+    private University university(Long id, String code, String name) {
+        University university = University.create(code, name);
+        ReflectionTestUtils.setField(university, "id", id);
+        return university;
     }
 }
