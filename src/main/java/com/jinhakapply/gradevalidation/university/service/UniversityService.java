@@ -14,6 +14,7 @@ import com.jinhakapply.gradevalidation.university.dto.UpdateUniversityRequest;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +33,13 @@ public class UniversityService {
         }
 
         University university = University.create(normalizedCode, request.name().trim());
-        return UniversityResponse.from(universityRepository.save(university));
+        try {
+            universityRepository.save(university);
+            universityRepository.flush();
+            return UniversityResponse.from(university);
+        } catch (DataIntegrityViolationException exception) {
+            throw CustomException.of(DUPLICATE_UNIVERSITY_CODE, normalizedCode);
+        }
     }
 
     public List<UniversityResponse> findAll() {

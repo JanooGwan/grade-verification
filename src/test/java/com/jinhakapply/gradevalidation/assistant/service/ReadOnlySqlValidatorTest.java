@@ -24,6 +24,14 @@ class ReadOnlySqlValidatorTest {
     }
 
     @Test
+    void rejectsWildcardProjection() {
+        assertThatThrownBy(() -> validator.validate("SELECT * FROM student", allowedTables))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.validate("SELECT s.* FROM student s", allowedTables))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void rejectsMutatingOrMultipleStatements() {
         assertThatThrownBy(() -> validator.validate("DELETE FROM student", allowedTables))
             .isInstanceOf(IllegalArgumentException.class);

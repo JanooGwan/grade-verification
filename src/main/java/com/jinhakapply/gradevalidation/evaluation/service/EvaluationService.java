@@ -104,6 +104,7 @@ public class EvaluationService {
     public EvaluationRuleResponse publishRule(Long ruleId, EvaluationRuleActionRequest request) {
         EvaluationRule rule = findRule(ruleId);
         requireStatus(rule, EvaluationRuleStatus.VERIFIED);
+        universityRepository.findByIdForUpdate(rule.getUniversity().getId());
         ruleRepository.findAllByUniversityIdAndAdmissionYearAndAdmissionTypeAndRecruitmentUnitAndStatus(
             rule.getUniversity().getId(),
             rule.getAdmissionYear(),

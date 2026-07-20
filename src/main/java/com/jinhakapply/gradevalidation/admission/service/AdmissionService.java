@@ -122,11 +122,15 @@ public class AdmissionService {
     public RecruitmentUnitResponse createUnit(Long trackId, CreateRecruitmentUnitRequest request) {
         AdmissionTrack track = findTrack(trackId);
         String name = request.name().trim();
+        String code = cleanCode(request.code());
         if (unitRepository.existsByAdmissionTrackIdAndName(trackId, name)) {
             throw CustomException.of(DUPLICATE_RECRUITMENT_UNIT);
         }
+        if (code != null && unitRepository.existsByAdmissionTrackIdAndCode(trackId, code)) {
+            throw CustomException.of(DUPLICATE_RECRUITMENT_UNIT);
+        }
         return RecruitmentUnitResponse.from(unitRepository.save(
-            RecruitmentUnit.create(track, request.code(), name)
+            RecruitmentUnit.create(track, code, name)
         ));
     }
 
@@ -134,12 +138,17 @@ public class AdmissionService {
     public RecruitmentUnitResponse updateUnit(Long unitId, UpdateRecruitmentUnitRequest request) {
         RecruitmentUnit unit = findUnit(unitId);
         String name = request.name().trim();
+        String code = cleanCode(request.code());
+        Long trackId = unit.getAdmissionTrack().getId();
         if (!unit.getName().equals(name) && unitRepository.existsByAdmissionTrackIdAndName(
-            unit.getAdmissionTrack().getId(), name
+            trackId, name
         )) {
             throw CustomException.of(DUPLICATE_RECRUITMENT_UNIT);
         }
-        unit.update(request.code(), name, request.active());
+        if (code != null && unitRepository.existsByAdmissionTrackIdAndCodeAndIdNot(trackId, code, unitId)) {
+            throw CustomException.of(DUPLICATE_RECRUITMENT_UNIT);
+        }
+        unit.update(code, name, request.active());
         return RecruitmentUnitResponse.from(unit);
     }
 
@@ -188,6 +197,7 @@ public class AdmissionService {
         return RuleMatchResponse.matched(candidates.getFirst());
     }
 
+    @Transactional
     public ApplicationVerificationResponse verifyApplication(Long studentId, Long applicationId) {
         StudentApplication application = ownedApplication(studentId, applicationId);
         List<EvaluationRule> candidates = findMatchingRules(application);
@@ -262,6 +272,10 @@ public class AdmissionService {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    private String cleanCode(String value) {
+        return value == null || value.isBlank() ? null : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private AdmissionTrack findTrack(Long id) {

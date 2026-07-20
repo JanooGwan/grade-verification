@@ -188,6 +188,14 @@ FROM (
     CROSS JOIN tmp_mjc_course_template t
 ) g;
 
+SET @synthetic_row_count = (
+    SELECT COUNT(*)
+    FROM student_transcript_course c
+    JOIN student s ON s.id = c.student_id
+    WHERE s.admission_year = @admission_year
+      AND s.applicant_number LIKE 'MJC27S%'
+);
+
 INSERT INTO student_transcript_import (
     admission_year,
     original_file_name,
@@ -199,8 +207,8 @@ INSERT INTO student_transcript_import (
 ) VALUES (
     @admission_year,
     @source_file_name,
-    900,
-    900,
+    @synthetic_row_count,
+    @synthetic_row_count,
     0,
     'COMPLETED',
     NOW(6)

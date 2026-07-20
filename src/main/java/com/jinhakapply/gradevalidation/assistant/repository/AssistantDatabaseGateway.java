@@ -86,8 +86,10 @@ public class AssistantDatabaseGateway {
 
     public QueryResult execute(String sql) {
         try (Connection connection = openConnection(); Statement statement = connection.createStatement()) {
-            statement.setQueryTimeout(properties.query().timeoutSeconds());
-            statement.setMaxRows(properties.query().maxRows());
+            int timeoutSeconds = Math.min(5, Math.max(1, properties.query().timeoutSeconds()));
+            int maxRows = Math.min(100, Math.max(1, properties.query().maxRows()));
+            statement.setQueryTimeout(timeoutSeconds);
+            statement.setMaxRows(maxRows);
             try (ResultSet resultSet = statement.executeQuery(sql)) {
                 ResultSetMetaData metadata = resultSet.getMetaData();
                 List<Map<String, Object>> rows = new ArrayList<>();

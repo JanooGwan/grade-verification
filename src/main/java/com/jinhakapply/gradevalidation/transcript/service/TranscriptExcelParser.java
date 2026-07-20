@@ -16,6 +16,8 @@ import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.FormulaEvaluator;
@@ -29,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Component
 class TranscriptExcelParser {
 
+    private static final Logger log = LoggerFactory.getLogger(TranscriptExcelParser.class);
     private static final int MAX_DATA_ROWS = 10_000;
     private static final Set<String> REQUIRED_HEADERS = Set.of(
         "applicantNumber", "studentName", "schoolYear", "semester",
@@ -46,6 +49,7 @@ class TranscriptExcelParser {
         } catch (CustomException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {
+            log.warn("Failed to parse transcript Excel file", exception);
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "읽을 수 있는 Excel 파일인지 확인해 주세요.");
         }
     }

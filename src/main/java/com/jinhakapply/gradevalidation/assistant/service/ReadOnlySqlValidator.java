@@ -19,7 +19,12 @@ public class ReadOnlySqlValidator {
             + "call|execute|prepare|handler|load|into|outfile|dumpfile|lock|unlock|sleep|benchmark)\\b"
     );
     private static final Pattern SENSITIVE_IDENTIFIER = Pattern.compile(
-        "(?i)\\b(password|passwd|api_?key|secret|access_?token|refresh_?token|credential|connection_?string)\\b"
+        "(?i)\\b(password|passwd|api_?key|secret|access_?token|refresh_?token|credential|connection_?string|"
+            + "reviewer|review_?note|published_?by|publication_?note|retired_?by|retire_?note)\\b"
+    );
+    private static final Pattern SELECT_CLAUSE = Pattern.compile("(?is)^select\\s+(?:distinct\\s+)?(.*?)\\s+from\\b");
+    private static final Pattern WILDCARD_PROJECTION = Pattern.compile(
+        "(?is)(?:^|,)\\s*(?:[a-zA-Z][a-zA-Z0-9_]*\\.)?\\*\\s*(?:,|$)"
     );
     private static final Pattern FROM_CLAUSE = Pattern.compile(
         "(?is)\\bfrom\\b(.*?)(?=\\bwhere\\b|\\bgroup\\s+by\\b|\\border\\s+by\\b|\\bhaving\\b|\\blimit\\b|$)"
@@ -43,6 +48,10 @@ public class ReadOnlySqlValidator {
         }
         if (SENSITIVE_IDENTIFIER.matcher(normalized).find()) {
             throw new IllegalArgumentException("민감정보 컬럼은 조회할 수 없습니다.");
+        }
+        Matcher selectClause = SELECT_CLAUSE.matcher(normalized);
+        if (!selectClause.find() || WILDCARD_PROJECTION.matcher(selectClause.group(1)).find()) {
+            throw new IllegalArgumentException("조회할 컬럼을 명시해 주세요.");
         }
         Matcher fromClause = FROM_CLAUSE.matcher(normalized);
         while (fromClause.find()) {

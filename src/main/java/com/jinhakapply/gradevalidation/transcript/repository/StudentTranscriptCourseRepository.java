@@ -21,6 +21,8 @@ public interface StudentTranscriptCourseRepository extends JpaRepository<Student
 
     List<StudentTranscriptCourse> findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(Long studentId);
 
+    List<StudentTranscriptCourse> findAllByStudent_IdIn(List<Long> studentIds);
+
     Optional<StudentTranscriptCourse> findByIdAndStudent_Id(Long id, Long studentId);
 
     @Query("""

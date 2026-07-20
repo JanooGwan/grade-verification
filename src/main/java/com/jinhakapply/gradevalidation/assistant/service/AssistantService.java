@@ -36,6 +36,7 @@ public class AssistantService {
     private final AssistantDatabaseGateway databaseGateway;
     private final ClaudeClient claudeClient;
     private final ReadOnlySqlValidator sqlValidator;
+    private final AssistantDataPolicy dataPolicy;
     private final ObjectMapper objectMapper;
 
     public AssistantMessageResponse ask(AssistantMessageRequest request) {
@@ -47,7 +48,7 @@ public class AssistantService {
         }
         validateConfiguration();
 
-        List<TableDescription> tableDescriptions = databaseGateway.findTableDescriptions();
+        List<TableDescription> tableDescriptions = dataPolicy.filterTables(databaseGateway.findTableDescriptions());
         Set<String> allowedTables = tableDescriptions.stream()
             .map(TableDescription::name)
             .map(name -> name.toLowerCase(Locale.ROOT))
@@ -59,7 +60,9 @@ public class AssistantService {
         CollectionChoice choice = fullSchema
             ? new CollectionChoice(allowedTables, true)
             : new CollectionChoice(selectedTables, false);
-        List<ColumnDescription> columns = databaseGateway.findColumnDescriptions(choice.tables());
+        List<ColumnDescription> columns = dataPolicy.filterColumns(
+            databaseGateway.findColumnDescriptions(choice.tables())
+        );
 
         SqlPlan plan = claudeClient.planSql(sqlPrompt(request.question(), columns, choice.fullSchema()));
         Set<String> referencedTables;
@@ -69,7 +72,7 @@ public class AssistantService {
             throw CustomException.of(AI_ASSISTANT_UNSAFE_QUERY, exception.getMessage());
         }
 
-        QueryResult result = databaseGateway.execute(plan.sql());
+        QueryResult result = dataPolicy.sanitize(databaseGateway.execute(plan.sql()));
         String answer = claudeClient.answer(answerPrompt(request.question(), referencedTables, result));
         return new AssistantMessageResponse(
             answer.strip(), false, referencedTables.stream().sorted().toList(), result.rowCount(), conversationId

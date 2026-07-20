@@ -1,5 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
@@ -12,6 +14,8 @@ import org.springframework.data.repository.query.Param;
 public interface StudentRepository extends JpaRepository<Student, Long> {
 
     Optional<Student> findByAdmissionYearAndApplicantNumber(int admissionYear, String applicantNumber);
+
+    List<Student> findAllByAdmissionYearAndApplicantNumberIn(int admissionYear, Collection<String> applicantNumbers);
 
     @Query("""
         SELECT s

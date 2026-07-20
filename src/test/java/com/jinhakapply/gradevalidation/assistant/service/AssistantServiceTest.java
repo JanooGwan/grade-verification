@@ -22,6 +22,7 @@ class AssistantServiceTest {
             databaseGateway,
             claudeClient,
             new ReadOnlySqlValidator(),
+            new AssistantDataPolicy(),
             mock(ObjectMapper.class)
         );
 

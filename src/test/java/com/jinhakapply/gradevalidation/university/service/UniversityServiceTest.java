@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class UniversityServiceTest {
@@ -50,6 +51,18 @@ class UniversityServiceTest {
     @Test
     void rejectsDuplicateUniversityCode() {
         when(universityRepository.existsByCodeIgnoreCase("MJC")).thenReturn(true);
+
+        assertThatThrownBy(() ->
+            universityService.create(new CreateUniversityRequest("MJC", "명지전문대학교")))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(DUPLICATE_UNIVERSITY_CODE));
+    }
+
+    @Test
+    void mapsUniqueConstraintFailureToDuplicateCode() {
+        when(universityRepository.existsByCodeIgnoreCase("MJC")).thenReturn(false);
+        when(universityRepository.save(any(University.class)))
+            .thenThrow(new DataIntegrityViolationException("uk_university_code"));
 
         assertThatThrownBy(() ->
             universityService.create(new CreateUniversityRequest("MJC", "명지전문대학교")))

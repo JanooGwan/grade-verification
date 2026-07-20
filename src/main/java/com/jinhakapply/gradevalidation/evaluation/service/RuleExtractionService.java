@@ -30,6 +30,7 @@ import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -67,26 +68,31 @@ public class RuleExtractionService {
                     "기존 추출 ID: " + existing.getId());
             });
             RuleExtractionAnalysis analysis = extractor.extract(bytes);
-            EvaluationRuleExtraction extraction = extractionRepository.save(EvaluationRuleExtraction.create(
-                university,
-                admissionYear,
-                fileName,
-                fileHash,
-                analysis.pageCount(),
-                analysis.textPageCount(),
-                analysis.selectionStrategy(),
-                analysis.selectionCount(),
-                analysis.gradeWeights(),
-                analysis.gradeScores(),
-                analysis.achievementScores(),
-                analysis.subjectCategories(),
-                analysis.includeThirdYearSecondSemester(),
-                analysis.roundingMode(),
-                analysis.sourcePages(),
-                analysis.overallConfidence(),
-                analysis.missingFields(),
-                analysis.warnings()
-            ));
+            EvaluationRuleExtraction extraction;
+            try {
+                extraction = extractionRepository.saveAndFlush(EvaluationRuleExtraction.create(
+                    university,
+                    admissionYear,
+                    fileName,
+                    fileHash,
+                    analysis.pageCount(),
+                    analysis.textPageCount(),
+                    analysis.selectionStrategy(),
+                    analysis.selectionCount(),
+                    analysis.gradeWeights(),
+                    analysis.gradeScores(),
+                    analysis.achievementScores(),
+                    analysis.subjectCategories(),
+                    analysis.includeThirdYearSecondSemester(),
+                    analysis.roundingMode(),
+                    analysis.sourcePages(),
+                    analysis.overallConfidence(),
+                    analysis.missingFields(),
+                    analysis.warnings()
+                ));
+            } catch (DataIntegrityViolationException exception) {
+                throw CustomException.of(DUPLICATE_RULE_EXTRACTION_FILE);
+            }
             List<EvaluationRuleExtractionEvidence> evidence = analysis.evidence().stream()
                 .map(item -> EvaluationRuleExtractionEvidence.create(
                     extraction, item.fieldKey(), item.pageNumber(), item.excerpt(), item.confidence()))
@@ -104,9 +110,18 @@ public class RuleExtractionService {
     }
 
     public List<RuleExtractionSummaryResponse> findAll(Long universityId, Integer admissionYear) {
-        List<EvaluationRuleExtraction> extractions = universityId != null && admissionYear != null
-            ? extractionRepository.findTop100ByUniversityIdAndAdmissionYearOrderByCreatedAtDesc(universityId, admissionYear)
-            : extractionRepository.findTop100ByOrderByCreatedAtDesc();
+        List<EvaluationRuleExtraction> extractions;
+        if (universityId != null && admissionYear != null) {
+            extractions = extractionRepository.findTop100ByUniversityIdAndAdmissionYearOrderByCreatedAtDesc(
+                universityId, admissionYear
+            );
+        } else if (universityId != null) {
+            extractions = extractionRepository.findTop100ByUniversityIdOrderByCreatedAtDesc(universityId);
+        } else if (admissionYear != null) {
+            extractions = extractionRepository.findTop100ByAdmissionYearOrderByCreatedAtDesc(admissionYear);
+        } else {
+            extractions = extractionRepository.findTop100ByOrderByCreatedAtDesc();
+        }
         return extractions.stream().map(RuleExtractionSummaryResponse::from).toList();
     }
 
@@ -141,7 +156,8 @@ public class RuleExtractionService {
 
     @Transactional
     public EvaluationRuleResponse createDraft(Long extractionId, CreateEvaluationRuleRequest request) {
-        EvaluationRuleExtraction extraction = findExtraction(extractionId);
+        EvaluationRuleExtraction extraction = extractionRepository.findOneByIdForUpdate(extractionId)
+            .orElseThrow(() -> CustomException.of(RULE_EXTRACTION_NOT_FOUND, extractionId.toString()));
         if (extraction.getStatus() != RuleExtractionStatus.EXTRACTED || extraction.getDraftRuleId() != null) {
             throw CustomException.of(INVALID_RULE_EXTRACTION_STATUS, "이미 초안이 생성된 추출 결과입니다.");
         }

@@ -44,6 +44,21 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+tasks.register('verifyAiReadonlyUserScript') {
+	def scriptFile = layout.projectDirectory.file('docs/sql/create_ai_readonly_user.sql')
+	inputs.file(scriptFile)
+	doLast {
+		def sql = scriptFile.asFile.getText('UTF-8')
+		if (sql.contains('CHANGE_TO_A_LONG_RANDOM_PASSWORD') || sql =~ /(?i)IDENTIFIED\s+BY\s+'[^']+'/) {
+			throw new GradleException('AI read-only user SQL must not contain a password literal or placeholder.')
+		}
+	}
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('verifyAiReadonlyUserScript')
+}
+
 def windowsWithNonAsciiProjectPath = System.getProperty('os.name').toLowerCase().contains('windows')
 	&& projectDir.absolutePath.find(/[^\x00-\x7F]/) != null
 

@@ -20,6 +20,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
@@ -78,37 +80,43 @@ public class TranscriptService {
                     .formatted(parseResult.errors().size()));
         }
 
-        Map<String, Student> studentCache = new HashMap<>();
-        Map<CourseKey, StudentTranscriptCourse> courseCache = new HashMap<>();
+        Map<String, TranscriptExcelRow> firstRowByApplicant = parseResult.rows().stream().collect(Collectors.toMap(
+            TranscriptExcelRow::applicantNumber,
+            Function.identity(),
+            (first, ignored) -> first
+        ));
+        Map<String, Student> studentCache = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
+            admissionYear,
+            firstRowByApplicant.keySet()
+        ).stream().collect(Collectors.toMap(Student::getApplicantNumber, Function.identity()));
         Set<String> createdApplicants = new HashSet<>();
-        Set<String> updatedApplicants = new HashSet<>();
+        Set<String> updatedApplicants = new HashSet<>(studentCache.keySet());
+        firstRowByApplicant.forEach((applicantNumber, row) -> {
+            if (!studentCache.containsKey(applicantNumber)) {
+                Student created = studentRepository.save(Student.create(
+                    admissionYear,
+                    applicantNumber,
+                    row.studentName(),
+                    row.highSchoolCode(),
+                    row.highSchoolName(),
+                    row.graduationYear()
+                ));
+                studentCache.put(applicantNumber, created);
+                createdApplicants.add(applicantNumber);
+            }
+        });
+        List<Long> studentIds = studentCache.values().stream().map(Student::getId).toList();
+        Map<CourseKey, StudentTranscriptCourse> courseCache = studentIds.isEmpty()
+            ? new HashMap<>()
+            : courseRepository.findAllByStudent_IdIn(studentIds).stream().collect(Collectors.toMap(
+                CourseKey::from,
+                Function.identity()
+            ));
         int createdCourses = 0;
         int updatedCourses = 0;
 
         for (TranscriptExcelRow row : parseResult.rows()) {
             Student student = studentCache.get(row.applicantNumber());
-            if (student == null) {
-                Optional<Student> existing = studentRepository.findByAdmissionYearAndApplicantNumber(
-                    admissionYear,
-                    row.applicantNumber()
-                );
-                if (existing.isPresent()) {
-                    student = existing.get();
-                    updatedApplicants.add(row.applicantNumber());
-                } else {
-                    student = Student.create(
-                        admissionYear,
-                        row.applicantNumber(),
-                        row.studentName(),
-                        row.highSchoolCode(),
-                        row.highSchoolName(),
-                        row.graduationYear()
-                    );
-                    student = studentRepository.save(student);
-                    createdApplicants.add(row.applicantNumber());
-                }
-                studentCache.put(row.applicantNumber(), student);
-            }
             student.updateProfile(
                 row.studentName(),
                 row.highSchoolCode(),
@@ -120,26 +128,14 @@ public class TranscriptService {
             StudentTranscriptCourse course = courseCache.get(courseKey);
             boolean created = false;
             if (course == null) {
-                Optional<StudentTranscriptCourse> existing = courseRepository
-                    .findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
-                        student.getId(),
-                        row.schoolYear(),
-                        row.semester(),
-                        row.subjectCategory(),
-                        row.courseName()
-                    );
-                if (existing.isPresent()) {
-                    course = existing.get();
-                } else {
-                    course = StudentTranscriptCourse.create(
-                        student,
-                        row.schoolYear(),
-                        row.semester(),
-                        row.subjectCategory(),
-                        row.courseName()
-                    );
-                    created = true;
-                }
+                course = StudentTranscriptCourse.create(
+                    student,
+                    row.schoolYear(),
+                    row.semester(),
+                    row.subjectCategory(),
+                    row.courseName()
+                );
+                created = true;
                 courseCache.put(courseKey, course);
             }
 
@@ -156,8 +152,8 @@ public class TranscriptService {
                 originalFileName,
                 row.rowNumber()
             );
-            courseRepository.save(course);
             if (created) {
+                courseRepository.save(course);
                 createdCourses++;
             } else {
                 updatedCourses++;
@@ -428,6 +424,16 @@ public class TranscriptService {
                 row.semester(),
                 row.subjectCategory().name(),
                 row.courseName()
+            );
+        }
+
+        private static CourseKey from(StudentTranscriptCourse course) {
+            return new CourseKey(
+                course.getStudent().getApplicantNumber(),
+                course.getSchoolYear(),
+                course.getSemester(),
+                course.getSubjectCategory().name(),
+                course.getCourseName()
             );
         }
     }

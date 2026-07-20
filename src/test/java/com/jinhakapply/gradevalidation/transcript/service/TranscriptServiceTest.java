@@ -88,9 +88,12 @@ class TranscriptServiceTest {
         ReflectionTestUtils.setField(student, "id", 1L);
 
         when(excelParser.parse(file)).thenReturn(new TranscriptExcelParseResult(1, List.of(row), List.of()));
-        when(studentRepository.findByAdmissionYearAndApplicantNumber(2027, "A-001"))
+        when(studentRepository.findAllByAdmissionYearAndApplicantNumberIn(2027, java.util.Set.of("A-001")))
+            .thenReturn(List.of(student));
+        when(courseRepository.findAllByStudent_IdIn(List.of(1L))).thenReturn(List.of());
+        org.mockito.Mockito.lenient().when(studentRepository.findByAdmissionYearAndApplicantNumber(2027, "A-001"))
             .thenReturn(Optional.of(student));
-        when(courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
+        org.mockito.Mockito.lenient().when(courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
             1L, 1, 1, SubjectCategory.MATH, "수학"
         )).thenReturn(Optional.empty());
         when(courseRepository.save(any(StudentTranscriptCourse.class)))

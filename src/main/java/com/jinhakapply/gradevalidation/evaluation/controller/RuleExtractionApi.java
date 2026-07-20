@@ -52,8 +52,8 @@ public interface RuleExtractionApi {
     @Operation(summary = "두 모집요강 추출 결과 비교")
     @GetMapping("/compare")
     ResponseEntity<RuleExtractionComparisonResponse> compare(
-        @RequestParam Long leftId,
-        @RequestParam Long rightId
+        @RequestParam @Positive Long leftId,
+        @RequestParam @Positive Long rightId
     );
 
     @Operation(summary = "검토한 추출 결과를 규칙 초안으로 저장",
