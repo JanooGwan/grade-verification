@@ -31,7 +31,11 @@ public enum ApiResponseCode {
     TRANSCRIPT_COURSE_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부 과목을 찾을 수 없습니다."),
     DUPLICATE_TRANSCRIPT_COURSE(HttpStatus.CONFLICT, "같은 학년·학기·교과·과목이 이미 존재합니다."),
     DUPLICATE_RULE_EXTRACTION_FILE(HttpStatus.CONFLICT, "같은 모집요강 파일이 이미 분석되었습니다."),
-    VERIFICATION_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 검증 이력을 찾을 수 없습니다.");
+    VERIFICATION_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 검증 이력을 찾을 수 없습니다."),
+    AI_ASSISTANT_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "AI 도우미 설정이 완료되지 않았습니다."),
+    AI_ASSISTANT_PROVIDER_ERROR(HttpStatus.BAD_GATEWAY, "AI 모델 응답을 처리하지 못했습니다."),
+    AI_ASSISTANT_DATABASE_ERROR(HttpStatus.SERVICE_UNAVAILABLE, "AI 도우미용 데이터베이스 조회에 실패했습니다."),
+    AI_ASSISTANT_UNSAFE_QUERY(HttpStatus.BAD_REQUEST, "안전하지 않은 데이터베이스 조회가 차단되었습니다.");
 
     private final HttpStatus httpStatus;
     private final String message;

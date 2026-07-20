@@ -45,3 +45,18 @@ logging:
       max-file-size: 20MB
       max-history: 30
       total-size-cap: 1GB
+
+assistant:
+  enabled: ${AI_ASSISTANT_ENABLED:false}
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: ${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}
+    base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+    version: ${ANTHROPIC_VERSION:2023-06-01}
+  database:
+    url: ${AI_DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:grade_validation}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul}
+    username: ${AI_DB_USERNAME:}
+    password: ${AI_DB_PASSWORD:}
+  query:
+    max-rows: ${AI_DB_MAX_ROWS:100}
+    timeout-seconds: ${AI_DB_QUERY_TIMEOUT_SECONDS:5}
