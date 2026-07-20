@@ -8,16 +8,17 @@ import java.time.Instant;
 import java.util.List;
 
 import com.jinhakapply.gradevalidation.university.domain.University;
+
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapKeyColumn;
@@ -31,66 +32,148 @@ import lombok.NoArgsConstructor;
 @Table(name = "evaluation_rule")
 @NoArgsConstructor(access = PROTECTED)
 public class EvaluationRule {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "university_id", nullable = false)
     private University university;
 
-    @Column(nullable = false, length = 120) private String name;
-    @Column(name = "admission_year", nullable = false) private int admissionYear;
-    @Column(name = "admission_type", nullable = false, length = 100) private String admissionType;
-    @Column(name = "recruitment_unit", nullable = false, length = 120) private String recruitmentUnit;
-    @Column(nullable = false) private int version;
-    @Column(name = "grade1_weight", nullable = false, precision = 7, scale = 4) private BigDecimal grade1Weight;
-    @Column(name = "grade2_weight", nullable = false, precision = 7, scale = 4) private BigDecimal grade2Weight;
-    @Column(name = "grade3_weight", nullable = false, precision = 7, scale = 4) private BigDecimal grade3Weight;
-    @Column(name = "korean_weight", nullable = false, precision = 7, scale = 4) private BigDecimal koreanWeight;
-    @Column(name = "math_weight", nullable = false, precision = 7, scale = 4) private BigDecimal mathWeight;
-    @Column(name = "english_weight", nullable = false, precision = 7, scale = 4) private BigDecimal englishWeight;
-    @Column(name = "social_weight", nullable = false, precision = 7, scale = 4) private BigDecimal socialWeight;
-    @Column(name = "science_weight", nullable = false, precision = 7, scale = 4) private BigDecimal scienceWeight;
-    @Column(name = "other_weight", nullable = false, precision = 7, scale = 4) private BigDecimal otherWeight;
+    @Column(nullable = false, length = 120)
+    private String name;
+
+    @Column(name = "admission_year", nullable = false)
+    private int admissionYear;
+
+    @Column(name = "admission_type", nullable = false, length = 100)
+    private String admissionType;
+
+    @Column(name = "recruitment_unit", nullable = false, length = 120)
+    private String recruitmentUnit;
+
+    @Column(nullable = false)
+    private int version;
+
+    @Column(name = "grade1_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal grade1Weight;
+
+    @Column(name = "grade2_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal grade2Weight;
+
+    @Column(name = "grade3_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal grade3Weight;
+
+    @Column(name = "korean_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal koreanWeight;
+
+    @Column(name = "math_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal mathWeight;
+
+    @Column(name = "english_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal englishWeight;
+
+    @Column(name = "social_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal socialWeight;
+
+    @Column(name = "science_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal scienceWeight;
+
+    @Column(name = "other_weight", nullable = false, precision = 7, scale = 4)
+    private BigDecimal otherWeight;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "selection_strategy", nullable = false, length = 40) private SelectionStrategy selectionStrategy;
-    @Column(name = "selection_count", nullable = false) private int selectionCount;
-    @Column(name = "achievement_selection_count", nullable = false) private int achievementSelectionCount;
+    @Column(name = "selection_strategy", nullable = false, length = 40)
+    private SelectionStrategy selectionStrategy;
+
+    @Column(name = "selection_count", nullable = false)
+    private int selectionCount;
+
+    @Column(name = "achievement_selection_count", nullable = false)
+    private int achievementSelectionCount;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "score_aggregation", nullable = false, length = 40) private ScoreAggregation scoreAggregation;
+    @Column(name = "score_aggregation", nullable = false, length = 40)
+    private ScoreAggregation scoreAggregation;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "achievement_conversion", nullable = false, length = 30) private AchievementConversion achievementConversion;
-    @Column(name = "include_third_year_second_semester", nullable = false) private boolean includeThirdYearSecondSemester;
+    @Column(name = "achievement_conversion", nullable = false, length = 30)
+    private AchievementConversion achievementConversion;
+
+    @Column(name = "include_third_year_second_semester", nullable = false)
+    private boolean includeThirdYearSecondSemester;
+
     @Column(name = "include_third_year_second_semester_for_graduates", nullable = false)
     private boolean includeThirdYearSecondSemesterForGraduates;
-    @Column(name = "include_professional_courses", nullable = false) private boolean includeProfessionalCourses;
-    @Column(name = "normalize_grade_weights", nullable = false) private boolean normalizeGradeWeights;
-    @Column(name = "intermediate_scale", nullable = false) private int intermediateScale;
+
+    @Column(name = "include_professional_courses", nullable = false)
+    private boolean includeProfessionalCourses;
+
+    @Column(name = "normalize_grade_weights", nullable = false)
+    private boolean normalizeGradeWeights;
+
+    @Column(name = "intermediate_scale", nullable = false)
+    private int intermediateScale;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "intermediate_rounding", nullable = false, length = 20) private RoundingMode intermediateRounding;
-    @Column(name = "final_scale", nullable = false) private int finalScale;
+    @Column(name = "intermediate_rounding", nullable = false, length = 20)
+    private RoundingMode intermediateRounding;
+
+    @Column(name = "final_scale", nullable = false)
+    private int finalScale;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "final_rounding", nullable = false, length = 20) private RoundingMode finalRounding;
-    @Column(name = "score_multiplier", nullable = false, precision = 9, scale = 4) private BigDecimal scoreMultiplier;
-    @Column(name = "source_document", length = 255) private String sourceDocument;
-    @Column(name = "source_pages", length = 50) private String sourcePages;
-    @Column(name = "interpretation_note", length = 1000) private String interpretationNote;
-    @Column(name = "change_summary", length = 1000) private String changeSummary;
-    @Column(name = "extraction_id") private Long extractionId;
-    @Column(nullable = false) private boolean active;
+    @Column(name = "final_rounding", nullable = false, length = 20)
+    private RoundingMode finalRounding;
+
+    @Column(name = "score_multiplier", nullable = false, precision = 9, scale = 4)
+    private BigDecimal scoreMultiplier;
+
+    @Column(name = "source_document", length = 255)
+    private String sourceDocument;
+
+    @Column(name = "source_pages", length = 50)
+    private String sourcePages;
+
+    @Column(name = "interpretation_note", length = 1000)
+    private String interpretationNote;
+
+    @Column(name = "change_summary", length = 1000)
+    private String changeSummary;
+
+    @Column(name = "extraction_id")
+    private Long extractionId;
+
+    @Column(nullable = false)
+    private boolean active;
+
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20) private EvaluationRuleStatus status;
-    @Column(length = 100) private String reviewer;
-    @Column(name = "review_note", length = 1000) private String reviewNote;
-    @Column(name = "reviewed_at") private Instant reviewedAt;
-    @Column(name = "published_by", length = 100) private String publishedBy;
-    @Column(name = "publication_note", length = 1000) private String publicationNote;
-    @Column(name = "published_at") private Instant publishedAt;
-    @Column(name = "retired_by", length = 100) private String retiredBy;
-    @Column(name = "retire_note", length = 1000) private String retireNote;
-    @Column(name = "retired_at") private Instant retiredAt;
-    @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
-    @Column(name = "updated_at", nullable = false) private Instant updatedAt;
+    @Column(nullable = false, length = 20)
+    private EvaluationRuleStatus status;
+
+    @Column(length = 100)
+    private String reviewer;
+
+    @Column(name = "review_note", length = 1000)
+    private String reviewNote;
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+    @Column(name = "published_by", length = 100)
+    private String publishedBy;
+    @Column(name = "publication_note", length = 1000)
+    private String publicationNote;
+    @Column(name = "published_at")
+    private Instant publishedAt;
+    @Column(name = "retired_by", length = 100)
+    private String retiredBy;
+    @Column(name = "retire_note", length = 1000)
+    private String retireNote;
+    @Column(name = "retired_at")
+    private Instant retiredAt;
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 
     @ElementCollection
     @CollectionTable(name = "evaluation_rule_grade_score", joinColumns = @JoinColumn(name = "rule_id"))
@@ -125,7 +208,8 @@ public class EvaluationRule {
         int selectionCount, int achievementSelectionCount, ScoreAggregation scoreAggregation,
         AchievementConversion achievementConversion, boolean includeThirdYearSecondSemester,
         boolean includeThirdYearSecondSemesterForGraduates,
-        boolean includeProfessionalCourses, boolean normalizeGradeWeights, int intermediateScale, RoundingMode intermediateRounding,
+        boolean includeProfessionalCourses, boolean normalizeGradeWeights, int intermediateScale,
+        RoundingMode intermediateRounding,
         int finalScale, RoundingMode finalRounding, BigDecimal scoreMultiplier,
         List<BigDecimal> achievementGrades, List<BigDecimal> achievementScores, List<Integer> subjectPriorities,
         String sourceDocument, String sourcePages, String interpretationNote, String changeSummary) {
@@ -136,10 +220,17 @@ public class EvaluationRule {
         rule.admissionType = admissionType.trim();
         rule.recruitmentUnit = recruitmentUnit.trim();
         rule.version = version;
-        rule.grade1Weight = gradeWeights.get(0); rule.grade2Weight = gradeWeights.get(1); rule.grade3Weight = gradeWeights.get(2);
-        rule.koreanWeight = subjectWeights.get(0); rule.mathWeight = subjectWeights.get(1); rule.englishWeight = subjectWeights.get(2);
-        rule.socialWeight = subjectWeights.get(3); rule.scienceWeight = subjectWeights.get(4); rule.otherWeight = subjectWeights.get(5);
-        for (int i = 0; i < gradeScores.size(); i++) rule.gradeScores.put(i + 1, gradeScores.get(i));
+        rule.grade1Weight = gradeWeights.get(0);
+        rule.grade2Weight = gradeWeights.get(1);
+        rule.grade3Weight = gradeWeights.get(2);
+        rule.koreanWeight = subjectWeights.get(0);
+        rule.mathWeight = subjectWeights.get(1);
+        rule.englishWeight = subjectWeights.get(2);
+        rule.socialWeight = subjectWeights.get(3);
+        rule.scienceWeight = subjectWeights.get(4);
+        rule.otherWeight = subjectWeights.get(5);
+        for (int i = 0; i < gradeScores.size(); i++)
+            rule.gradeScores.put(i + 1, gradeScores.get(i));
         rule.selectionStrategy = selectionStrategy;
         rule.selectionCount = selectionCount;
         rule.achievementSelectionCount = achievementSelectionCount;
@@ -160,15 +251,24 @@ public class EvaluationRule {
             rule.achievementScores.put(levels[i], achievementScores.get(i));
         }
         SubjectCategory[] categories = SubjectCategory.values();
-        for (int i = 0; i < categories.length; i++) rule.subjectPriorities.put(categories[i], subjectPriorities.get(i));
+        for (int i = 0; i < categories.length; i++)
+            rule.subjectPriorities.put(categories[i], subjectPriorities.get(i));
         rule.sourceDocument = sourceDocument == null ? null : sourceDocument.trim();
         rule.sourcePages = sourcePages == null ? null : sourcePages.trim();
         rule.interpretationNote = clean(interpretationNote);
         rule.changeSummary = clean(changeSummary);
         rule.active = false;
         rule.status = EvaluationRuleStatus.DRAFT;
-        rule.createdAt = Instant.now(); rule.updatedAt = rule.createdAt;
+        rule.createdAt = Instant.now();
+        rule.updatedAt = rule.createdAt;
         return rule;
+    }
+
+    private static String clean(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     public void markVerified(String reviewer, String reviewNote) {
@@ -206,21 +306,23 @@ public class EvaluationRule {
         return active && status == EvaluationRuleStatus.PUBLISHED;
     }
 
-    private static String clean(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
     public BigDecimal gradeWeight(int grade) {
-        return switch (grade) { case 1 -> grade1Weight; case 2 -> grade2Weight; case 3 -> grade3Weight; default -> BigDecimal.ZERO; };
+        return switch (grade) {
+            case 1 -> grade1Weight;
+            case 2 -> grade2Weight;
+            case 3 -> grade3Weight;
+            default -> BigDecimal.ZERO;
+        };
     }
 
     public BigDecimal subjectWeight(SubjectCategory category) {
         return switch (category) {
-            case KOREAN -> koreanWeight; case MATH -> mathWeight; case ENGLISH -> englishWeight;
-            case SOCIAL -> socialWeight; case SCIENCE -> scienceWeight; case OTHER -> otherWeight;
+            case KOREAN -> koreanWeight;
+            case MATH -> mathWeight;
+            case ENGLISH -> englishWeight;
+            case SOCIAL -> socialWeight;
+            case SCIENCE -> scienceWeight;
+            case OTHER -> otherWeight;
         };
     }
 }
