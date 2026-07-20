@@ -1,0 +1,15 @@
+ALTER TABLE university COMMENT = '대학 기본정보와 사용 여부를 관리한다.';
+ALTER TABLE evaluation_rule COMMENT = '대학·입학연도·전형·모집단위별 학생부 성적 반영 규칙과 버전을 관리한다.';
+ALTER TABLE evaluation_rule_grade_score COMMENT = '평가 규칙별 석차등급(1~9등급)의 환산점수를 관리한다.';
+ALTER TABLE evaluation_rule_achievement_grade COMMENT = '평가 규칙별 성취도(A~C 등)의 환산등급을 관리한다.';
+ALTER TABLE evaluation_rule_achievement_score COMMENT = '평가 규칙별 성취도(A~C 등)의 환산점수를 관리한다.';
+ALTER TABLE evaluation_rule_subject_priority COMMENT = '평가 규칙별 교과군 선택 우선순위를 관리한다.';
+ALTER TABLE evaluation_rule_extraction COMMENT = '모집요강 PDF에서 추출한 성적 반영 규칙 후보와 검토 상태를 관리한다.';
+ALTER TABLE evaluation_rule_extraction_evidence COMMENT = '규칙 추출 항목별 PDF 원문 페이지·발췌문·신뢰도를 관리한다.';
+ALTER TABLE student COMMENT = '지원자의 입학연도·수험번호·학교·졸업연도 등 개인정보를 관리한다.';
+ALTER TABLE student_transcript_course COMMENT = '지원자 학생부의 학년·학기·교과·과목별 성적과 이수단위를 관리한다.';
+ALTER TABLE student_transcript_import COMMENT = '학생부 파일 가져오기 작업의 처리 결과와 상태를 관리한다.';
+ALTER TABLE admission_track COMMENT = '대학·입학연도별 전형 카탈로그를 관리한다.';
+ALTER TABLE recruitment_unit COMMENT = '전형별 모집단위 코드·명칭과 사용 여부를 관리한다.';
+ALTER TABLE student_application COMMENT = '지원자와 지원 모집단위의 연결 정보를 관리한다.';
+ALTER TABLE verification_run COMMENT = '지원자 성적 검증 실행 결과와 적용 규칙 버전의 이력을 관리한다.';
