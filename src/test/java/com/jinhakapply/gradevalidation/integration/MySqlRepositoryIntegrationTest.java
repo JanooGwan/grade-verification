@@ -8,6 +8,8 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.persistence.EntityManager;
+
 import com.jinhakapply.gradevalidation.admission.domain.AdmissionTrack;
 import com.jinhakapply.gradevalidation.admission.domain.RecruitmentUnit;
 import com.jinhakapply.gradevalidation.admission.domain.StudentApplication;
@@ -70,6 +72,7 @@ class MySqlRepositoryIntegrationTest {
     @Autowired StudentTranscriptCourseRepository courseRepository;
     @Autowired StudentApplicationRepository applicationRepository;
     @Autowired EvaluationRuleExtractionRepository extractionRepository;
+    @Autowired EntityManager entityManager;
 
     @Test
     void appliesEveryFlywayMigrationAndUsesDraftAsRuleDefault() {
@@ -169,9 +172,10 @@ class MySqlRepositoryIntegrationTest {
         courseRepository.saveAndFlush(course(student, "수학", 2));
         applicationRepository.saveAndFlush(StudentApplication.create(student, unit));
 
-        studentRepository.delete(student);
-        studentRepository.flush();
+        entityManager.clear();
+        int deletedRows = jdbcTemplate.update("DELETE FROM student WHERE id = ?", student.getId());
 
+        assertThat(deletedRows).isOne();
         assertThat(courseRepository.count()).isZero();
         assertThat(applicationRepository.count()).isZero();
     }
