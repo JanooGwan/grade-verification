@@ -1,0 +1,201 @@
+package com.jinhakapply.gradevalidation.integration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
+import java.util.UUID;
+
+import com.jinhakapply.gradevalidation.admission.domain.AdmissionTrack;
+import com.jinhakapply.gradevalidation.admission.domain.RecruitmentUnit;
+import com.jinhakapply.gradevalidation.admission.domain.StudentApplication;
+import com.jinhakapply.gradevalidation.admission.repository.AdmissionTrackRepository;
+import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepository;
+import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
+import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleExtraction;
+import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleExtractionRepository;
+import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
+import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.annotation.Transactional;
+import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
+
+@SpringBootTest
+@Transactional
+@Testcontainers(disabledWithoutDocker = true)
+class MySqlRepositoryIntegrationTest {
+
+    private static final String MYSQL_PASSWORD = UUID.randomUUID().toString();
+
+    @Container
+    static final MySQLContainer MYSQL = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
+        .withDatabaseName("grade_validation")
+        .withUsername("grade_app")
+        .withPassword(MYSQL_PASSWORD)
+        .withCommand("--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci");
+
+    @DynamicPropertySource
+    static void registerDatabaseProperties(DynamicPropertyRegistry registry) {
+        registry.add("DB_URL", MYSQL::getJdbcUrl);
+        registry.add("DB_USERNAME", MYSQL::getUsername);
+        registry.add("DB_PASSWORD", MYSQL::getPassword);
+        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
+        registry.add("spring.datasource.username", MYSQL::getUsername);
+        registry.add("spring.datasource.password", MYSQL::getPassword);
+    }
+
+    @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired UniversityRepository universityRepository;
+    @Autowired AdmissionTrackRepository trackRepository;
+    @Autowired RecruitmentUnitRepository unitRepository;
+    @Autowired StudentRepository studentRepository;
+    @Autowired StudentTranscriptCourseRepository courseRepository;
+    @Autowired StudentApplicationRepository applicationRepository;
+    @Autowired EvaluationRuleExtractionRepository extractionRepository;
+
+    @Test
+    void appliesEveryFlywayMigrationAndUsesDraftAsRuleDefault() {
+        List<String> appliedVersions = jdbcTemplate.queryForList(
+            "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank",
+            String.class
+        );
+        String statusDefault = jdbcTemplate.queryForObject("""
+            SELECT COLUMN_DEFAULT
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'evaluation_rule'
+              AND COLUMN_NAME = 'status'
+            """, String.class);
+
+        assertThat(appliedVersions).containsExactly(
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"
+        );
+        assertThat(statusDefault).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void enforcesCaseInsensitiveUniversityCodeUniqueness() {
+        universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
+
+        assertThatThrownBy(() ->
+            universityRepository.saveAndFlush(University.create("tuk", "중복 대학교")))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void enforcesRecruitmentUnitCodeUniquenessWithinTrack() {
+        University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
+        AdmissionTrack track = trackRepository.saveAndFlush(AdmissionTrack.create(
+            university, 2027, "학생부교과"
+        ));
+        unitRepository.saveAndFlush(RecruitmentUnit.create(track, "CS01", "컴퓨터공학부"));
+
+        assertThatThrownBy(() ->
+            unitRepository.saveAndFlush(RecruitmentUnit.create(track, "CS01", "게임공학과")))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void enforcesRuleExtractionFileUniquenessFromV11() {
+        University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
+        extractionRepository.saveAndFlush(extraction(university, "a".repeat(64)));
+
+        assertThatThrownBy(() -> extractionRepository.saveAndFlush(extraction(university, "a".repeat(64))))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void batchesStudentAndCourseLookupsAndSummarizesGrades() {
+        Student first = studentRepository.saveAndFlush(Student.create(
+            2027, "A-001", "첫 번째 학생", null, null, 2027
+        ));
+        Student second = studentRepository.saveAndFlush(Student.create(
+            2027, "A-002", "두 번째 학생", null, null, 2027
+        ));
+        courseRepository.saveAndFlush(course(first, "수학", 2));
+        courseRepository.saveAndFlush(course(first, "영어", 4));
+        courseRepository.saveAndFlush(course(second, "국어", 1));
+
+        List<Student> students = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
+            2027, List.of("A-001", "A-002")
+        );
+        List<StudentTranscriptCourse> courses = courseRepository.findAllByStudent_IdIn(
+            students.stream().map(Student::getId).toList()
+        );
+        List<StudentCourseSummaryProjection> summaries = courseRepository.summarizeByStudentIds(
+            students.stream().map(Student::getId).toList()
+        );
+
+        assertThat(students).extracting(Student::getApplicantNumber)
+            .containsExactlyInAnyOrder("A-001", "A-002");
+        assertThat(courses).hasSize(3);
+        assertThat(summaries).anySatisfy(summary -> {
+            assertThat(summary.getStudentId()).isEqualTo(first.getId());
+            assertThat(summary.getCourseCount()).isEqualTo(2);
+            assertThat(summary.getAverageGrade()).isEqualTo(3.0);
+        });
+    }
+
+    @Test
+    void cascadesStudentDeletionToCoursesAndApplications() {
+        University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
+        AdmissionTrack track = trackRepository.saveAndFlush(AdmissionTrack.create(
+            university, 2027, "학생부교과"
+        ));
+        RecruitmentUnit unit = unitRepository.saveAndFlush(RecruitmentUnit.create(
+            track, "CS01", "컴퓨터공학부"
+        ));
+        Student student = studentRepository.saveAndFlush(Student.create(
+            2027, "A-001", "학생", null, null, 2027
+        ));
+        courseRepository.saveAndFlush(course(student, "수학", 2));
+        applicationRepository.saveAndFlush(StudentApplication.create(student, unit));
+
+        studentRepository.delete(student);
+        studentRepository.flush();
+
+        assertThat(courseRepository.count()).isZero();
+        assertThat(applicationRepository.count()).isZero();
+    }
+
+    private EvaluationRuleExtraction extraction(University university, String hash) {
+        return EvaluationRuleExtraction.create(
+            university, 2027, "guideline.pdf", hash, 10, 10,
+            SelectionStrategy.ALL_COURSES, null,
+            List.of(new BigDecimal("20"), new BigDecimal("30"), new BigDecimal("50")),
+            List.of(new BigDecimal("100"), new BigDecimal("95")),
+            List.of(), List.of(SubjectCategory.KOREAN, SubjectCategory.MATH),
+            false, RoundingMode.HALF_UP, "1-3", new BigDecimal("0.9000"),
+            List.of(), List.of()
+        );
+    }
+
+    private StudentTranscriptCourse course(Student student, String name, int grade) {
+        StudentTranscriptCourse course = StudentTranscriptCourse.create(
+            student, 1, 1, SubjectCategory.MATH, name
+        );
+        course.updateScore(
+            grade, null, null, null, null, null, new BigDecimal("3"),
+            false, false, "integration.xlsx", 1
+        );
+        return course;
+    }
+}
