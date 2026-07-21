@@ -16,6 +16,7 @@ class EvaluationRuleExtractionTest {
         EvaluationRuleExtraction extraction = extraction();
 
         assertThat(extraction.getStatus()).isEqualTo(RuleExtractionStatus.EXTRACTED);
+        assertThat(extraction.getApplyGradeWeights()).isTrue();
         assertThat(extraction.gradeWeights()).containsExactly(
             new BigDecimal("20"), new BigDecimal("30"), new BigDecimal("50")
         );

@@ -1,12 +1,12 @@
 package com.jinhakapply.gradevalidation.admission.service;
 
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
@@ -25,7 +25,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
 
     @Override
     public boolean supports(EvaluationRule rule) {
-        String university = normalize(rule.getUniversity().getName());
+        String university = normalizePolicyText(rule.getUniversity().getName());
         return (rule.getAdmissionYear() == 2027 && (university.contains("한국공학")
             || university.contains("명지전문") || university.contains("삼육")))
             || (rule.getAdmissionYear() == 2026 && university.contains("경복"));
@@ -39,8 +39,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         CalculateApplicationScoreRequest request,
         StudentCommonEvaluationSnapshot commonData
     ) {
-        String university = normalize(rule.getUniversity().getName());
-        String track = normalize(admissionTrackName + " " + rule.getAdmissionType() + " " + rule.getRecruitmentUnit());
+        String university = normalizePolicyText(rule.getUniversity().getName());
+        String track = normalizePolicyText(admissionTrackName + " " + rule.getAdmissionType() + " " + rule.getRecruitmentUnit());
         List<String> pending = new ArrayList<>();
         List<String> ineligible = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -258,7 +258,4 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         return value.setScale(2, RoundingMode.HALF_UP);
     }
 
-    private String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
-    }
 }

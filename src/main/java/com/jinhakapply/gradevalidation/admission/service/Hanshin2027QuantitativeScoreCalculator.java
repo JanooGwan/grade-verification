@@ -2,12 +2,12 @@ package com.jinhakapply.gradevalidation.admission.service;
 
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.APPLICATION_SCORE_POLICY_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
@@ -22,7 +22,7 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
     private static final BigDecimal MAX_TOTAL = new BigDecimal("1000");
 
     public boolean supports(String universityName, int admissionYear) {
-        return admissionYear == 2027 && normalize(universityName).contains("한신");
+        return admissionYear == 2027 && normalizePolicyText(universityName).contains("한신");
     }
 
     @Override
@@ -54,7 +54,7 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
         if (!supports(universityName, admissionYear)) {
             throw CustomException.of(APPLICATION_SCORE_POLICY_NOT_FOUND, "2027학년도 한신대학교 전형만 지원합니다.");
         }
-        String track = normalize(admissionTrackName);
+        String track = normalizePolicyText(admissionTrackName);
         boolean essay = track.contains("논술");
         boolean talent = track.contains("참인재");
         boolean physical = track.contains("체육실기");
@@ -215,7 +215,4 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
         return value.setScale(2, RoundingMode.HALF_UP);
     }
 
-    private String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
-    }
 }

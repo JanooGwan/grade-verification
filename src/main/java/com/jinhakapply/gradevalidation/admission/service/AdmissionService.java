@@ -11,6 +11,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.RECRUI
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.STUDENT_APPLICATION_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSCRIPT_STUDENT_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.util.List;
 import java.util.Locale;
@@ -250,14 +251,14 @@ public class AdmissionService {
         List<EvaluationRule> sameTrack = ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
                 track.getUniversity().getId(), track.getAdmissionYear(), EvaluationRuleStatus.PUBLISHED)
             .stream()
-            .filter(rule -> normalize(rule.getAdmissionType()).equals(normalize(track.getName())))
+            .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(normalizePolicyText(track.getName())))
             .toList();
         List<EvaluationRule> exact = sameTrack.stream()
-            .filter(rule -> normalize(rule.getRecruitmentUnit()).equals(normalize(unit.getName())))
+            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(normalizePolicyText(unit.getName())))
             .toList();
         if (!exact.isEmpty()) return exact;
         return sameTrack.stream()
-            .filter(rule -> COMMON_UNIT_NAMES.contains(normalize(rule.getRecruitmentUnit())))
+            .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
             .toList();
     }
 
@@ -268,10 +269,6 @@ public class AdmissionService {
             course.getStandardDeviation(), course.getStudentCount(), course.isCareerSubject(),
             course.isProfessionalCourse(), course.getCredits()
         );
-    }
-
-    private String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private String cleanCode(String value) {

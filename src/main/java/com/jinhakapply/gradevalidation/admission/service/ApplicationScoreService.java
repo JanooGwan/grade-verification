@@ -3,10 +3,10 @@ package com.jinhakapply.gradevalidation.admission.service;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.CONFLICTING_EVALUATION_RULES;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.MATCHING_EVALUATION_RULE_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.STUDENT_APPLICATION_NOT_FOUND;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -105,14 +105,14 @@ public class ApplicationScoreService {
         List<EvaluationRule> sameTrack = ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
                 track.getUniversity().getId(), track.getAdmissionYear(), EvaluationRuleStatus.PUBLISHED)
             .stream()
-            .filter(rule -> normalize(rule.getAdmissionType()).equals(normalize(track.getName())))
+            .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(normalizePolicyText(track.getName())))
             .toList();
         List<EvaluationRule> exact = sameTrack.stream()
-            .filter(rule -> normalize(rule.getRecruitmentUnit()).equals(normalize(unit.getName())))
+            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(normalizePolicyText(unit.getName())))
             .toList();
         List<EvaluationRule> candidates = exact.isEmpty()
             ? sameTrack.stream()
-                .filter(rule -> COMMON_UNIT_NAMES.contains(normalize(rule.getRecruitmentUnit())))
+                .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
                 .toList()
             : exact;
         if (candidates.isEmpty()) throw CustomException.of(MATCHING_EVALUATION_RULE_NOT_FOUND);
@@ -149,10 +149,6 @@ public class ApplicationScoreService {
             student.getEducationBackground(), student.getHighSchoolType(), student.getGraduationStatus(), student.getGedAverageScore(),
             attendance, actions
         );
-    }
-
-    private String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private record StoredApplicationScore(
