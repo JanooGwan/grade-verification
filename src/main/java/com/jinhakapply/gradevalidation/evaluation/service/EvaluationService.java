@@ -31,6 +31,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionReques
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CourseCalculation;
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CalculationSummary;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
@@ -144,6 +145,9 @@ public class EvaluationService {
         BigDecimal totalWeight = BigDecimal.ZERO;
         BigDecimal totalConvertedScore = BigDecimal.ZERO;
         BigDecimal totalGrade = BigDecimal.ZERO;
+        BigDecimal totalGradeTimesCredits = BigDecimal.ZERO;
+        BigDecimal totalConvertedScoreTimesCredits = BigDecimal.ZERO;
+        BigDecimal totalIncludedCredits = BigDecimal.ZERO;
         List<CourseCalculation> calculations = new ArrayList<>();
         int included = 0;
 
@@ -164,6 +168,13 @@ public class EvaluationService {
             if (selected) {
                 included++;
                 totalWeight = totalWeight.add(appliedWeight);
+                totalIncludedCredits = totalIncludedCredits.add(course.credits());
+                totalGradeTimesCredits = totalGradeTimesCredits.add(
+                    candidate.effectiveGrade().multiply(course.credits())
+                );
+                totalConvertedScoreTimesCredits = totalConvertedScoreTimesCredits.add(
+                    candidate.convertedScore().multiply(course.credits())
+                );
                 totalGrade = totalGrade.add(candidate.effectiveGrade().multiply(appliedWeight));
                 weightedScore = candidate.convertedScore().multiply(appliedWeight);
                 totalConvertedScore = totalConvertedScore.add(weightedScore);
@@ -184,12 +195,26 @@ public class EvaluationService {
             : totalConvertedScore.divide(totalWeight, rule.getIntermediateScale(), rule.getIntermediateRounding());
         BigDecimal finalScore = baseScore.multiply(rule.getScoreMultiplier())
             .setScale(rule.getFinalScale(), rule.getFinalRounding());
+        BigDecimal scoreBeforeFinalRounding = baseScore.multiply(rule.getScoreMultiplier());
+        CalculationSummary calculationSummary = new CalculationSummary(
+            calculationFormula(rule.getScoreAggregation()), totalGradeTimesCredits, totalConvertedScoreTimesCredits,
+            totalGrade, totalConvertedScore, totalWeight, totalIncludedCredits, averageGrade, baseScore,
+            rule.getScoreMultiplier(), scoreBeforeFinalRounding,
+            rule.getIntermediateScale(), rule.getIntermediateRounding(), rule.getFinalScale(), rule.getFinalRounding(),
+            Map.copyOf(yearWeightDenominators)
+        );
 
         List<String> warnings = buildWarnings(rule, request.courses(), candidates, included);
         return new GradeVerificationResponse(rule.getId(), rule.getName(), rule.getVersion(), rule.getUniversity().getName(),
             rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, baseScore, averageGrade,
             rule.getSelectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
-            included, calculations.size() - included, calculations, warnings);
+            included, calculations.size() - included, calculationSummary, calculations, warnings);
+    }
+
+    private String calculationFormula(ScoreAggregation aggregation) {
+        return aggregation == ScoreAggregation.AVERAGE_GRADE_THEN_SCORE
+            ? "Σ(유효등급 × 적용가중치) ÷ Σ(적용가중치) → 등급 환산표 × 점수 배율"
+            : "Σ(과목 환산점수 × 적용가중치) ÷ Σ(적용가중치) × 점수 배율";
     }
 
     private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,

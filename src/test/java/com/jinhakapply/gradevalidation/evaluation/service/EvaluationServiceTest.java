@@ -237,6 +237,14 @@ class EvaluationServiceTest {
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false, courses));
 
         assertThat(response.finalScore()).isEqualByComparingTo("982.14");
+        assertThat(response.calculationSummary().gradeTimesCreditsSum()).isEqualByComparingTo("117");
+        assertThat(response.calculationSummary().convertedScoreTimesCreditsSum()).isEqualByComparingTo("4125");
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("42");
+        assertThat(response.calculationSummary().gradeTimesWeightSum()).isEqualByComparingTo("3899.9997");
+        assertThat(response.calculationSummary().totalAppliedWeight()).isEqualByComparingTo("1399.9999");
+        assertThat(response.calculationSummary().baseScore()).isEqualByComparingTo("98.214");
+        assertThat(response.calculationSummary().scoreBeforeFinalRounding()).isEqualByComparingTo("982.140");
+        assertThat(response.calculationSummary().formula()).contains("Σ(과목 환산점수 × 적용가중치)");
     }
 
     @Test
