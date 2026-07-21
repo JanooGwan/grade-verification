@@ -37,3 +37,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Local ERD image exports
+/docs/erd/*.png
+/docs/erd/*.svg
