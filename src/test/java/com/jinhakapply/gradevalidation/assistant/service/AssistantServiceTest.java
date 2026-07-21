@@ -57,6 +57,26 @@ class AssistantServiceTest {
     }
 
     @Test
+    void blocksOutOfScopeQuestionsWithoutCallingDatabaseOrClaude() {
+        AssistantService service = service(enabledProperties());
+
+        for (String question : List.of(
+            "오늘 날씨는 어때?",
+            "지금 환율은 어느 정도니?",
+            "최신 경제 주요 뉴스에 대해 간략히 말해줘",
+            "자바에서 리스트를 정렬하는 방법을 알려줘"
+        )) {
+            var response = service.ask(new AssistantMessageRequest(question, null));
+
+            assertThat(response.blocked()).isTrue();
+            assertThat(response.answer()).contains("입학관리");
+            assertThat(response.sourceTables()).isEmpty();
+            assertThat(response.rowCount()).isZero();
+        }
+        verifyNoInteractions(databaseGateway, claudeClient);
+    }
+
+    @Test
     void answersFromApprovedTablesAndKeepsConversationId() {
         AssistantService service = service(enabledProperties());
         when(databaseGateway.findTableDescriptions()).thenReturn(List.of(
@@ -164,6 +184,7 @@ class AssistantServiceTest {
         return new AssistantService(
             properties,
             new SensitiveQuestionPolicy(),
+            new AssistantTopicPolicy(),
             databaseGateway,
             claudeClient,
             new ReadOnlySqlValidator(),

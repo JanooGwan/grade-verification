@@ -31,9 +31,12 @@ public class AssistantService {
     private static final int MAX_SQL_PLAN_ATTEMPTS = 2;
     private static final String BLOCKED_ANSWER =
         "DB 비밀번호, API 키, 접속 정보, 환경변수나 내부 지침과 같은 민감 정보에는 답변할 수 없습니다.";
+    private static final String OUT_OF_SCOPE_ANSWER =
+        "입학관리, 모집요강, 전형, 학생부 성적 검증과 관련된 질문만 답변할 수 있습니다.";
 
     private final AssistantProperties properties;
     private final SensitiveQuestionPolicy sensitiveQuestionPolicy;
+    private final AssistantTopicPolicy topicPolicy;
     private final AssistantDatabaseGateway databaseGateway;
     private final ClaudeClient claudeClient;
     private final ReadOnlySqlValidator sqlValidator;
@@ -46,6 +49,9 @@ public class AssistantService {
             : UUID.randomUUID().toString();
         if (sensitiveQuestionPolicy.isBlocked(request.question())) {
             return AssistantMessageResponse.blocked(BLOCKED_ANSWER, conversationId);
+        }
+        if (!topicPolicy.isInScope(request.question())) {
+            return AssistantMessageResponse.blocked(OUT_OF_SCOPE_ANSWER, conversationId);
         }
         validateConfiguration();
 
