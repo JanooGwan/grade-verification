@@ -194,13 +194,12 @@ class ApiContractTest {
         mockMvc.perform(post("/api/admissions/students/3/applications/5/score")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"schoolViolenceAction":10,"essayScore":801}
+                    {"essayScore":801,"practicalScore":551}
                     """))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"))
-            .andExpect(jsonPath("$.fieldErrors.educationBackground").exists())
-            .andExpect(jsonPath("$.fieldErrors.schoolViolenceAction").exists())
-            .andExpect(jsonPath("$.fieldErrors.essayScore").exists());
+            .andExpect(jsonPath("$.fieldErrors.essayScore").exists())
+            .andExpect(jsonPath("$.fieldErrors.practicalScore").exists());
 
         verify(applicationScoreService, never()).calculate(anyLong(), anyLong(), any());
     }

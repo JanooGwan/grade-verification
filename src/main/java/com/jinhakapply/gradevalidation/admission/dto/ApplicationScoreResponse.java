@@ -6,7 +6,7 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreRun;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
-import com.jinhakapply.gradevalidation.admission.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 

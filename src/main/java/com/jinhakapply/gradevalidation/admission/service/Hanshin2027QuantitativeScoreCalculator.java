@@ -11,8 +11,9 @@ import java.util.Locale;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
-import com.jinhakapply.gradevalidation.admission.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
 import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +30,8 @@ public class Hanshin2027QuantitativeScoreCalculator {
         int admissionYear,
         String admissionTrackName,
         BigDecimal domesticAcademicBaseScore,
-        CalculateApplicationScoreRequest request
+        CalculateApplicationScoreRequest request,
+        StudentCommonEvaluationSnapshot commonData
     ) {
         if (!supports(universityName, admissionYear)) {
             throw CustomException.of(APPLICATION_SCORE_POLICY_NOT_FOUND, "2027학년도 한신대학교 전형만 지원합니다.");
@@ -40,7 +42,7 @@ public class Hanshin2027QuantitativeScoreCalculator {
         boolean physical = track.contains("체육실기");
         boolean schoolRecommendation = track.contains("학교장추천");
 
-        BigDecimal baseScore = resolveAcademicBaseScore(request, domesticAcademicBaseScore, essay);
+        BigDecimal baseScore = resolveAcademicBaseScore(commonData, request, domesticAcademicBaseScore, essay);
         BigDecimal academicScore;
         BigDecimal attendanceScore = null;
         Integer equivalentAbsenceDays = null;
@@ -51,12 +53,12 @@ public class Hanshin2027QuantitativeScoreCalculator {
         List<String> warnings = new ArrayList<>();
 
         if (talent) {
-            if (request.educationBackground() == EducationBackground.GED) {
+            if (commonData.educationBackground() == EducationBackground.GED) {
                 academicScore = scale(baseScore, "6");
                 warnings.add("검정고시 출신자는 출결을 반영하지 않고 검정고시 환산점수를 학생부 60%로 반영했습니다.");
             } else {
                 academicScore = scale(baseScore, "5.4");
-                equivalentAbsenceDays = equivalentAbsenceDays(request);
+                equivalentAbsenceDays = equivalentAbsenceDays(commonData);
                 attendanceScore = attendanceScore(equivalentAbsenceDays);
             }
             maximumQuantitativeScore = new BigDecimal("600");
@@ -75,7 +77,12 @@ public class Hanshin2027QuantitativeScoreCalculator {
             maximumQuantitativeScore = MAX_TOTAL;
         }
 
-        int action = request.schoolViolenceAction() == null ? 0 : request.schoolViolenceAction();
+        int action = commonData.highestActiveSchoolViolenceAction();
+        long activeActionCount = commonData.schoolViolenceActions().stream()
+            .filter(StudentCommonEvaluationSnapshot.SchoolViolenceAction::active).count();
+        if (activeActionCount > 1) {
+            warnings.add("복수의 학교폭력 조치 중 가장 높은 조치 호수를 적용했습니다.");
+        }
         BigDecimal violenceDeduction = schoolViolenceDeduction(action);
         if (schoolRecommendation && action > 0) {
             ineligibilityReasons.add("학교장추천전형은 학교폭력 관련 기재사항이 있으면 추천 대상에서 제외됩니다.");
@@ -109,16 +116,17 @@ public class Hanshin2027QuantitativeScoreCalculator {
     }
 
     private BigDecimal resolveAcademicBaseScore(
+        StudentCommonEvaluationSnapshot commonData,
         CalculateApplicationScoreRequest request,
         BigDecimal domesticAcademicBaseScore,
         boolean essay
     ) {
-        return switch (request.educationBackground()) {
+        return switch (commonData.educationBackground()) {
             case DOMESTIC_HIGH_SCHOOL -> required(
                 domesticAcademicBaseScore, "국내고 출신자는 학생부 교과성적 계산 결과가 필요합니다."
             );
             case GED -> gedConvertedScore(required(
-                request.gedAverageScore(), "검정고시 합격자는 전 과목 취득점수 평균이 필요합니다."
+                commonData.gedAverageScore(), "검정고시 합격자는 공통 지원자 데이터에 전 과목 평균이 필요합니다."
             ));
             case FOREIGN_HIGH_SCHOOL -> essay
                 ? foreignEssayConvertedScore(required(
@@ -150,11 +158,14 @@ public class Hanshin2027QuantitativeScoreCalculator {
         return new BigDecimal("50");
     }
 
-    private Integer equivalentAbsenceDays(CalculateApplicationScoreRequest request) {
-        int absences = requiredCount(request.unexcusedAbsenceDays(), "미인정 결석일수를 입력해 주세요.");
-        int tardy = requiredCount(request.unexcusedTardyCount(), "미인정 지각 횟수를 입력해 주세요.");
-        int earlyLeave = requiredCount(request.unexcusedEarlyLeaveCount(), "미인정 조퇴 횟수를 입력해 주세요.");
-        int classAbsence = requiredCount(request.unexcusedClassAbsenceCount(), "미인정 결과 횟수를 입력해 주세요.");
+    private Integer equivalentAbsenceDays(StudentCommonEvaluationSnapshot commonData) {
+        if (commonData.attendance().isEmpty()) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT, "공통 지원자 데이터에 출결을 등록해 주세요.");
+        }
+        int absences = commonData.totalUnexcusedAbsenceDays();
+        int tardy = commonData.totalUnexcusedTardyCount();
+        int earlyLeave = commonData.totalUnexcusedEarlyLeaveCount();
+        int classAbsence = commonData.totalUnexcusedClassAbsenceCount();
         return absences + (tardy + earlyLeave + classAbsence) / 3;
     }
 
@@ -171,11 +182,6 @@ public class Hanshin2027QuantitativeScoreCalculator {
         if (action <= 5) return new BigDecimal("3.00");
         if (action <= 7) return new BigDecimal("5.00");
         return new BigDecimal("20.00");
-    }
-
-    private int requiredCount(Integer value, String message) {
-        if (value == null) throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT, message);
-        return value;
     }
 
     private BigDecimal required(BigDecimal value, String message) {

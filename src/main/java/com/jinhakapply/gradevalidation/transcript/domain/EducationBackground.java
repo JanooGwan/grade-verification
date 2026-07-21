@@ -1,4 +1,4 @@
-package com.jinhakapply.gradevalidation.admission.domain;
+package com.jinhakapply.gradevalidation.transcript.domain;
 
 public enum EducationBackground {
     DOMESTIC_HIGH_SCHOOL,

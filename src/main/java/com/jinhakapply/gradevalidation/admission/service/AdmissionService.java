@@ -210,8 +210,8 @@ public class AdmissionService {
             .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
         VerifyGradeRequest request = new VerifyGradeRequest(
             candidates.getFirst().getId(),
-            application.getStudent().getGraduationYear() != null
-                && application.getStudent().getGraduationYear() < application.getStudent().getAdmissionYear(),
+            application.getStudent().getGraduationStatus()
+                == com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus.GRADUATE,
             courses.stream().map(this::toCourseGrade).toList()
         );
         EvaluationRule rule = candidates.getFirst();

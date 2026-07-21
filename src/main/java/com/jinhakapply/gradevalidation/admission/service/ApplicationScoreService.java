@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreRun;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
-import com.jinhakapply.gradevalidation.admission.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
 import com.jinhakapply.gradevalidation.admission.domain.RecruitmentUnit;
 import com.jinhakapply.gradevalidation.admission.domain.StudentApplication;
 import com.jinhakapply.gradevalidation.admission.dto.ApplicationScoreResponse;
@@ -27,7 +27,11 @@ import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepos
 import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +53,8 @@ public class ApplicationScoreService {
     private final ApplicationScoreRunRepository scoreRunRepository;
     private final Hanshin2027QuantitativeScoreCalculator calculator;
     private final ObjectMapper objectMapper;
+    private final StudentAttendanceRepository attendanceRepository;
+    private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
 
     @Transactional
     public ApplicationScoreResponse calculate(
@@ -62,16 +68,16 @@ public class ApplicationScoreService {
             throw CustomException.of(STUDENT_APPLICATION_NOT_FOUND);
         }
         EvaluationRule rule = matchingRule(application);
+        StudentCommonEvaluationSnapshot commonData = commonData(application);
 
         GradeVerificationResponse gradeVerification = null;
         BigDecimal domesticBaseScore = null;
-        if (request.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
+        if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
             List<StudentTranscriptCourse> courses = courseRepository
                 .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
             VerifyGradeRequest gradeRequest = new VerifyGradeRequest(
                 rule.getId(),
-                application.getStudent().getGraduationYear() != null
-                    && application.getStudent().getGraduationYear() < application.getStudent().getAdmissionYear(),
+                commonData.graduationStatus() == GraduationStatus.GRADUATE,
                 courses.stream().map(this::toCourseGrade).toList()
             );
             gradeVerification = evaluationService.verify(gradeRequest);
@@ -80,11 +86,12 @@ public class ApplicationScoreService {
 
         var track = application.getRecruitmentUnit().getAdmissionTrack();
         ApplicationScoreResult result = calculator.calculate(
-            track.getUniversity().getName(), track.getAdmissionYear(), track.getName(), domesticBaseScore, request
+            track.getUniversity().getName(), track.getAdmissionYear(), track.getName(), domesticBaseScore,
+            request, commonData
         );
-        StoredApplicationScore storedResult = new StoredApplicationScore(request, result, gradeVerification);
+        StoredApplicationScore storedResult = new StoredApplicationScore(request, commonData, result, gradeVerification);
         ApplicationScoreRun run = scoreRunRepository.save(ApplicationScoreRun.create(
-            application, rule, request.educationBackground(), result, objectMapper.writeValueAsString(storedResult)
+            application, rule, commonData.educationBackground(), result, objectMapper.writeValueAsString(storedResult)
         ));
         return ApplicationScoreResponse.from(run, result, gradeVerification);
     }
@@ -123,12 +130,31 @@ public class ApplicationScoreService {
         );
     }
 
+    private StudentCommonEvaluationSnapshot commonData(StudentApplication application) {
+        var student = application.getStudent();
+        var attendance = attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()).stream()
+            .map(item -> new StudentCommonEvaluationSnapshot.Attendance(
+                item.getSchoolYear(), item.getUnexcusedAbsenceDays(), item.getUnexcusedTardyCount(),
+                item.getUnexcusedEarlyLeaveCount(), item.getUnexcusedClassAbsenceCount()
+            )).toList();
+        var actions = schoolViolenceRepository
+            .findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()).stream()
+            .map(item -> new StudentCommonEvaluationSnapshot.SchoolViolenceAction(
+                item.getSchoolYear(), item.getActionNumber(), item.getActionDate(), item.isActive(), item.getNote()
+            )).toList();
+        return new StudentCommonEvaluationSnapshot(
+            student.getEducationBackground(), student.getGraduationStatus(), student.getGedAverageScore(),
+            attendance, actions
+        );
+    }
+
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private record StoredApplicationScore(
         CalculateApplicationScoreRequest request,
+        StudentCommonEvaluationSnapshot commonData,
         ApplicationScoreResult result,
         GradeVerificationResponse gradeVerification
     ) {

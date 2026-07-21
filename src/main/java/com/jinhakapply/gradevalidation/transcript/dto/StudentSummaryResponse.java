@@ -3,6 +3,8 @@ package com.jinhakapply.gradevalidation.transcript.dto;
 import java.math.BigDecimal;
 
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 
 public record StudentSummaryResponse(
     Long studentId,
@@ -12,6 +14,8 @@ public record StudentSummaryResponse(
     String highSchoolCode,
     String highSchoolName,
     Integer graduationYear,
+    EducationBackground educationBackground,
+    GraduationStatus graduationStatus,
     long courseCount,
     BigDecimal averageGrade
 ) {
@@ -28,6 +32,8 @@ public record StudentSummaryResponse(
             student.getHighSchoolCode(),
             student.getHighSchoolName(),
             student.getGraduationYear(),
+            student.getEducationBackground(),
+            student.getGraduationStatus(),
             courseCount,
             averageGrade
         );

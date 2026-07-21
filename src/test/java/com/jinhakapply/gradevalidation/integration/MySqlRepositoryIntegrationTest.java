@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,9 +23,15 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleExtractionRepository;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.Test;
@@ -70,6 +77,8 @@ class MySqlRepositoryIntegrationTest {
     @Autowired RecruitmentUnitRepository unitRepository;
     @Autowired StudentRepository studentRepository;
     @Autowired StudentTranscriptCourseRepository courseRepository;
+    @Autowired StudentAttendanceRepository attendanceRepository;
+    @Autowired StudentSchoolViolenceActionRepository schoolViolenceRepository;
     @Autowired StudentApplicationRepository applicationRepository;
     @Autowired EvaluationRuleExtractionRepository extractionRepository;
     @Autowired EntityManager entityManager;
@@ -89,9 +98,38 @@ class MySqlRepositoryIntegrationTest {
             """, String.class);
 
         assertThat(appliedVersions).containsExactly(
-            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void persistsUniversityCommonStudentEvaluationData() {
+        Student student = Student.create(2027, "COMMON-001", "공통지원자", null, null, 2026);
+        student.updateCommonEvaluationProfile(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, null
+        );
+        studentRepository.saveAndFlush(student);
+        StudentAttendance attendance = StudentAttendance.create(student, 1);
+        attendance.update(2, 3, 1, 0);
+        attendanceRepository.save(attendance);
+        schoolViolenceRepository.save(StudentSchoolViolenceAction.create(
+            student, 2, 4, LocalDate.of(2025, 5, 1), true, "통합 테스트"
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()))
+            .singleElement().satisfies(saved -> {
+                assertThat(saved.getUnexcusedAbsenceDays()).isEqualTo(2);
+                assertThat(saved.getUnexcusedTardyCount()).isEqualTo(3);
+            });
+        assertThat(schoolViolenceRepository
+            .findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()))
+            .singleElement().satisfies(saved -> {
+                assertThat(saved.getActionNumber()).isEqualTo(4);
+                assertThat(saved.isActive()).isTrue();
+            });
     }
 
     @Test

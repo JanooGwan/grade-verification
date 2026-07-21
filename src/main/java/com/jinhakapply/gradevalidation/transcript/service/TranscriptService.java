@@ -5,6 +5,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSC
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSCRIPT_STUDENT_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSCRIPT_COURSE_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.DUPLICATE_TRANSCRIPT_COURSE;
+import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_STUDENT_COMMON_DATA;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,6 +26,9 @@ import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
@@ -35,8 +39,11 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
+import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
@@ -60,6 +67,8 @@ public class TranscriptService {
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
+    private final StudentAttendanceRepository attendanceRepository;
+    private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
@@ -278,6 +287,8 @@ public class TranscriptService {
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
         return StudentTranscriptResponse.of(
             student,
+            attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
+            schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId())
         );
     }
@@ -287,6 +298,33 @@ public class TranscriptService {
         Student student = findStudent(studentId);
         student.updateProfile(request.name().trim(), clean(request.highSchoolCode()), clean(request.highSchoolName()),
             request.graduationYear());
+        return transcript(student);
+    }
+
+    @Transactional
+    public StudentTranscriptResponse updateStudentCommonData(Long studentId, UpdateStudentCommonDataRequest request) {
+        Student student = findStudent(studentId);
+        validateCommonData(request);
+        student.updateCommonEvaluationProfile(
+            request.educationBackground(), request.graduationStatus(), request.gedAverageScore()
+        );
+
+        attendanceRepository.deleteAllByStudent_Id(studentId);
+        attendanceRepository.flush();
+        attendanceRepository.saveAll(request.attendance().stream().map(item -> {
+            StudentAttendance attendance = StudentAttendance.create(student, item.schoolYear());
+            attendance.update(item.unexcusedAbsenceDays(), item.unexcusedTardyCount(),
+                item.unexcusedEarlyLeaveCount(), item.unexcusedClassAbsenceCount());
+            return attendance;
+        }).toList());
+
+        schoolViolenceRepository.deleteAllByStudent_Id(studentId);
+        schoolViolenceRepository.flush();
+        schoolViolenceRepository.saveAll(request.schoolViolenceActions().stream().map(item ->
+            StudentSchoolViolenceAction.create(
+                student, item.schoolYear(), item.actionNumber(), item.actionDate(), item.active(), clean(item.note())
+            )
+        ).toList());
         return transcript(student);
     }
 
@@ -331,7 +369,24 @@ public class TranscriptService {
 
     private StudentTranscriptResponse transcript(Student student) {
         return StudentTranscriptResponse.of(student,
+            attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
+            schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId()));
+    }
+
+    private void validateCommonData(UpdateStudentCommonDataRequest request) {
+        Set<Integer> years = new HashSet<>();
+        if (request.attendance().stream().anyMatch(item -> !years.add(item.schoolYear()))) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "출결은 학년별로 한 건만 등록할 수 있습니다.");
+        }
+        if (request.educationBackground() == EducationBackground.GED
+            && request.gedAverageScore() == null) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시 출신자는 전 과목 평균점수가 필요합니다.");
+        }
+        if (request.educationBackground() != EducationBackground.GED
+            && request.gedAverageScore() != null) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시가 아닌 지원자에게 검정고시 평균점수를 입력할 수 없습니다.");
+        }
     }
 
     private void updateCourse(StudentTranscriptCourse course, UpsertTranscriptCourseRequest request) {

@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V13`을 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
+이 문서는 Flyway 마이그레이션 `V1`~`V14`를 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
 
 ## 테이블 설명
 
@@ -11,6 +11,8 @@
 | `recruitment_unit` | 전형에 포함된 모집단위를 관리한다. |
 | `student_application` | 지원자와 지원 모집단위를 연결한다. |
 | `student` | 지원자의 입학연도·수험번호·출신학교 정보를 관리한다. |
+| `student_attendance` | 모든 대학 전형이 공통으로 참조하는 학년별 미인정 출결 원천데이터를 관리한다. |
+| `student_school_violence_action` | 모든 대학 전형이 공통으로 참조하는 학교폭력 조치 원천데이터를 관리한다. |
 | `student_transcript_course` | 지원자의 학생부 과목별 성적과 이수단위를 관리한다. |
 | `student_transcript_import` | 학생부 파일 가져오기 작업 결과를 기록한다. |
 | `evaluation_rule` | 대학별 성적 반영 규칙과 버전·검토·게시 상태를 관리한다. |
@@ -152,6 +154,33 @@ erDiagram
         VARCHAR high_school_code "출신고교 코드 · nullable"
         VARCHAR high_school_name "출신고교명 · nullable"
         INT graduation_year "졸업연도 · nullable"
+        VARCHAR education_background "국내고·검정고시·외국고"
+        VARCHAR graduation_status "졸업예정·졸업"
+        DECIMAL ged_average_score "검정고시 평균 · nullable"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
+    }
+
+    STUDENT_ATTENDANCE {
+        BIGINT id PK "출결 식별자"
+        BIGINT student_id FK "지원자 식별자"
+        INT school_year "학년"
+        INT unexcused_absence_days "미인정 결석일수"
+        INT unexcused_tardy_count "미인정 지각횟수"
+        INT unexcused_early_leave_count "미인정 조퇴횟수"
+        INT unexcused_class_absence_count "미인정 결과횟수"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
+    }
+
+    STUDENT_SCHOOL_VIOLENCE_ACTION {
+        BIGINT id PK "조치 식별자"
+        BIGINT student_id FK "지원자 식별자"
+        INT school_year "발생 학년 · nullable"
+        INT action_number "조치 호수"
+        DATE action_date "조치일 · nullable"
+        BOOLEAN active "현재 반영 여부"
+        VARCHAR note "비고 · nullable"
         DATETIME created_at "등록 일시"
         DATETIME updated_at "수정 일시"
     }
@@ -266,6 +295,8 @@ erDiagram
     EVALUATION_RULE_EXTRACTION o|--o{ EVALUATION_RULE : "extraction_id"
 
     STUDENT ||--o{ STUDENT_TRANSCRIPT_COURSE : "has"
+    STUDENT ||--o{ STUDENT_ATTENDANCE : "has attendance"
+    STUDENT ||--o{ STUDENT_SCHOOL_VIOLENCE_ACTION : "has actions"
     STUDENT ||--o{ STUDENT_APPLICATION : "submits"
     STUDENT ||--o{ VERIFICATION_RUN : "is evaluated in"
     STUDENT ||--o{ APPLICATION_SCORE_RUN : "has scores calculated"
@@ -284,13 +315,14 @@ erDiagram
 - `evaluation_rule_extraction`은 `(university_id, admission_year, file_sha256)` 조합으로 같은 모집요강 파일의 중복 추출을 방지한다.
 - `student`는 `(admission_year, applicant_number)` 조합이 유일하다.
 - `student_transcript_course`는 학생·학년·학기·교과군·과목명 조합이 유일하다.
+- `student_attendance`는 학생·학년 조합이 유일하다.
 - `student_application`은 학생과 모집단위 조합이 유일하다.
 - `application_score_run`은 계산 시점의 규칙 버전과 전체 입력·결과 JSON을 함께 저장해 재현 가능하게 한다.
 - `student_transcript_import`는 다른 테이블과 외래 키로 연결되지 않은 독립적인 가져오기 작업 이력이다.
 
 ## 삭제 규칙
 
-- 학생 삭제 시 학생부 과목, 지원 정보, 검증 실행 이력과 전형점수 실행 이력이 함께 삭제된다.
+- 학생 삭제 시 학생부 과목, 출결, 학교폭력 조치, 지원 정보, 검증 실행 이력과 전형점수 실행 이력이 함께 삭제된다.
 - 평가 규칙 삭제 시 등급/성취도 환산표와 교과 우선순위가 함께 삭제된다.
 - 규칙 추출 이력 삭제 시 추출 근거가 함께 삭제된다.
 - 지원 정보 삭제 시 검증 실행 이력은 유지되고 `application_id`만 `NULL`로 변경되며, 전형점수 실행 이력은 함께 삭제된다.

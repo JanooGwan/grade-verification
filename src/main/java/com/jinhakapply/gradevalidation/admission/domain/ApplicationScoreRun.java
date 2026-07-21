@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

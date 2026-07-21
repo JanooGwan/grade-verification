@@ -13,6 +13,8 @@ import java.util.Optional;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
@@ -20,6 +22,7 @@ import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
+import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
@@ -27,6 +30,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,6 +54,10 @@ class TranscriptServiceTest {
     private StudentTranscriptCourseRepository courseRepository;
     @Mock
     private StudentTranscriptImportRepository importRepository;
+    @Mock
+    private StudentAttendanceRepository attendanceRepository;
+    @Mock
+    private StudentSchoolViolenceActionRepository schoolViolenceRepository;
 
     private TranscriptService transcriptService;
 
@@ -58,8 +67,35 @@ class TranscriptServiceTest {
             excelParser,
             studentRepository,
             courseRepository,
-            importRepository
+            importRepository,
+            attendanceRepository,
+            schoolViolenceRepository
         );
+    }
+
+    @Test
+    void storesUniversityCommonStudentDataSeparatelyFromScoreRuns() {
+        Student student = Student.create(2027, "A-001", "학생", "S001", "고등학교", 2027);
+        ReflectionTestUtils.setField(student, "id", 1L);
+        when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
+        when(attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(1L)).thenReturn(List.of());
+        when(schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(1L))
+            .thenReturn(List.of());
+        when(courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(1L))
+            .thenReturn(List.of());
+        var request = new UpdateStudentCommonDataRequest(
+            EducationBackground.GED, GraduationStatus.GRADUATE, new BigDecimal("94.50"),
+            List.of(new UpdateStudentCommonDataRequest.Attendance(1, 2, 3, 1, 0)),
+            List.of(new UpdateStudentCommonDataRequest.SchoolViolenceAction(2, 4, null, true, "확정"))
+        );
+
+        transcriptService.updateStudentCommonData(1L, request);
+
+        assertThat(student.getEducationBackground()).isEqualTo(EducationBackground.GED);
+        assertThat(student.getGraduationStatus()).isEqualTo(GraduationStatus.GRADUATE);
+        assertThat(student.getGedAverageScore()).isEqualByComparingTo("94.50");
+        verify(attendanceRepository).saveAll(any());
+        verify(schoolViolenceRepository).saveAll(any());
     }
 
     @Test
