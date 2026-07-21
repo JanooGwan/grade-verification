@@ -223,6 +223,7 @@ class EvaluationServiceTest {
             hanshinRule.getGradeScores().put(grade, convertedScores.get(grade - 1));
         }
         ReflectionTestUtils.setField(hanshinRule, "minimumCourseCount", 12);
+        ReflectionTestUtils.setField(hanshinRule, "applyGradeWeights", false);
         ReflectionTestUtils.setField(hanshinRule, "intermediateScale", 3);
         ReflectionTestUtils.setField(hanshinRule, "finalScale", 2);
         ReflectionTestUtils.setField(hanshinRule, "scoreMultiplier", new BigDecimal("10"));
@@ -240,11 +241,12 @@ class EvaluationServiceTest {
         assertThat(response.calculationSummary().gradeTimesCreditsSum()).isEqualByComparingTo("117");
         assertThat(response.calculationSummary().convertedScoreTimesCreditsSum()).isEqualByComparingTo("4125");
         assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("42");
-        assertThat(response.calculationSummary().gradeTimesWeightSum()).isEqualByComparingTo("3899.9997");
-        assertThat(response.calculationSummary().totalAppliedWeight()).isEqualByComparingTo("1399.9999");
+        assertThat(response.calculationSummary().gradeTimesWeightSum()).isEqualByComparingTo("117");
+        assertThat(response.calculationSummary().convertedScoreTimesWeightSum()).isEqualByComparingTo("4125");
+        assertThat(response.calculationSummary().totalAppliedWeight()).isEqualByComparingTo("42");
         assertThat(response.calculationSummary().baseScore()).isEqualByComparingTo("98.214");
         assertThat(response.calculationSummary().scoreBeforeFinalRounding()).isEqualByComparingTo("982.140");
-        assertThat(response.calculationSummary().formula()).contains("Σ(과목 환산점수 × 적용가중치)");
+        assertThat(response.calculationSummary().formula()).contains("이수단위 × 교과가중치");
     }
 
     @Test
@@ -297,7 +299,7 @@ class EvaluationServiceTest {
         University university = University.create("TEST", "테스트대학교");
         EvaluationRule rule = EvaluationRule.create(university, "테스트 규칙", 2027, "학생부교과", "전체", 1,
             gradeWeights, subjectWeights, decimals("100", "95", "90", "85", "80", "70", "60", "50", "40"),
-            selection, selectionCount, 2, 0, aggregation, achievementConversion, false, false, false, false,
+            selection, selectionCount, 2, 0, aggregation, achievementConversion, false, false, false, true, false,
             4, RoundingMode.HALF_UP,
             4, RoundingMode.HALF_UP, BigDecimal.ONE, decimals("1", "3", "5"), decimals("100", "95", "90"),
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);

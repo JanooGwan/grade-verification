@@ -77,6 +77,7 @@ class PdfRuleHeuristicExtractor {
 
         InferredSelection selection = inferSelection(relevant, combined, evidence);
         List<BigDecimal> gradeWeights = inferYearWeights(relevant, combined, evidence, warnings);
+        Boolean applyGradeWeights = inferGradeWeightApplication(combined, gradeWeights);
         List<BigDecimal> gradeScores = inferGradeScores(relevant, evidence, warnings);
         List<BigDecimal> achievementScores = inferAchievementScores(relevant, evidence, warnings);
         List<SubjectCategory> subjectCategories = inferSubjects(relevant, evidence);
@@ -115,6 +116,7 @@ class PdfRuleHeuristicExtractor {
             selection.strategy(),
             selection.count(),
             gradeWeights,
+            applyGradeWeights,
             gradeScores,
             achievementScores,
             subjectCategories,
@@ -171,7 +173,7 @@ class PdfRuleHeuristicExtractor {
         if (combined.contains("학년별 차등 없이") || combined.contains("학년별 반영비율 없음")
             || combined.contains("학년별 가중치 없음")) {
             addEvidence(evidence, pages, "gradeWeights", "학년별", "0.88");
-            return decimals("33.3333", "33.3333", "33.3334");
+            return decimals("1", "1", "1");
         }
         Set<List<BigDecimal>> candidates = new LinkedHashSet<>();
         for (PageText page : pages) {
@@ -188,6 +190,12 @@ class PdfRuleHeuristicExtractor {
         if (candidates.size() == 1) return candidates.iterator().next();
         if (candidates.size() > 1) warnings.add("서로 다른 학년별 반영 비율이 발견되어 자동 선택하지 않았습니다.");
         return List.of();
+    }
+
+    private Boolean inferGradeWeightApplication(String combined, List<BigDecimal> gradeWeights) {
+        if (combined.contains("학년별 차등 없이") || combined.contains("학년별 반영비율 없음")
+            || combined.contains("학년별 가중치 없음")) return false;
+        return gradeWeights.isEmpty() ? null : true;
     }
 
     private List<BigDecimal> inferGradeScores(

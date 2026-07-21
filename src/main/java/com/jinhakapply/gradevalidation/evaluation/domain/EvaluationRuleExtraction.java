@@ -65,6 +65,9 @@ public class EvaluationRuleExtraction {
     @Column(name = "grade_weights_csv", length = 100)
     private String gradeWeightsCsv;
 
+    @Column(name = "apply_grade_weights")
+    private Boolean applyGradeWeights;
+
     @Column(name = "grade_scores_csv", length = 255)
     private String gradeScoresCsv;
 
@@ -112,6 +115,7 @@ public class EvaluationRuleExtraction {
         SelectionStrategy selectionStrategy,
         Integer selectionCount,
         List<BigDecimal> gradeWeights,
+        Boolean applyGradeWeights,
         List<BigDecimal> gradeScores,
         List<BigDecimal> achievementScores,
         List<SubjectCategory> subjectCategories,
@@ -133,6 +137,7 @@ public class EvaluationRuleExtraction {
         extraction.selectionStrategy = selectionStrategy;
         extraction.selectionCount = selectionCount;
         extraction.gradeWeightsCsv = csv(gradeWeights);
+        extraction.applyGradeWeights = applyGradeWeights;
         extraction.gradeScoresCsv = csv(gradeScores);
         extraction.achievementScoresCsv = csv(achievementScores);
         extraction.subjectCategoriesCsv = subjectCategories == null ? null

@@ -13,6 +13,7 @@ record RuleExtractionAnalysis(
     SelectionStrategy selectionStrategy,
     Integer selectionCount,
     List<BigDecimal> gradeWeights,
+    Boolean applyGradeWeights,
     List<BigDecimal> gradeScores,
     List<BigDecimal> achievementScores,
     List<SubjectCategory> subjectCategories,

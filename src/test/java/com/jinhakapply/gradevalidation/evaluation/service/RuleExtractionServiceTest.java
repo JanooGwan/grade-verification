@@ -124,6 +124,7 @@ class RuleExtractionServiceTest {
             university(), 2027, "guideline.pdf", "a".repeat(64), 20, 18,
             SelectionStrategy.ALL_COURSES, null,
             List.of(new BigDecimal("20"), new BigDecimal("30"), new BigDecimal("50")),
+            true,
             List.of(new BigDecimal("100"), new BigDecimal("95")),
             List.of(), List.of(SubjectCategory.KOREAN, SubjectCategory.MATH),
             false, RoundingMode.HALF_UP, "10-12", new BigDecimal("0.9000"),

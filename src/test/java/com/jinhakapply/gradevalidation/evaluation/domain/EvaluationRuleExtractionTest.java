@@ -49,6 +49,7 @@ class EvaluationRuleExtractionTest {
             SelectionStrategy.ALL_COURSES,
             null,
             List.of(new BigDecimal("20"), new BigDecimal("30"), new BigDecimal("50")),
+            true,
             List.of(new BigDecimal("100"), new BigDecimal("95")),
             List.of(),
             List.of(SubjectCategory.KOREAN, SubjectCategory.MATH),

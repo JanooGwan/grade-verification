@@ -98,7 +98,7 @@ class MySqlRepositoryIntegrationTest {
             """, String.class);
 
         assertThat(appliedVersions).containsExactly(
-            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
     }
@@ -223,6 +223,7 @@ class MySqlRepositoryIntegrationTest {
             university, 2027, "guideline.pdf", hash, 10, 10,
             SelectionStrategy.ALL_COURSES, null,
             List.of(new BigDecimal("20"), new BigDecimal("30"), new BigDecimal("50")),
+            true,
             List.of(new BigDecimal("100"), new BigDecimal("95")),
             List.of(), List.of(SubjectCategory.KOREAN, SubjectCategory.MATH),
             false, RoundingMode.HALF_UP, "1-3", new BigDecimal("0.9000"),

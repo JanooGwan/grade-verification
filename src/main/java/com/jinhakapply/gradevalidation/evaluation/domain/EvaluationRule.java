@@ -112,6 +112,9 @@ public class EvaluationRule {
     @Column(name = "include_professional_courses", nullable = false)
     private boolean includeProfessionalCourses;
 
+    @Column(name = "apply_grade_weights", nullable = false)
+    private boolean applyGradeWeights;
+
     @Column(name = "normalize_grade_weights", nullable = false)
     private boolean normalizeGradeWeights;
 
@@ -211,7 +214,8 @@ public class EvaluationRule {
         int selectionCount, int achievementSelectionCount, int minimumCourseCount, ScoreAggregation scoreAggregation,
         AchievementConversion achievementConversion, boolean includeThirdYearSecondSemester,
         boolean includeThirdYearSecondSemesterForGraduates,
-        boolean includeProfessionalCourses, boolean normalizeGradeWeights, int intermediateScale,
+        boolean includeProfessionalCourses, boolean applyGradeWeights, boolean normalizeGradeWeights,
+        int intermediateScale,
         RoundingMode intermediateRounding,
         int finalScale, RoundingMode finalRounding, BigDecimal scoreMultiplier,
         List<BigDecimal> achievementGrades, List<BigDecimal> achievementScores, List<Integer> subjectPriorities,
@@ -243,6 +247,7 @@ public class EvaluationRule {
         rule.includeThirdYearSecondSemester = includeThirdYearSecondSemester;
         rule.includeThirdYearSecondSemesterForGraduates = includeThirdYearSecondSemesterForGraduates;
         rule.includeProfessionalCourses = includeProfessionalCourses;
+        rule.applyGradeWeights = applyGradeWeights;
         rule.normalizeGradeWeights = normalizeGradeWeights;
         rule.intermediateScale = intermediateScale;
         rule.intermediateRounding = intermediateRounding;

@@ -80,6 +80,7 @@ public class RuleExtractionService {
                     analysis.selectionStrategy(),
                     analysis.selectionCount(),
                     analysis.gradeWeights(),
+                    analysis.applyGradeWeights(),
                     analysis.gradeScores(),
                     analysis.achievementScores(),
                     analysis.subjectCategories(),
@@ -132,6 +133,7 @@ public class RuleExtractionService {
         addDifference(differences, "선택 방식", left.candidate().selectionStrategy(), right.candidate().selectionStrategy());
         addDifference(differences, "선택 개수", left.candidate().selectionCount(), right.candidate().selectionCount());
         addDifference(differences, "학년 비율", left.candidate().gradeWeights(), right.candidate().gradeWeights());
+        addDifference(differences, "학년 가중치 적용", left.candidate().applyGradeWeights(), right.candidate().applyGradeWeights());
         addDifference(differences, "등급 환산표", left.candidate().gradeScores(), right.candidate().gradeScores());
         addDifference(differences, "성취도 환산표", left.candidate().achievementScores(), right.candidate().achievementScores());
         addDifference(differences, "반영 교과", left.candidate().subjectCategories(), right.candidate().subjectCategories());
