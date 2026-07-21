@@ -6,6 +6,7 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -16,11 +17,23 @@ import jakarta.validation.constraints.Size;
 
 public record UpdateStudentCommonDataRequest(
     @NotNull EducationBackground educationBackground,
+    @NotNull HighSchoolType highSchoolType,
     @NotNull GraduationStatus graduationStatus,
     @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal gedAverageScore,
     @NotNull @Size(max = 3) List<@Valid Attendance> attendance,
     @NotNull @Size(max = 20) List<@Valid SchoolViolenceAction> schoolViolenceActions
 ) {
+    public UpdateStudentCommonDataRequest(
+        EducationBackground educationBackground,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore,
+        List<Attendance> attendance,
+        List<SchoolViolenceAction> schoolViolenceActions
+    ) {
+        this(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore,
+            attendance, schoolViolenceActions);
+    }
+
     public record Attendance(
         @Min(1) @Max(3) int schoolYear,
         @Min(0) int unexcusedAbsenceDays,

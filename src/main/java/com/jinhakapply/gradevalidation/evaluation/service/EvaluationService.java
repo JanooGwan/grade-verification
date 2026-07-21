@@ -35,6 +35,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
@@ -134,8 +135,14 @@ public class EvaluationService {
         if (!rule.isPublished()) {
             throw CustomException.of(INVALID_EVALUATION_RULE_STATUS, "게시된 규칙만 성적 계산에 사용할 수 있습니다.");
         }
-        List<Candidate> candidates = prepareCandidates(rule, request.courses(), request.graduated());
-        CourseSelection selection = selectCourses(rule, candidates.stream().filter(Candidate::eligible).toList());
+        EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType());
+        List<Candidate> candidates = prepareCandidates(
+            rule, request.courses(), request.graduated(), scope.includeProfessionalCourses(),
+            scope.includeAllSubjectCategories()
+        );
+        CourseSelection selection = selectCourses(
+            rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
+        );
         Set<Integer> selectedIndexes = selection.indexes();
         if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
             throw CustomException.of(INVALID_EVALUATION_RULE,
@@ -157,7 +164,8 @@ public class EvaluationService {
             BigDecimal gradeWeight = rule.isApplyGradeWeights()
                 ? rule.gradeWeight(course.schoolYear()) : BigDecimal.ONE;
             SubjectCategory appliedSubjectCategory = selection.appliedSubjectCategory(candidate);
-            BigDecimal subjectWeight = rule.subjectWeight(appliedSubjectCategory);
+            BigDecimal subjectWeight = scope.includeAllSubjectCategories()
+                ? BigDecimal.ONE : rule.subjectWeight(appliedSubjectCategory);
             boolean selected = candidate.eligible() && selectedIndexes.contains(candidate.index());
             BigDecimal appliedWeight = course.credits().multiply(gradeWeight).multiply(subjectWeight);
             if (selected && rule.isApplyGradeWeights() && rule.isNormalizeGradeWeights()) {
@@ -210,7 +218,7 @@ public class EvaluationService {
         List<String> warnings = buildWarnings(rule, request.courses(), candidates, included);
         return new GradeVerificationResponse(rule.getId(), rule.getName(), rule.getVersion(), rule.getUniversity().getName(),
             rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, baseScore, averageGrade,
-            rule.getSelectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
+            scope.selectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
             included, calculations.size() - included, calculationSummary, calculations, warnings);
     }
 
@@ -222,19 +230,22 @@ public class EvaluationService {
     }
 
     private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,
-        boolean graduated) {
+        boolean graduated, boolean includeProfessionalCourses, boolean includeAllSubjectCategories) {
         List<Candidate> candidates = new ArrayList<>();
         for (int index = 0; index < courses.size(); index++) {
             VerifyGradeRequest.CourseGrade course = courses.get(index);
             String exclusionReason = null;
             if (rule.isApplyGradeWeights() && rule.gradeWeight(course.schoolYear()).signum() == 0)
                 exclusionReason = "학년 반영 비율이 0입니다.";
-            else if (!hasEligibleSubjectWeight(rule, course)) exclusionReason = "반영하지 않는 교과입니다.";
+            else if (!includeAllSubjectCategories && !hasEligibleSubjectWeight(rule, course))
+                exclusionReason = "반영하지 않는 교과입니다.";
             else if (course.schoolYear() == 3 && course.semester() == 2
                 && !includesThirdYearSecondSemester(rule, graduated))
                 exclusionReason = "3학년 2학기는 이 규칙의 반영 범위가 아닙니다.";
-            else if (course.professionalCourse() && !rule.isIncludeProfessionalCourses())
+            else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
+            else if (course.careerSubject() && rule.getAchievementConversion() == AchievementConversion.EXCLUDE)
+                exclusionReason = "진로선택과목은 이 규칙에서 제외됩니다.";
 
             BigDecimal effectiveGrade = exclusionReason == null ? resolveEffectiveGrade(rule, course) : null;
             if (exclusionReason == null && effectiveGrade == null) exclusionReason = "등급 또는 환산 가능한 성취도 정보가 없습니다.";
@@ -301,9 +312,10 @@ public class EvaluationService {
         return lowerScore.add(upperScore.subtract(lowerScore).multiply(fraction));
     }
 
-    private CourseSelection selectCourses(EvaluationRule rule, List<Candidate> eligible) {
+    private CourseSelection selectCourses(EvaluationRule rule, SelectionStrategy selectionStrategy,
+        List<Candidate> eligible) {
         if (eligible.isEmpty()) return CourseSelection.empty();
-        return switch (rule.getSelectionStrategy()) {
+        return switch (selectionStrategy) {
             case ALL_COURSES -> CourseSelection.of(indexesOf(eligible));
             case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
             case TOP_N_COURSES_PER_SUBJECT -> CourseSelection.of(selectTopCoursesPerSubject(rule, eligible));
@@ -315,6 +327,29 @@ public class EvaluationService {
                 rule.getSelectionCount(), rule.getSubjectPriorities()));
             case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
+    }
+
+    private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType) {
+        HighSchoolType resolvedType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
+        if (!isHanshin2027(rule) || !resolvedType.usesHanshinAllOrdinaryCoursesPolicy()) {
+            return new EvaluationScope(rule.getSelectionStrategy(), rule.isIncludeProfessionalCourses(), false);
+        }
+        return new EvaluationScope(SelectionStrategy.ALL_COURSES, isSpecializedGraduateTrack(rule), true);
+    }
+
+    private boolean isHanshin2027(EvaluationRule rule) {
+        return rule.getAdmissionYear() == 2027
+            && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
+    }
+
+    private boolean isSpecializedGraduateTrack(EvaluationRule rule) {
+        String admissionType = normalizePolicyText(rule.getAdmissionType());
+        return admissionType.contains("특성화고교졸업자")
+            || admissionType.contains("특성화고졸업자");
+    }
+
+    private String normalizePolicyText(String value) {
+        return value == null ? "" : value.replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private Set<Integer> selectTopCoursesPerSubject(EvaluationRule rule, List<Candidate> eligible) {
@@ -522,6 +557,12 @@ public class EvaluationService {
             return exclusionReason == null;
         }
     }
+
+    private record EvaluationScope(
+        SelectionStrategy selectionStrategy,
+        boolean includeProfessionalCourses,
+        boolean includeAllSubjectCategories
+    ) {}
 
     private record CourseSelection(
         Set<Integer> indexes,

@@ -56,6 +56,10 @@ public class Student {
     private EducationBackground educationBackground;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "high_school_type", nullable = false, length = 40)
+    private HighSchoolType highSchoolType;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "graduation_status", nullable = false, length = 30)
     private GraduationStatus graduationStatus;
 
@@ -80,6 +84,7 @@ public class Student {
         this.applicantNumber = applicantNumber;
         updateProfile(name, highSchoolCode, highSchoolName, graduationYear);
         this.educationBackground = EducationBackground.DOMESTIC_HIGH_SCHOOL;
+        this.highSchoolType = HighSchoolType.GENERAL;
         this.graduationStatus = graduationYear != null && graduationYear < admissionYear
             ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
         this.createdAt = this.updatedAt;
@@ -118,12 +123,22 @@ public class Student {
 
     public void updateCommonEvaluationProfile(
         EducationBackground educationBackground,
+        HighSchoolType highSchoolType,
         GraduationStatus graduationStatus,
         BigDecimal gedAverageScore
     ) {
         this.educationBackground = educationBackground;
+        this.highSchoolType = highSchoolType;
         this.graduationStatus = graduationStatus;
         this.gedAverageScore = gedAverageScore;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateCommonEvaluationProfile(
+        EducationBackground educationBackground,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore
+    ) {
+        updateCommonEvaluationProfile(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore);
     }
 }

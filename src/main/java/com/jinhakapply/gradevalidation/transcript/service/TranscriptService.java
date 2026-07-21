@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
@@ -306,7 +307,7 @@ public class TranscriptService {
         Student student = findStudent(studentId);
         validateCommonData(request);
         student.updateCommonEvaluationProfile(
-            request.educationBackground(), request.graduationStatus(), request.gedAverageScore()
+            request.educationBackground(), request.highSchoolType(), request.graduationStatus(), request.gedAverageScore()
         );
 
         attendanceRepository.deleteAllByStudent_Id(studentId);
@@ -386,6 +387,11 @@ public class TranscriptService {
         if (request.educationBackground() != EducationBackground.GED
             && request.gedAverageScore() != null) {
             throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시가 아닌 지원자에게 검정고시 평균점수를 입력할 수 없습니다.");
+        }
+        if (request.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL
+            && request.highSchoolType() != HighSchoolType.GENERAL) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "고교 유형은 국내 고등학교 지원자에게만 설정할 수 있습니다.");
         }
     }
 

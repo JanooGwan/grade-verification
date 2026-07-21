@@ -12,6 +12,7 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAc
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 
 public record StudentTranscriptResponse(
     Long studentId,
@@ -22,6 +23,7 @@ public record StudentTranscriptResponse(
     String highSchoolName,
     Integer graduationYear,
     EducationBackground educationBackground,
+    HighSchoolType highSchoolType,
     GraduationStatus graduationStatus,
     BigDecimal gedAverageScore,
     List<AttendanceResponse> attendance,
@@ -44,6 +46,7 @@ public record StudentTranscriptResponse(
             student.getHighSchoolName(),
             student.getGraduationYear(),
             student.getEducationBackground(),
+            student.getHighSchoolType(),
             student.getGraduationStatus(),
             student.getGedAverageScore(),
             attendance.stream().map(AttendanceResponse::from).toList(),

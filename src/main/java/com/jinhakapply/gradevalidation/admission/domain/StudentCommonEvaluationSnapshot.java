@@ -6,14 +6,27 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 
 public record StudentCommonEvaluationSnapshot(
     EducationBackground educationBackground,
+    HighSchoolType highSchoolType,
     GraduationStatus graduationStatus,
     BigDecimal gedAverageScore,
     List<Attendance> attendance,
     List<SchoolViolenceAction> schoolViolenceActions
 ) {
+    public StudentCommonEvaluationSnapshot(
+        EducationBackground educationBackground,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore,
+        List<Attendance> attendance,
+        List<SchoolViolenceAction> schoolViolenceActions
+    ) {
+        this(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore,
+            attendance, schoolViolenceActions);
+    }
+
     public int totalUnexcusedAbsenceDays() {
         return attendance.stream().mapToInt(Attendance::unexcusedAbsenceDays).sum();
     }

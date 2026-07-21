@@ -22,6 +22,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.Test;
@@ -247,6 +248,49 @@ class EvaluationServiceTest {
         assertThat(response.calculationSummary().baseScore()).isEqualByComparingTo("98.214");
         assertThat(response.calculationSummary().scoreBeforeFinalRounding()).isEqualByComparingTo("982.140");
         assertThat(response.calculationSummary().formula()).contains("이수단위 × 교과가중치");
+    }
+
+    @Test
+    void hanshinSpecializedHighSchoolUsesAllOrdinaryCoursesInsteadOfTopTwelve() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "admissionType", "학생부교과(학생부우수자)");
+        mockRule(hanshinRule);
+        List<VerifyGradeRequest.CourseGrade> courses = new java.util.ArrayList<>(java.util.stream.IntStream.rangeClosed(1, 12)
+            .mapToObj(index -> course(1 + (index - 1) / 5, 1, SubjectCategory.KOREAN,
+                "보통교과" + index, 1 + index % 9, "3"))
+            .toList());
+        courses.add(course(3, 1, SubjectCategory.OTHER, "예술교과", 3, "2"));
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, courses
+        ));
+
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
+        assertThat(response.includedCourseCount()).isEqualTo(13);
+    }
+
+    @Test
+    void hanshinSpecializedGraduateTrackIncludesProfessionalCourses() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "admissionType", "특성화고교졸업자전형");
+        mockRule(hanshinRule);
+        VerifyGradeRequest.CourseGrade professional = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.KOREAN, "전문교과", 2, null,
+            null, null, null, null, false, true, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, List.of(professional)
+        ));
+
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
+        assertThat(response.includedCourseCount()).isEqualTo(1);
     }
 
     @Test

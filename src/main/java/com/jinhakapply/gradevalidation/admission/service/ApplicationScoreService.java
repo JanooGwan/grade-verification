@@ -78,6 +78,7 @@ public class ApplicationScoreService {
             VerifyGradeRequest gradeRequest = new VerifyGradeRequest(
                 rule.getId(),
                 commonData.graduationStatus() == GraduationStatus.GRADUATE,
+                commonData.highSchoolType(),
                 courses.stream().map(this::toCourseGrade).toList()
             );
             gradeVerification = evaluationService.verify(gradeRequest);
@@ -143,7 +144,7 @@ public class ApplicationScoreService {
                 item.getSchoolYear(), item.getActionNumber(), item.getActionDate(), item.isActive(), item.getNote()
             )).toList();
         return new StudentCommonEvaluationSnapshot(
-            student.getEducationBackground(), student.getGraduationStatus(), student.getGedAverageScore(),
+            student.getEducationBackground(), student.getHighSchoolType(), student.getGraduationStatus(), student.getGedAverageScore(),
             attendance, actions
         );
     }
