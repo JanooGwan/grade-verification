@@ -29,6 +29,9 @@ public class ReadOnlySqlValidator {
     private static final Pattern FROM_CLAUSE = Pattern.compile(
         "(?is)\\bfrom\\b(.*?)(?=\\bwhere\\b|\\bgroup\\s+by\\b|\\border\\s+by\\b|\\bhaving\\b|\\blimit\\b|$)"
     );
+    private static final Pattern UNQUOTED_RESERVED_ALIAS_REFERENCE = Pattern.compile(
+        "(?i)(?<!`)\\b(?:as|by|case|group|in|is|join|key|limit|on|order|references|select|table|where)\\s*\\."
+    );
     private static final Set<String> SYSTEM_SCHEMAS = Set.of(
         "information_schema", "mysql", "performance_schema", "sys"
     );
@@ -48,6 +51,11 @@ public class ReadOnlySqlValidator {
         }
         if (SENSITIVE_IDENTIFIER.matcher(normalized).find()) {
             throw new IllegalArgumentException("민감정보 컬럼은 조회할 수 없습니다.");
+        }
+        if (UNQUOTED_RESERVED_ALIAS_REFERENCE.matcher(normalized).find()) {
+            throw new IllegalArgumentException(
+                "MySQL reserved words cannot be used as unquoted table aliases. Use an alias starting with t_."
+            );
         }
         Matcher selectClause = SELECT_CLAUSE.matcher(normalized);
         if (!selectClause.find() || WILDCARD_PROJECTION.matcher(selectClause.group(1)).find()) {

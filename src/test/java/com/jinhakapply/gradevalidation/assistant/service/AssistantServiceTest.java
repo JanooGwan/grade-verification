@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -106,6 +107,47 @@ class AssistantServiceTest {
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(AI_ASSISTANT_UNSAFE_QUERY));
         verify(databaseGateway, never()).execute(anyString());
+    }
+
+    @Test
+    void retriesSqlPlanningWhenModelUsesReservedTableAlias() {
+        AssistantService service = service(enabledProperties());
+        String gradeTable = "evaluation_rule_achievement_grade";
+        String scoreTable = "evaluation_rule_achievement_score";
+        when(databaseGateway.findTableDescriptions()).thenReturn(List.of(
+            new TableDescription(gradeTable, "성취도 등급 환산"),
+            new TableDescription(scoreTable, "성취도 점수 환산")
+        ));
+        when(claudeClient.selectTables(anyString())).thenReturn(new TableSelection(
+            List.of(gradeTable, scoreTable), false, "성취도 환산표 비교"
+        ));
+        when(databaseGateway.findColumnDescriptions(any())).thenReturn(List.of(
+            new ColumnDescription(gradeTable, "rule_id", "bigint", false, "규칙 식별자"),
+            new ColumnDescription(gradeTable, "achievement_level", "varchar", false, "성취도"),
+            new ColumnDescription(gradeTable, "converted_grade", "decimal", false, "환산 등급"),
+            new ColumnDescription(scoreTable, "rule_id", "bigint", false, "규칙 식별자"),
+            new ColumnDescription(scoreTable, "achievement_level", "varchar", false, "성취도"),
+            new ColumnDescription(scoreTable, "converted_score", "decimal", false, "환산 점수")
+        ));
+        String invalidSql = "SELECT t_grade.achievement_level, t_grade.converted_grade, as.converted_score "
+            + "FROM evaluation_rule_achievement_grade t_grade "
+            + "JOIN evaluation_rule_achievement_score as ON as.rule_id = t_grade.rule_id";
+        String validSql = "SELECT t_grade.achievement_level, t_grade.converted_grade, t_score.converted_score "
+            + "FROM evaluation_rule_achievement_grade t_grade "
+            + "JOIN evaluation_rule_achievement_score t_score ON t_score.rule_id = t_grade.rule_id";
+        when(claudeClient.planSql(anyString())).thenReturn(
+            new SqlPlan(invalidSql, List.of(gradeTable, scoreTable), "예약어 별칭 사용"),
+            new SqlPlan(validSql, List.of(gradeTable, scoreTable), "안전한 별칭으로 수정")
+        );
+        when(databaseGateway.execute(validSql)).thenReturn(new QueryResult(List.of()));
+        when(claudeClient.answer(anyString())).thenReturn("두 환산표의 차이를 설명했습니다.");
+
+        var response = service.ask(new AssistantMessageRequest("두 성취도 환산표의 차이는?", null));
+
+        assertThat(response.answer()).isEqualTo("두 환산표의 차이를 설명했습니다.");
+        verify(claudeClient, times(2)).planSql(anyString());
+        verify(databaseGateway, never()).execute(invalidSql);
+        verify(databaseGateway).execute(validSql);
     }
 
     @Test
