@@ -6,7 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
@@ -99,9 +101,34 @@ class MySqlRepositoryIntegrationTest {
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18"
+            "17", "18", "19"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void documentsCommonAdmissionTables() {
+        Map<String, String> comments = jdbcTemplate.query(
+            """
+                SELECT TABLE_NAME, TABLE_COMMENT
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME IN ('admission_track', 'student_attendance', 'student_school_violence_action')
+                """,
+            resultSet -> {
+                Map<String, String> result = new HashMap<>();
+                while (resultSet.next()) {
+                    result.put(resultSet.getString("TABLE_NAME"), resultSet.getString("TABLE_COMMENT"));
+                }
+                return result;
+            }
+        );
+
+        assertThat(comments).containsExactlyInAnyOrderEntriesOf(Map.of(
+            "admission_track", "대학·입학연도별 전형 카탈로그와 사용 여부를 관리한다.",
+            "student_attendance", "지원자의 학년별 미인정 결석·지각·조퇴·결과 원천데이터를 관리한다.",
+            "student_school_violence_action", "지원자의 학교폭력 조치호수·조치일·유효 여부와 비고를 관리한다."
+        ));
     }
 
     @Test
