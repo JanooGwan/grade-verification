@@ -65,7 +65,8 @@ public class EvaluationService {
         EvaluationRule rule = EvaluationRule.create(university, request.name(), request.admissionYear(),
             request.admissionType(), request.recruitmentUnit(), request.version(), request.gradeWeights(),
             request.subjectWeights(), request.gradeScores(), request.selectionStrategy(), request.selectionCount(),
-            request.achievementSelectionCount(), request.scoreAggregation(), request.achievementConversion(),
+            request.achievementSelectionCount(), request.minimumCourseCount(), request.scoreAggregation(),
+            request.achievementConversion(),
             request.includeThirdYearSecondSemester(), request.includeThirdYearSecondSemesterForGraduates(),
             request.includeProfessionalCourses(), request.normalizeGradeWeights(), request.intermediateScale(),
             request.intermediateRounding(), request.finalScale(), request.finalRounding(), request.scoreMultiplier(),
@@ -134,6 +135,10 @@ public class EvaluationService {
         List<Candidate> candidates = prepareCandidates(rule, request.courses(), request.graduated());
         CourseSelection selection = selectCourses(rule, candidates.stream().filter(Candidate::eligible).toList());
         Set<Integer> selectedIndexes = selection.indexes();
+        if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
+            throw CustomException.of(INVALID_EVALUATION_RULE,
+                "반영 가능한 교과성적이 최소 " + rule.getMinimumCourseCount() + "과목 이상이어야 합니다.");
+        }
         Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(rule, candidates, selection);
 
         BigDecimal totalWeight = BigDecimal.ZERO;
@@ -450,6 +455,9 @@ public class EvaluationService {
             throw CustomException.of(INVALID_EVALUATION_RULE, "학년 반영 비율의 합은 100이어야 합니다.");
         if (request.subjectWeights().stream().allMatch(value -> value.signum() == 0))
             throw CustomException.of(INVALID_EVALUATION_RULE, "교과 반영 가중치는 하나 이상 0보다 커야 합니다.");
+        if (request.minimumCourseCount() > 0 && request.selectionStrategy() == SelectionStrategy.TOP_N_COURSES
+            && request.minimumCourseCount() > request.selectionCount())
+            throw CustomException.of(INVALID_EVALUATION_RULE, "최소 반영과목 수는 선택 과목 수보다 클 수 없습니다.");
         if (request.selectionStrategy() != SelectionStrategy.ALL_COURSES
             && request.selectionStrategy() != SelectionStrategy.BEST_SEMESTER_PER_GRADE
             && request.selectionCount() < 1)

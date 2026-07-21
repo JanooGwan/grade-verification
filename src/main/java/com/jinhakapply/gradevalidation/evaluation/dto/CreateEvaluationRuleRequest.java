@@ -28,6 +28,7 @@ public record CreateEvaluationRuleRequest(
     @NotNull SelectionStrategy selectionStrategy,
     @Min(0) @Max(100) int selectionCount,
     @Min(0) @Max(100) int achievementSelectionCount,
+    @Min(0) @Max(100) int minimumCourseCount,
     @NotNull ScoreAggregation scoreAggregation,
     @NotNull AchievementConversion achievementConversion,
     boolean includeThirdYearSecondSemester,

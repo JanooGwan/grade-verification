@@ -195,6 +195,51 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void rejectsApplicantsBelowConfiguredMinimumCourseCount() {
+        EvaluationRule minimumTwelveRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(minimumTwelveRule, "minimumCourseCount", 12);
+        mockRule(minimumTwelveRule);
+        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.rangeClosed(1, 11)
+            .mapToObj(index -> course(1 + (index - 1) / 4, 1, SubjectCategory.KOREAN,
+                "국어" + index, 3, "3"))
+            .toList();
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, false, courses)))
+            .isInstanceOf(CustomException.class)
+            .satisfies(exception -> assertThat(((CustomException) exception).getDetail())
+                .contains("최소 12과목"));
+    }
+
+    @Test
+    void reproducesHanshinPublishedCalculationExample() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        hanshinRule.getGradeScores().clear();
+        List<BigDecimal> convertedScores = decimals("100", "99", "98", "97", "96", "95", "94", "80", "50");
+        for (int grade = 1; grade <= convertedScores.size(); grade++) {
+            hanshinRule.getGradeScores().put(grade, convertedScores.get(grade - 1));
+        }
+        ReflectionTestUtils.setField(hanshinRule, "minimumCourseCount", 12);
+        ReflectionTestUtils.setField(hanshinRule, "intermediateScale", 3);
+        ReflectionTestUtils.setField(hanshinRule, "finalScale", 2);
+        ReflectionTestUtils.setField(hanshinRule, "scoreMultiplier", new BigDecimal("10"));
+        mockRule(hanshinRule);
+        int[] grades = {3, 2, 4, 3, 2, 3, 2, 2, 2, 3, 3, 3};
+        int[] credits = {5, 3, 5, 5, 3, 3, 2, 3, 3, 2, 5, 3};
+        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.range(0, grades.length)
+            .mapToObj(index -> course(1 + index / 4, 1, SubjectCategory.KOREAN,
+                "반영과목" + (index + 1), grades[index], Integer.toString(credits[index])))
+            .toList();
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false, courses));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("982.14");
+    }
+
+    @Test
     void rejectsDraftRuleForGradeCalculation() {
         EvaluationRule draft = rule(SelectionStrategy.ALL_COURSES, 0, ScoreAggregation.COURSE_SCORE_AVERAGE,
             decimals("33.3333", "33.3333", "33.3334"), decimals("1", "1", "1", "1", "1", "1"));
@@ -244,7 +289,7 @@ class EvaluationServiceTest {
         University university = University.create("TEST", "테스트대학교");
         EvaluationRule rule = EvaluationRule.create(university, "테스트 규칙", 2027, "학생부교과", "전체", 1,
             gradeWeights, subjectWeights, decimals("100", "95", "90", "85", "80", "70", "60", "50", "40"),
-            selection, selectionCount, 2, aggregation, achievementConversion, false, false, false, false,
+            selection, selectionCount, 2, 0, aggregation, achievementConversion, false, false, false, false,
             4, RoundingMode.HALF_UP,
             4, RoundingMode.HALF_UP, BigDecimal.ONE, decimals("1", "3", "5"), decimals("100", "95", "90"),
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);
