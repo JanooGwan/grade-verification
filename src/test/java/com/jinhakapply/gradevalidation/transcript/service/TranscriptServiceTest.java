@@ -99,6 +99,57 @@ class TranscriptServiceTest {
     }
 
     @Test
+    void rejectsDuplicateAttendanceSchoolYearsBeforeReplacingCommonData() {
+        Student student = Student.create(2027, "A-001", "학생", null, null, 2027);
+        ReflectionTestUtils.setField(student, "id", 1L);
+        when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
+        var request = new UpdateStudentCommonDataRequest(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.EXPECTED_GRADUATE, null,
+            List.of(
+                new UpdateStudentCommonDataRequest.Attendance(1, 0, 0, 0, 0),
+                new UpdateStudentCommonDataRequest.Attendance(1, 1, 0, 0, 0)
+            ),
+            List.of()
+        );
+
+        assertThatThrownBy(() -> transcriptService.updateStudentCommonData(1L, request))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_STUDENT_COMMON_DATA));
+        verifyNoInteractions(attendanceRepository, schoolViolenceRepository);
+    }
+
+    @Test
+    void requiresAverageScoreForGedApplicant() {
+        Student student = Student.create(2027, "A-001", "학생", null, null, null);
+        ReflectionTestUtils.setField(student, "id", 1L);
+        when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
+        var request = new UpdateStudentCommonDataRequest(
+            EducationBackground.GED, GraduationStatus.GRADUATE, null, List.of(), List.of()
+        );
+
+        assertThatThrownBy(() -> transcriptService.updateStudentCommonData(1L, request))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_STUDENT_COMMON_DATA));
+        verifyNoInteractions(attendanceRepository, schoolViolenceRepository);
+    }
+
+    @Test
+    void rejectsGedAverageScoreForHighSchoolApplicant() {
+        Student student = Student.create(2027, "A-001", "학생", null, null, 2026);
+        ReflectionTestUtils.setField(student, "id", 1L);
+        when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
+        var request = new UpdateStudentCommonDataRequest(
+            EducationBackground.FOREIGN_HIGH_SCHOOL, GraduationStatus.GRADUATE, new BigDecimal("90.0"),
+            List.of(), List.of()
+        );
+
+        assertThatThrownBy(() -> transcriptService.updateStudentCommonData(1L, request))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_STUDENT_COMMON_DATA));
+        verifyNoInteractions(attendanceRepository, schoolViolenceRepository);
+    }
+
+    @Test
     void updatesExistingStudentAndCreatesCourse() {
         MockMultipartFile file = new MockMultipartFile(
             "file",

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -323,6 +324,35 @@ class ApiContractTest {
             .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"));
 
         verify(transcriptService, never()).findStudents(anyInt(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void rejectsInvalidStudentCommonDataBeforeCallingService() throws Exception {
+        mockMvc.perform(put("/api/transcripts/students/3/common-data")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "gedAverageScore": 101,
+                      "attendance": [{
+                        "schoolYear": 4,
+                        "unexcusedAbsenceDays": -1,
+                        "unexcusedTardyCount": 0,
+                        "unexcusedEarlyLeaveCount": 0,
+                        "unexcusedClassAbsenceCount": 0
+                      }],
+                      "schoolViolenceActions": [{"schoolYear": 1, "actionNumber": 10, "active": true}]
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"))
+            .andExpect(jsonPath("$.fieldErrors.educationBackground").exists())
+            .andExpect(jsonPath("$.fieldErrors.graduationStatus").exists())
+            .andExpect(jsonPath("$.fieldErrors.gedAverageScore").exists())
+            .andExpect(jsonPath("$.fieldErrors['attendance[0].schoolYear']").exists())
+            .andExpect(jsonPath("$.fieldErrors['attendance[0].unexcusedAbsenceDays']").exists())
+            .andExpect(jsonPath("$.fieldErrors['schoolViolenceActions[0].actionNumber']").exists());
+
+        verify(transcriptService, never()).updateStudentCommonData(anyLong(), any());
     }
 
     @Test

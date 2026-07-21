@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.admission.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -11,7 +12,11 @@ import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationS
 import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
+import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class Hanshin2027QuantitativeScoreCalculatorTest {
     private final Hanshin2027QuantitativeScoreCalculator calculator =
@@ -100,6 +105,51 @@ class Hanshin2027QuantitativeScoreCalculatorTest {
 
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("20.00");
         assertThat(result.warnings()).contains("복수의 학교폭력 조치 중 가장 높은 조치 호수를 적용했습니다.");
+    }
+
+    @Test
+    void requiresAttendanceForDomesticTalentTrack() {
+        var commonData = new StudentCommonEvaluationSnapshot(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.EXPECTED_GRADUATE,
+            null, List.of(), List.of()
+        );
+
+        assertThatThrownBy(() -> calculator.calculate(
+            "\ud55c\uc2e0\ub300\ud559\uad50", 2027, "\ud559\uc0dd\ubd80\uc885\ud569(\ucc38\uc778\uc7ac)",
+            new BigDecimal("98"), request(null, null), commonData
+        )).isInstanceOfSatisfying(CustomException.class, exception ->
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+    }
+
+    @Test
+    void ignoresInactiveSchoolViolenceAction() {
+        var commonData = new StudentCommonEvaluationSnapshot(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, null, List.of(),
+            List.of(new StudentCommonEvaluationSnapshot.SchoolViolenceAction(3, 9, null, false, null))
+        );
+
+        var result = calculator.calculate(
+            "\ud55c\uc2e0\ub300\ud559\uad50", 2027, "\uc77c\ubc18\uc804\ud615", new BigDecimal("98"),
+            request(null, null), commonData
+        );
+
+        assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("0.00");
+        assertThat(result.finalScore()).isEqualByComparingTo("980.00");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "0, 0.00", "1, 0.00", "3, 0.00", "4, 3.00", "5, 3.00",
+        "6, 5.00", "7, 5.00", "8, 20.00", "9, 20.00"
+    })
+    void appliesSchoolViolenceDeductionBoundaries(int actionNumber, String expectedDeduction) {
+        var result = calculator.calculate(
+            "\ud55c\uc2e0\ub300\ud559\uad50", 2027, "\uc77c\ubc18\uc804\ud615", new BigDecimal("98"),
+            request(null, null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0, 0, 0, actionNumber)
+        );
+
+        assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo(expectedDeduction);
     }
 
     private CalculateApplicationScoreRequest request(String essayScore, String practicalScore) {
