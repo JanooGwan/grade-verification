@@ -43,7 +43,7 @@ public record GradeVerificationResponse(
         SubjectCategory appliedSubjectCategory,
         Integer grade, AchievementLevel achievement, BigDecimal effectiveGrade,
         BigDecimal convertedScore, BigDecimal gradeWeight,
-        BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedWeight,
+        BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedCredits, BigDecimal appliedWeight,
         BigDecimal weightedScore, boolean included, String exclusionReason
     ) {}
 }

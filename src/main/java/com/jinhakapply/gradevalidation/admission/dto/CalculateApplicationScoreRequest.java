@@ -7,6 +7,10 @@ import jakarta.validation.constraints.DecimalMin;
 
 public record CalculateApplicationScoreRequest(
     @DecimalMin("0.0") @DecimalMax("800.0") BigDecimal essayScore,
-    @DecimalMin("0.0") @DecimalMax("550.0") BigDecimal practicalScore
+    @DecimalMin("0.0") @DecimalMax("550.0") BigDecimal practicalScore,
+    @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal bonusScore
 ) {
+    public CalculateApplicationScoreRequest(BigDecimal essayScore, BigDecimal practicalScore) {
+        this(essayScore, practicalScore, null);
+    }
 }

@@ -39,6 +39,26 @@ class ReadOnlySqlValidatorTest {
         ))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("reserved words");
+
+        assertThatThrownBy(() -> validator.validate(
+            "SELECT order.id FROM student AS order",
+            allowedTables
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reserved words");
+
+        assertThatThrownBy(() -> validator.validate(
+            "SELECT order.id FROM student order",
+            allowedTables
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reserved words");
+    }
+
+    @Test
+    void ignoresReservedAliasTextInsideStringLiteral() {
+        Set<String> tables = validator.validate(
+            "SELECT 'order.' AS label, s.id FROM student s WHERE s.admission_year = 2027 ORDER BY s.id",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
     }
 
     @Test

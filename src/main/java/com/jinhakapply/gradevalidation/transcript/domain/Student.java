@@ -85,8 +85,7 @@ public class Student {
         updateProfile(name, highSchoolCode, highSchoolName, graduationYear);
         this.educationBackground = EducationBackground.DOMESTIC_HIGH_SCHOOL;
         this.highSchoolType = HighSchoolType.GENERAL;
-        this.graduationStatus = graduationYear != null && graduationYear < admissionYear
-            ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
+        this.graduationStatus = inferGraduationStatus(graduationYear);
         this.createdAt = this.updatedAt;
     }
 
@@ -118,7 +117,13 @@ public class Student {
         this.highSchoolCode = highSchoolCode;
         this.highSchoolName = highSchoolName;
         this.graduationYear = graduationYear;
+        this.graduationStatus = inferGraduationStatus(graduationYear);
         this.updatedAt = LocalDateTime.now();
+    }
+
+    private GraduationStatus inferGraduationStatus(Integer graduationYear) {
+        return graduationYear != null && graduationYear < admissionYear
+            ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
     }
 
     public void updateCommonEvaluationProfile(

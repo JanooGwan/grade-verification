@@ -18,11 +18,29 @@ import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import org.springframework.stereotype.Component;
 
 @Component
-public class Hanshin2027QuantitativeScoreCalculator {
+public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScoreCalculator {
     private static final BigDecimal MAX_TOTAL = new BigDecimal("1000");
 
     public boolean supports(String universityName, int admissionYear) {
         return admissionYear == 2027 && normalize(universityName).contains("한신");
+    }
+
+    @Override
+    public boolean supports(com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule rule) {
+        return supports(rule.getUniversity().getName(), rule.getAdmissionYear());
+    }
+
+    @Override
+    public ApplicationScoreResult calculate(
+        com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule rule,
+        String admissionTrackName,
+        com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse gradeVerification,
+        CalculateApplicationScoreRequest request,
+        StudentCommonEvaluationSnapshot commonData
+    ) {
+        BigDecimal domesticBaseScore = gradeVerification == null ? null : gradeVerification.baseScore();
+        return calculate(rule.getUniversity().getName(), rule.getAdmissionYear(), admissionTrackName,
+            domesticBaseScore, request, commonData);
     }
 
     public ApplicationScoreResult calculate(

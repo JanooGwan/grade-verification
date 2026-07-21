@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V14`를 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
+이 문서는 Flyway 마이그레이션 `V1`~`V18`을 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
 
 ## 테이블 설명
 
@@ -57,11 +57,13 @@ erDiagram
         VARCHAR selection_strategy "과목 선택 방식"
         INT selection_count "일반 과목 선택 수"
         INT achievement_selection_count "성취도 과목 선택 수"
+        INT minimum_course_count "최소 반영 과목 수"
         VARCHAR score_aggregation "점수 집계 방식"
         VARCHAR achievement_conversion "성취도 환산 방식"
         BOOLEAN include_third_year_second_semester "3학년 2학기 포함 여부"
         BOOLEAN include_third_year_second_semester_for_graduates "졸업생 3학년 2학기 포함 여부"
         BOOLEAN include_professional_courses "전문교과 포함 여부"
+        BOOLEAN apply_grade_weights "학년 가중치 적용 여부"
         BOOLEAN normalize_grade_weights "학년 비율 정규화 여부"
         INT intermediate_scale "중간 계산 소수 자릿수"
         VARCHAR intermediate_rounding "중간 계산 반올림 방식"

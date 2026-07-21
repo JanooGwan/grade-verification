@@ -51,7 +51,7 @@ public class ApplicationScoreService {
     private final EvaluationRuleRepository ruleRepository;
     private final EvaluationService evaluationService;
     private final ApplicationScoreRunRepository scoreRunRepository;
-    private final Hanshin2027QuantitativeScoreCalculator calculator;
+    private final List<QuantitativeScoreCalculator> calculators;
     private final ObjectMapper objectMapper;
     private final StudentAttendanceRepository attendanceRepository;
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
@@ -71,7 +71,6 @@ public class ApplicationScoreService {
         StudentCommonEvaluationSnapshot commonData = commonData(application);
 
         GradeVerificationResponse gradeVerification = null;
-        BigDecimal domesticBaseScore = null;
         if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
             List<StudentTranscriptCourse> courses = courseRepository
                 .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
@@ -82,13 +81,16 @@ public class ApplicationScoreService {
                 courses.stream().map(this::toCourseGrade).toList()
             );
             gradeVerification = evaluationService.verify(gradeRequest);
-            domesticBaseScore = gradeVerification.baseScore();
         }
 
         var track = application.getRecruitmentUnit().getAdmissionTrack();
+        QuantitativeScoreCalculator calculator = calculators.stream()
+            .filter(candidate -> candidate.supports(rule))
+            .findFirst()
+            .orElseThrow(() -> CustomException.of(
+                com.jinhakapply.gradevalidation.global.code.ApiResponseCode.APPLICATION_SCORE_POLICY_NOT_FOUND));
         ApplicationScoreResult result = calculator.calculate(
-            track.getUniversity().getName(), track.getAdmissionYear(), track.getName(), domesticBaseScore,
-            request, commonData
+            rule, track.getName(), gradeVerification, request, commonData
         );
         StoredApplicationScore storedResult = new StoredApplicationScore(request, commonData, result, gradeVerification);
         ApplicationScoreRun run = scoreRunRepository.save(ApplicationScoreRun.create(

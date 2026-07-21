@@ -178,6 +178,51 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void tukCareerCourseUsesOneAppliedCreditAndExposesItInTrace() {
+        EvaluationRule tukRule = rule(SelectionStrategy.CORE_SCIENCE_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(tukRule.getUniversity(), "name", "한국공학대학교");
+        ReflectionTestUtils.setField(tukRule, "applyGradeWeights", false);
+        mockRule(tukRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.SCIENCE, "과학", 3, "3"),
+            careerCourse(1, 1, SubjectCategory.SCIENCE, "과학 진로", AchievementLevel.A, "5")
+        )));
+
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학 진로"))
+            .extracting(GradeVerificationResponse.CourseCalculation::credits,
+                GradeVerificationResponse.CourseCalculation::appliedCredits)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(new BigDecimal("5"), BigDecimal.ONE));
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("4");
+    }
+
+    @Test
+    void syuTopSubjectsAreChosenByConvertedDomainScoreNotRawAverageGrade() {
+        EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 1,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        syuRule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "100", "99", "99", "98", "90", "90", "70", "70");
+        for (int grade = 1; grade <= 9; grade++) syuRule.getGradeScores().put(grade, scores.get(grade - 1));
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어1", 1, "1"),
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 8, "1"),
+            course(1, 1, SubjectCategory.MATH, "수학1", 5, "1"),
+            course(1, 2, SubjectCategory.MATH, "수학2", 5, "1")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::subjectCategory)
+            .containsOnly(SubjectCategory.MATH);
+    }
+
+    @Test
     void includesThirdYearSecondSemesterOnlyForGraduatesWhenConfigured() {
         EvaluationRule graduateRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
@@ -270,6 +315,25 @@ class EvaluationServiceTest {
 
         assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
         assertThat(response.includedCourseCount()).isEqualTo(13);
+    }
+
+    @Test
+    void allSubjectScopeUsesOneForNormalizedYearDenominator() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "normalizeGradeWeights", true);
+        mockRule(hanshinRule);
+        VerifyGradeRequest.CourseGrade other = course(1, 1, SubjectCategory.OTHER, "예술 교과", 2, "3");
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, List.of(other)
+        ));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("95.0000");
+        assertThat(response.calculationSummary().yearWeightDenominators())
+            .containsEntry(1, new BigDecimal("3"));
     }
 
     @Test

@@ -29,4 +29,13 @@ class StudentTest {
         assertThat(student.getGraduationStatus()).isEqualTo(GraduationStatus.GRADUATE);
         assertThat(student.getGedAverageScore()).isEqualByComparingTo("94.50");
     }
+
+    @Test
+    void resynchronizesGraduationStatusWhenImportedGraduationYearChanges() {
+        Student student = Student.create(2027, "A-003", "지원자", null, null, 2027);
+
+        student.updateProfile("지원자", null, null, 2026);
+
+        assertThat(student.getGraduationStatus()).isEqualTo(GraduationStatus.GRADUATE);
+    }
 }
