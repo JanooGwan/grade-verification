@@ -2,214 +2,234 @@
 
 이 문서는 Flyway 마이그레이션 `V1`~`V11`을 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
 
+## 테이블 설명
+
+| 테이블 | 역할 |
+|---|---|
+| `university` | 대학 기본정보와 사용 여부를 관리한다. |
+| `admission_track` | 대학·입학연도별 전형을 관리한다. |
+| `recruitment_unit` | 전형에 포함된 모집단위를 관리한다. |
+| `student_application` | 지원자와 지원 모집단위를 연결한다. |
+| `student` | 지원자의 입학연도·수험번호·출신학교 정보를 관리한다. |
+| `student_transcript_course` | 지원자의 학생부 과목별 성적과 이수단위를 관리한다. |
+| `student_transcript_import` | 학생부 파일 가져오기 작업 결과를 기록한다. |
+| `evaluation_rule` | 대학별 성적 반영 규칙과 버전·검토·게시 상태를 관리한다. |
+| `evaluation_rule_grade_score` | 석차등급 1~9등급의 환산점수를 관리한다. |
+| `evaluation_rule_achievement_grade` | 성취도 A~C를 석차등급으로 환산한다. |
+| `evaluation_rule_achievement_score` | 성취도 A~C를 점수로 직접 환산한다. |
+| `evaluation_rule_subject_priority` | 교과군 선택 시 적용할 우선순위를 관리한다. |
+| `evaluation_rule_extraction` | 모집요강 PDF에서 추출한 규칙 후보와 상태를 관리한다. |
+| `evaluation_rule_extraction_evidence` | 추출 항목별 PDF 근거와 신뢰도를 기록한다. |
+| `verification_run` | 지원자 성적 검증 결과와 적용 규칙 버전을 보관한다. |
+
 ```mermaid
 erDiagram
     UNIVERSITY {
-        BIGINT id PK
-        VARCHAR code UK
-        VARCHAR name
-        BOOLEAN active
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "대학 식별자"
+        VARCHAR code UK "대학 코드"
+        VARCHAR name "대학명"
+        BOOLEAN active "사용 여부"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     EVALUATION_RULE {
-        BIGINT id PK
-        BIGINT university_id FK
-        BIGINT extraction_id FK "nullable"
-        VARCHAR name
-        INT admission_year
-        VARCHAR admission_type
-        VARCHAR recruitment_unit
-        INT version
-        DECIMAL grade1_weight
-        DECIMAL grade2_weight
-        DECIMAL grade3_weight
-        DECIMAL korean_weight
-        DECIMAL math_weight
-        DECIMAL english_weight
-        DECIMAL social_weight
-        DECIMAL science_weight
-        DECIMAL other_weight
-        VARCHAR selection_strategy
-        INT selection_count
-        INT achievement_selection_count
-        VARCHAR score_aggregation
-        VARCHAR achievement_conversion
-        BOOLEAN include_third_year_second_semester
-        BOOLEAN include_third_year_second_semester_for_graduates
-        BOOLEAN include_professional_courses
-        BOOLEAN normalize_grade_weights
-        INT intermediate_scale
-        VARCHAR intermediate_rounding
-        INT final_scale
-        VARCHAR final_rounding
-        DECIMAL score_multiplier
-        BOOLEAN active
-        VARCHAR status
-        VARCHAR reviewer "nullable"
-        VARCHAR review_note "nullable"
-        DATETIME reviewed_at "nullable"
-        VARCHAR published_by "nullable"
-        VARCHAR publication_note "nullable"
-        DATETIME published_at "nullable"
-        VARCHAR retired_by "nullable"
-        VARCHAR retire_note "nullable"
-        DATETIME retired_at "nullable"
-        VARCHAR source_document "nullable"
-        VARCHAR source_pages "nullable"
-        VARCHAR interpretation_note "nullable"
-        VARCHAR change_summary "nullable"
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "평가 규칙 식별자"
+        BIGINT university_id FK "적용 대학 식별자"
+        BIGINT extraction_id FK "원본 추출 결과 · nullable"
+        VARCHAR name "규칙명"
+        INT admission_year "입학연도"
+        VARCHAR admission_type "전형명"
+        VARCHAR recruitment_unit "모집단위명"
+        INT version "규칙 버전"
+        DECIMAL grade1_weight "1학년 반영비율"
+        DECIMAL grade2_weight "2학년 반영비율"
+        DECIMAL grade3_weight "3학년 반영비율"
+        DECIMAL korean_weight "국어 반영비율"
+        DECIMAL math_weight "수학 반영비율"
+        DECIMAL english_weight "영어 반영비율"
+        DECIMAL social_weight "사회 반영비율"
+        DECIMAL science_weight "과학 반영비율"
+        DECIMAL other_weight "기타 교과 반영비율"
+        VARCHAR selection_strategy "과목 선택 방식"
+        INT selection_count "일반 과목 선택 수"
+        INT achievement_selection_count "성취도 과목 선택 수"
+        VARCHAR score_aggregation "점수 집계 방식"
+        VARCHAR achievement_conversion "성취도 환산 방식"
+        BOOLEAN include_third_year_second_semester "3학년 2학기 포함 여부"
+        BOOLEAN include_third_year_second_semester_for_graduates "졸업생 3학년 2학기 포함 여부"
+        BOOLEAN include_professional_courses "전문교과 포함 여부"
+        BOOLEAN normalize_grade_weights "학년 비율 정규화 여부"
+        INT intermediate_scale "중간 계산 소수 자릿수"
+        VARCHAR intermediate_rounding "중간 계산 반올림 방식"
+        INT final_scale "최종 점수 소수 자릿수"
+        VARCHAR final_rounding "최종 점수 반올림 방식"
+        DECIMAL score_multiplier "최종 점수 배수"
+        BOOLEAN active "현재 사용 여부"
+        VARCHAR status "초안·검토·게시 상태"
+        VARCHAR reviewer "검토자 · nullable"
+        VARCHAR review_note "검토 메모 · nullable"
+        DATETIME reviewed_at "검토 일시 · nullable"
+        VARCHAR published_by "게시자 · nullable"
+        VARCHAR publication_note "게시 메모 · nullable"
+        DATETIME published_at "게시 일시 · nullable"
+        VARCHAR retired_by "폐기 처리자 · nullable"
+        VARCHAR retire_note "폐기 사유 · nullable"
+        DATETIME retired_at "폐기 일시 · nullable"
+        VARCHAR source_document "출처 문서명 · nullable"
+        VARCHAR source_pages "출처 페이지 · nullable"
+        VARCHAR interpretation_note "규칙 해석 메모 · nullable"
+        VARCHAR change_summary "변경 요약 · nullable"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     EVALUATION_RULE_GRADE_SCORE {
-        BIGINT rule_id PK,FK
-        INT grade_value PK
-        DECIMAL converted_score
+        BIGINT rule_id PK,FK "평가 규칙 식별자"
+        INT grade_value PK "석차등급 1~9"
+        DECIMAL converted_score "등급 환산점수"
     }
 
     EVALUATION_RULE_ACHIEVEMENT_GRADE {
-        BIGINT rule_id PK,FK
-        VARCHAR achievement_level PK
-        DECIMAL converted_grade
+        BIGINT rule_id PK,FK "평가 규칙 식별자"
+        VARCHAR achievement_level PK "성취도 A~C"
+        DECIMAL converted_grade "환산 석차등급"
     }
 
     EVALUATION_RULE_ACHIEVEMENT_SCORE {
-        BIGINT rule_id PK,FK
-        VARCHAR achievement_level PK
-        DECIMAL converted_score
+        BIGINT rule_id PK,FK "평가 규칙 식별자"
+        VARCHAR achievement_level PK "성취도 A~C"
+        DECIMAL converted_score "직접 환산점수"
     }
 
     EVALUATION_RULE_SUBJECT_PRIORITY {
-        BIGINT rule_id PK,FK
-        VARCHAR subject_category PK
-        INT priority_value
+        BIGINT rule_id PK,FK "평가 규칙 식별자"
+        VARCHAR subject_category PK "교과군"
+        INT priority_value "선택 우선순위"
     }
 
     EVALUATION_RULE_EXTRACTION {
-        BIGINT id PK
-        BIGINT university_id FK
-        BIGINT draft_rule_id FK "nullable"
-        INT admission_year
-        VARCHAR original_file_name
-        CHAR file_sha256
-        INT page_count
-        INT text_page_count
-        VARCHAR status
-        VARCHAR selection_strategy "nullable"
-        INT selection_count "nullable"
-        VARCHAR grade_weights_csv "nullable"
-        VARCHAR grade_scores_csv "nullable"
-        VARCHAR achievement_scores_csv "nullable"
-        VARCHAR subject_categories_csv "nullable"
-        BOOLEAN include_third_year_second_semester "nullable"
-        VARCHAR rounding_mode "nullable"
-        VARCHAR source_pages "nullable"
-        DECIMAL overall_confidence
-        VARCHAR missing_fields "nullable"
-        VARCHAR warnings "nullable"
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "규칙 추출 식별자"
+        BIGINT university_id FK "대학 식별자"
+        BIGINT draft_rule_id FK "생성된 초안 규칙 · nullable"
+        INT admission_year "입학연도"
+        VARCHAR original_file_name "원본 PDF 파일명"
+        CHAR file_sha256 "파일 중복 확인 해시"
+        INT page_count "전체 페이지 수"
+        INT text_page_count "텍스트 추출 페이지 수"
+        VARCHAR status "추출 처리 상태"
+        VARCHAR selection_strategy "추출한 과목 선택 방식 · nullable"
+        INT selection_count "추출한 선택 과목 수 · nullable"
+        VARCHAR grade_weights_csv "추출한 학년 비율 · nullable"
+        VARCHAR grade_scores_csv "추출한 등급 점수표 · nullable"
+        VARCHAR achievement_scores_csv "추출한 성취도 점수표 · nullable"
+        VARCHAR subject_categories_csv "추출한 교과군 목록 · nullable"
+        BOOLEAN include_third_year_second_semester "3학년 2학기 포함 여부 · nullable"
+        VARCHAR rounding_mode "반올림 방식 · nullable"
+        VARCHAR source_pages "근거 페이지 · nullable"
+        DECIMAL overall_confidence "전체 추출 신뢰도"
+        VARCHAR missing_fields "누락 항목 · nullable"
+        VARCHAR warnings "추출 경고 · nullable"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     EVALUATION_RULE_EXTRACTION_EVIDENCE {
-        BIGINT id PK
-        BIGINT extraction_id FK
-        VARCHAR field_key
-        INT page_number
-        VARCHAR excerpt
-        DECIMAL confidence
+        BIGINT id PK "추출 근거 식별자"
+        BIGINT extraction_id FK "규칙 추출 식별자"
+        VARCHAR field_key "근거 대상 항목"
+        INT page_number "PDF 페이지 번호"
+        VARCHAR excerpt "원문 발췌 내용"
+        DECIMAL confidence "항목별 신뢰도"
     }
 
     STUDENT {
-        BIGINT id PK
-        INT admission_year UK
-        VARCHAR applicant_number UK
-        VARCHAR name
-        VARCHAR high_school_code "nullable"
-        VARCHAR high_school_name "nullable"
-        INT graduation_year "nullable"
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "지원자 식별자"
+        INT admission_year UK "입학연도"
+        VARCHAR applicant_number UK "수험번호"
+        VARCHAR name "지원자명"
+        VARCHAR high_school_code "출신고교 코드 · nullable"
+        VARCHAR high_school_name "출신고교명 · nullable"
+        INT graduation_year "졸업연도 · nullable"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     STUDENT_TRANSCRIPT_COURSE {
-        BIGINT id PK
-        BIGINT student_id FK
-        INT school_year
-        INT semester
-        VARCHAR subject_category
-        VARCHAR course_name
-        INT grade_value "nullable"
-        VARCHAR achievement "nullable"
-        DECIMAL raw_score "nullable"
-        DECIMAL mean_score "nullable"
-        DECIMAL standard_deviation "nullable"
-        INT student_count "nullable"
-        DECIMAL credits
-        BOOLEAN career_subject
-        BOOLEAN professional_course
-        VARCHAR source_file_name
-        INT source_row_number
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "학생부 과목 식별자"
+        BIGINT student_id FK "지원자 식별자"
+        INT school_year "학년 1~3"
+        INT semester "학기 1~2"
+        VARCHAR subject_category "교과군"
+        VARCHAR course_name "과목명"
+        INT grade_value "석차등급 · nullable"
+        VARCHAR achievement "성취도 · nullable"
+        DECIMAL raw_score "원점수 · nullable"
+        DECIMAL mean_score "과목 평균 · nullable"
+        DECIMAL standard_deviation "표준편차 · nullable"
+        INT student_count "수강자 수 · nullable"
+        DECIMAL credits "이수단위"
+        BOOLEAN career_subject "진로선택 과목 여부"
+        BOOLEAN professional_course "전문교과 여부"
+        VARCHAR source_file_name "원본 파일명"
+        INT source_row_number "원본 행 번호"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     STUDENT_TRANSCRIPT_IMPORT {
-        BIGINT id PK
-        INT admission_year
-        VARCHAR original_file_name
-        VARCHAR import_mode
-        CHAR file_sha256 "nullable"
-        INT total_rows
-        INT imported_rows
-        INT failed_rows
-        VARCHAR status
-        DATETIME created_at
+        BIGINT id PK "가져오기 작업 식별자"
+        INT admission_year "입학연도"
+        VARCHAR original_file_name "원본 파일명"
+        VARCHAR import_mode "가져오기 처리 방식"
+        CHAR file_sha256 "파일 중복 확인 해시 · nullable"
+        INT total_rows "전체 행 수"
+        INT imported_rows "성공 행 수"
+        INT failed_rows "실패 행 수"
+        VARCHAR status "처리 상태"
+        DATETIME created_at "작업 일시"
     }
 
     ADMISSION_TRACK {
-        BIGINT id PK
-        BIGINT university_id FK
-        INT admission_year
-        VARCHAR name
-        BOOLEAN active
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "전형 식별자"
+        BIGINT university_id FK "대학 식별자"
+        INT admission_year "입학연도"
+        VARCHAR name "전형명"
+        BOOLEAN active "사용 여부"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     RECRUITMENT_UNIT {
-        BIGINT id PK
-        BIGINT admission_track_id FK
-        VARCHAR code "nullable"
-        VARCHAR name
-        BOOLEAN active
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "모집단위 식별자"
+        BIGINT admission_track_id FK "전형 식별자"
+        VARCHAR code "모집단위 코드 · nullable"
+        VARCHAR name "모집단위명"
+        BOOLEAN active "사용 여부"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     STUDENT_APPLICATION {
-        BIGINT id PK
-        BIGINT student_id FK
-        BIGINT recruitment_unit_id FK
-        DATETIME created_at
-        DATETIME updated_at
+        BIGINT id PK "지원 정보 식별자"
+        BIGINT student_id FK "지원자 식별자"
+        BIGINT recruitment_unit_id FK "지원 모집단위 식별자"
+        DATETIME created_at "등록 일시"
+        DATETIME updated_at "수정 일시"
     }
 
     VERIFICATION_RUN {
-        BIGINT id PK
-        BIGINT student_id FK
-        BIGINT application_id FK "nullable"
-        BIGINT rule_id FK
-        INT rule_version
-        DECIMAL final_score
-        DECIMAL average_grade
-        INT included_course_count
-        INT excluded_course_count
-        LONGTEXT result_json
-        DATETIME created_at
+        BIGINT id PK "검증 실행 식별자"
+        BIGINT student_id FK "지원자 식별자"
+        BIGINT application_id FK "지원 정보 식별자 · nullable"
+        BIGINT rule_id FK "적용 평가 규칙 식별자"
+        INT rule_version "적용 규칙 버전"
+        DECIMAL final_score "최종 환산점수"
+        DECIMAL average_grade "평균 유효등급"
+        INT included_course_count "반영 과목 수"
+        INT excluded_course_count "제외 과목 수"
+        LONGTEXT result_json "상세 계산 결과 JSON"
+        DATETIME created_at "검증 실행 일시"
     }
 
     UNIVERSITY ||--o{ EVALUATION_RULE : "defines"
