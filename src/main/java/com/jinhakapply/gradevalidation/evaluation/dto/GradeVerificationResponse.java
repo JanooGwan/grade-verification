@@ -11,7 +11,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 public record GradeVerificationResponse(
     Long ruleId, String ruleName, int ruleVersion, String universityName,
     String admissionType, String recruitmentUnit, BigDecimal finalScore,
-    BigDecimal averageGrade, SelectionStrategy selectionStrategy, ScoreAggregation scoreAggregation,
+    BigDecimal baseScore, BigDecimal averageGrade, SelectionStrategy selectionStrategy, ScoreAggregation scoreAggregation,
     String sourceDocument, String sourcePages,
     int includedCourseCount, int excludedCourseCount, List<CourseCalculation> calculations,
     List<String> warnings

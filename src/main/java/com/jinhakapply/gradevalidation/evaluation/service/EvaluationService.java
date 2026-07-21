@@ -187,7 +187,7 @@ public class EvaluationService {
 
         List<String> warnings = buildWarnings(rule, request.courses(), candidates, included);
         return new GradeVerificationResponse(rule.getId(), rule.getName(), rule.getVersion(), rule.getUniversity().getName(),
-            rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, averageGrade,
+            rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, baseScore, averageGrade,
             rule.getSelectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
             included, calculations.size() - included, calculations, warnings);
     }

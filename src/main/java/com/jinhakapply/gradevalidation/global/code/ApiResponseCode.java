@@ -30,6 +30,8 @@ public enum ApiResponseCode {
     INVALID_STUDENT_APPLICATION(HttpStatus.BAD_REQUEST, "학생 지원 정보가 올바르지 않습니다."),
     MATCHING_EVALUATION_RULE_NOT_FOUND(HttpStatus.NOT_FOUND, "지원 정보에 맞는 게시 규칙을 찾을 수 없습니다."),
     CONFLICTING_EVALUATION_RULES(HttpStatus.CONFLICT, "지원 정보에 적용 가능한 게시 규칙이 여러 개입니다."),
+    APPLICATION_SCORE_POLICY_NOT_FOUND(HttpStatus.NOT_FOUND, "지원 전형에 적용할 정량평가 총점 정책을 찾을 수 없습니다."),
+    INVALID_APPLICATION_SCORE_INPUT(HttpStatus.BAD_REQUEST, "전형 총점 계산 입력값이 올바르지 않습니다."),
     TRANSCRIPT_COURSE_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부 과목을 찾을 수 없습니다."),
     DUPLICATE_TRANSCRIPT_COURSE(HttpStatus.CONFLICT, "같은 학년·학기·교과·과목이 이미 존재합니다."),
     DUPLICATE_RULE_EXTRACTION_FILE(HttpStatus.CONFLICT, "같은 모집요강 파일이 이미 분석되었습니다."),

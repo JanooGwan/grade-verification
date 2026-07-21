@@ -25,6 +25,7 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.admission.controller.AdmissionController;
 import com.jinhakapply.gradevalidation.admission.dto.AdmissionTrackResponse;
 import com.jinhakapply.gradevalidation.admission.service.AdmissionService;
+import com.jinhakapply.gradevalidation.admission.service.ApplicationScoreService;
 import com.jinhakapply.gradevalidation.assistant.controller.AssistantController;
 import com.jinhakapply.gradevalidation.assistant.dto.AssistantMessageResponse;
 import com.jinhakapply.gradevalidation.assistant.service.AssistantService;
@@ -74,6 +75,7 @@ class ApiContractTest {
 
     @MockitoBean UniversityService universityService;
     @MockitoBean AdmissionService admissionService;
+    @MockitoBean ApplicationScoreService applicationScoreService;
     @MockitoBean EvaluationService evaluationService;
     @MockitoBean RuleExtractionService ruleExtractionService;
     @MockitoBean TranscriptService transcriptService;
@@ -185,6 +187,22 @@ class ApiContractTest {
             .andExpect(jsonPath("$.fieldErrors.admissionYear").exists());
 
         verify(admissionService, never()).findTracks(anyLong(), anyInt());
+    }
+
+    @Test
+    void rejectsInvalidApplicationScoreRequestBeforeCallingService() throws Exception {
+        mockMvc.perform(post("/api/admissions/students/3/applications/5/score")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"schoolViolenceAction":10,"essayScore":801}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"))
+            .andExpect(jsonPath("$.fieldErrors.educationBackground").exists())
+            .andExpect(jsonPath("$.fieldErrors.schoolViolenceAction").exists())
+            .andExpect(jsonPath("$.fieldErrors.essayScore").exists());
+
+        verify(applicationScoreService, never()).calculate(anyLong(), anyLong(), any());
     }
 
     @Test

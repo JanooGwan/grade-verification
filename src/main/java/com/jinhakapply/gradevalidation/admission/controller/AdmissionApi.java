@@ -4,6 +4,8 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.admission.dto.AdmissionTrackResponse;
 import com.jinhakapply.gradevalidation.admission.dto.ApplicationVerificationResponse;
+import com.jinhakapply.gradevalidation.admission.dto.ApplicationScoreResponse;
+import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateAdmissionTrackRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateRecruitmentUnitRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateStudentApplicationRequest;
@@ -97,6 +99,15 @@ public interface AdmissionApi {
     ResponseEntity<ApplicationVerificationResponse> verifyApplication(
         @PathVariable Long studentId,
         @PathVariable Long applicationId
+    );
+
+    @Operation(summary = "지원 전형 정량평가 총점 계산",
+        description = "검정고시·외국고 대체점수, 출결, 논술·실기 숫자점수와 학교폭력 감점을 합산합니다. 정성평가가 남으면 보류 상태로 반환합니다.")
+    @PostMapping("/students/{studentId}/applications/{applicationId}/score")
+    ResponseEntity<ApplicationScoreResponse> calculateApplicationScore(
+        @PathVariable Long studentId,
+        @PathVariable Long applicationId,
+        @Valid @RequestBody CalculateApplicationScoreRequest request
     );
 
     @Operation(summary = "학생 성적 검증 이력 조회")

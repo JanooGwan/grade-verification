@@ -5,6 +5,8 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.admission.dto.AdmissionTrackResponse;
 import com.jinhakapply.gradevalidation.admission.dto.ApplicationVerificationResponse;
+import com.jinhakapply.gradevalidation.admission.dto.ApplicationScoreResponse;
+import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateAdmissionTrackRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateRecruitmentUnitRequest;
 import com.jinhakapply.gradevalidation.admission.dto.CreateStudentApplicationRequest;
@@ -16,6 +18,7 @@ import com.jinhakapply.gradevalidation.admission.dto.UpdateRecruitmentUnitReques
 import com.jinhakapply.gradevalidation.admission.dto.VerificationHistoryResponse;
 import com.jinhakapply.gradevalidation.admission.dto.VerificationHistoryDetailResponse;
 import com.jinhakapply.gradevalidation.admission.service.AdmissionService;
+import com.jinhakapply.gradevalidation.admission.service.ApplicationScoreService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdmissionController implements AdmissionApi {
     private final AdmissionService admissionService;
+    private final ApplicationScoreService applicationScoreService;
 
     @Override
     public ResponseEntity<AdmissionTrackResponse> createTrack(CreateAdmissionTrackRequest request) {
@@ -82,6 +86,15 @@ public class AdmissionController implements AdmissionApi {
     @Override
     public ResponseEntity<ApplicationVerificationResponse> verifyApplication(Long studentId, Long applicationId) {
         return ResponseEntity.ok(admissionService.verifyApplication(studentId, applicationId));
+    }
+
+    @Override
+    public ResponseEntity<ApplicationScoreResponse> calculateApplicationScore(
+        Long studentId,
+        Long applicationId,
+        CalculateApplicationScoreRequest request
+    ) {
+        return ResponseEntity.ok(applicationScoreService.calculate(studentId, applicationId, request));
     }
 
     @Override
