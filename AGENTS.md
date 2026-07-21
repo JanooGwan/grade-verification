@@ -66,5 +66,8 @@
 - Treat this directory as an independent Git repository.
 - Run Git commands from this repository, not from the parent `project` or `입학관리` directory.
 - Do not include frontend or surrounding business-document files in backend commits.
+- Do not commit or push generated high-volume files such as ERD screenshots, high-resolution images, videos, archives, or other large binary artifacts. Keep them outside the repository or under an ignored local-only path.
+- Before committing or pushing, verify that staged changes and outgoing commits do not contain unintended large binary files. Add local export paths and generated image patterns to `.gitignore` when appropriate.
+- Only add a large binary artifact to Git when the user explicitly requests that exact file to be version-controlled and confirms that it may be uploaded to the remote repository.
 - Work on `develop` unless the user requests another branch.
 - Keep commits small and focused on one coherent change, and push verified completed work to `origin/develop` by default.
