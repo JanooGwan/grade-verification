@@ -10,6 +10,7 @@ record TransferExcelParseResult(
     List<TranscriptExcelRow> courses,
     int invalidRows,
     int skippedRows,
+    List<TranscriptImportRowError> skipped,
     List<TranscriptImportRowError> errors,
     List<String> warnings
 ) {

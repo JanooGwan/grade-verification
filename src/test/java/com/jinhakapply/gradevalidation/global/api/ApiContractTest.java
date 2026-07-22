@@ -86,6 +86,31 @@ class ApiContractTest {
     @MockitoBean OperationalMetrics operationalMetrics;
 
     @Test
+    void downloadsTranscriptValidationResultAsExcel() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            new byte[] {1, 2, 3}
+        );
+        when(transcriptService.exportExcelValidation(anyInt(), anyLong(), any(MultipartFile.class)))
+            .thenReturn(new byte[] {4, 5, 6});
+
+        mockMvc.perform(multipart("/api/transcripts/imports/excel/preview/export")
+                .file(file)
+                .param("admissionYear", "2027")
+                .param("universityId", "1"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {4, 5, 6}));
+    }
+
+    @Test
     void downloadsVerificationResultAsExcel() throws Exception {
         when(admissionService.exportVerificationResult(10L, 20L)).thenReturn(new byte[] {1, 2, 3});
 

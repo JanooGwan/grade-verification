@@ -59,6 +59,18 @@ public interface TranscriptApi {
         @RequestPart("file") MultipartFile file
     );
 
+    @Operation(summary = "학생부 Excel 가져오기 검증 결과 다운로드")
+    @PostMapping(
+        value = "/imports/excel/preview/export",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<byte[]> exportExcelValidation(
+        @RequestParam int admissionYear,
+        @RequestParam(required = false) Long universityId,
+        @RequestPart("file") MultipartFile file
+    );
+
     @Operation(summary = "학생부 Excel 업로드 양식 다운로드")
     @GetMapping(value = "/imports/template", produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ResponseEntity<byte[]> downloadTemplate();

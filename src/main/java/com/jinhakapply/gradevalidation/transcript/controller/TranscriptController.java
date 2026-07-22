@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.controller;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
@@ -10,6 +11,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.MediaType;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
@@ -46,6 +48,19 @@ public class TranscriptController implements TranscriptApi {
         MultipartFile file
     ) {
         return ResponseEntity.ok(transcriptService.previewExcel(admissionYear, universityId, file));
+    }
+
+    @Override
+    public ResponseEntity<byte[]> exportExcelValidation(int admissionYear, Long universityId, MultipartFile file) {
+        byte[] result = transcriptService.exportExcelValidation(admissionYear, universityId, file);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(result.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("가져오기-검증결과.xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
     }
 
     @Override

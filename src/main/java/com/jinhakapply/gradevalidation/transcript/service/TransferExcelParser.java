@@ -90,6 +90,7 @@ class TransferExcelParser {
         List<TransferApplicationRow> applications = new ArrayList<>();
         List<TranscriptExcelRow> courses = new ArrayList<>();
         List<TranscriptImportRowError> errors = new ArrayList<>();
+        List<TranscriptImportRowError> skipped = new ArrayList<>();
         Set<String> found = new HashSet<>();
         int[] invalidRows = {0};
         int[] skippedRows = {0};
@@ -126,6 +127,12 @@ class TransferExcelParser {
                             }
                             if (optional(values, 6) == null) {
                                 skippedRows[0]++;
+                                String courseName = optional(values, 8);
+                                skipped.add(new TranscriptImportRowError(
+                                    rowNumber + 1,
+                                    "편제명 없음 - 한신대 반영 대상 외 과목" +
+                                        (courseName == null ? "" : " (" + courseName + ")")
+                                ));
                                 return;
                             }
                             try {
@@ -164,6 +171,7 @@ class TransferExcelParser {
             List.copyOf(courses),
             invalidRows[0],
             skippedRows[0],
+            List.copyOf(skipped),
             List.copyOf(errors),
             warnings(missingAssessmentRows[0], skippedRows[0])
         );
