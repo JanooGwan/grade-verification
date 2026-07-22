@@ -32,6 +32,9 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentGedSubjectScore;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentLegacyGradeSummary;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
@@ -48,6 +51,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolen
 import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,6 +75,8 @@ public class TranscriptService {
     private final StudentTranscriptImportRepository importRepository;
     private final StudentAttendanceRepository attendanceRepository;
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
+    private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
+    private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
@@ -151,11 +158,15 @@ public class TranscriptService {
 
             course.updateScore(
                 row.grade(),
+                row.gradeScale(),
                 row.achievement(),
                 row.rawScore(),
                 row.meanScore(),
                 row.standardDeviation(),
                 row.studentCount(),
+                row.rankPosition(),
+                row.tiedRankCount(),
+                row.legacyAchievement(),
                 row.credits(),
                 row.careerSubject(),
                 row.professionalCourse(),
@@ -222,7 +233,8 @@ public class TranscriptService {
     public byte[] createExcelTemplate() {
         String[] headers = {
             "지원자번호", "학생명", "고교코드", "고교명", "졸업연도", "학년", "학기", "교과",
-            "과목명", "석차등급", "성취도", "원점수", "과목평균", "표준편차", "수강자수",
+            "과목명", "석차등급", "등급제", "성취도", "원점수", "과목평균", "표준편차", "수강자수",
+            "석차", "동석차인원", "구교육과정평어",
             "이수단위", "진로선택", "전문교과"
         };
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -288,6 +300,8 @@ public class TranscriptService {
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
         return StudentTranscriptResponse.of(
             student,
+            gedSubjectScoreRepository.findAllByStudent_IdOrderBySubjectTypeAscSubjectNameAsc(student.getId()),
+            legacyGradeSummaryRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAsc(student.getId()),
             attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
             schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId())
@@ -325,6 +339,19 @@ public class TranscriptService {
             StudentSchoolViolenceAction.create(
                 student, item.schoolYear(), item.actionNumber(), item.actionDate(), item.active(), clean(item.note())
             )
+        ).toList());
+
+        gedSubjectScoreRepository.deleteAllByStudent_Id(studentId);
+        gedSubjectScoreRepository.flush();
+        gedSubjectScoreRepository.saveAll(request.gedSubjectScores().stream().map(item ->
+            StudentGedSubjectScore.create(student, item.subjectType(), item.subjectName(), item.score())
+        ).toList());
+
+        legacyGradeSummaryRepository.deleteAllByStudent_Id(studentId);
+        legacyGradeSummaryRepository.flush();
+        legacyGradeSummaryRepository.saveAll(request.legacyGradeSummaries().stream().map(item ->
+            StudentLegacyGradeSummary.create(student, item.summaryType(), item.schoolYear(), item.semester(),
+                item.rankPosition(), item.tiedRankCount(), item.cohortSize(), item.credits())
         ).toList());
         return transcript(student);
     }
@@ -370,6 +397,8 @@ public class TranscriptService {
 
     private StudentTranscriptResponse transcript(Student student) {
         return StudentTranscriptResponse.of(student,
+            gedSubjectScoreRepository.findAllByStudent_IdOrderBySubjectTypeAscSubjectNameAsc(student.getId()),
+            legacyGradeSummaryRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAsc(student.getId()),
             attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
             schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId()));
@@ -381,30 +410,75 @@ public class TranscriptService {
             throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "출결은 학년별로 한 건만 등록할 수 있습니다.");
         }
         if (request.educationBackground() == EducationBackground.GED
-            && request.gedAverageScore() == null) {
-            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시 출신자는 전 과목 평균점수가 필요합니다.");
+            && request.gedAverageScore() == null && request.gedSubjectScores().isEmpty()) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "검정고시 출신자는 전 과목 평균점수 또는 과목별 점수가 필요합니다.");
         }
         if (request.educationBackground() != EducationBackground.GED
-            && request.gedAverageScore() != null) {
-            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시가 아닌 지원자에게 검정고시 평균점수를 입력할 수 없습니다.");
+            && (request.gedAverageScore() != null || !request.gedSubjectScores().isEmpty())) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "검정고시가 아닌 지원자에게 검정고시 점수를 입력할 수 없습니다.");
         }
         if (request.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL
             && request.highSchoolType() != HighSchoolType.GENERAL) {
             throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
                 "고교 유형은 국내 고등학교 지원자에게만 설정할 수 있습니다.");
         }
+        if (request.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL
+            && !request.legacyGradeSummaries().isEmpty()) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "구교육과정 학기·학년 석차는 국내 고등학교 지원자에게만 입력할 수 있습니다.");
+        }
+        Set<String> gedNames = new HashSet<>();
+        if (request.gedSubjectScores().stream().anyMatch(item -> !gedNames.add(item.subjectName().trim()))) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시 과목명은 중복될 수 없습니다.");
+        }
+        Set<String> summaries = new HashSet<>();
+        for (UpdateStudentCommonDataRequest.LegacyGradeSummary item : request.legacyGradeSummaries()) {
+            if (item.summaryType() == LegacySummaryType.SEMESTER && item.semester() == null) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "학기 석차 요약에는 학기가 필요합니다.");
+            }
+            if (item.summaryType() == LegacySummaryType.YEAR && item.semester() != null) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "학년 석차 요약에는 학기를 입력할 수 없습니다.");
+            }
+            if (item.rankPosition() > item.cohortSize()
+                || (item.tiedRankCount() != null
+                && item.rankPosition() + item.tiedRankCount() - 1 > item.cohortSize())) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "구교육과정 석차·동석차 범위가 재적수를 초과합니다.");
+            }
+            String key = item.summaryType() + ":" + item.schoolYear() + ":" + item.semester();
+            if (!summaries.add(key)) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "같은 학기 또는 학년의 석차 요약이 중복되었습니다.");
+            }
+        }
     }
 
     private void updateCourse(StudentTranscriptCourse course, UpsertTranscriptCourseRequest request) {
         course.updateCourse(request.schoolYear(), request.semester(), request.subjectCategory(), request.courseName(),
-            request.grade(), request.achievement(), request.rawScore(), request.meanScore(), request.standardDeviation(),
-            request.studentCount(), request.credits(), request.careerSubject(), request.professionalCourse(),
+            request.grade(), request.gradeScale(), request.achievement(), request.rawScore(), request.meanScore(),
+            request.standardDeviation(), request.studentCount(), request.rankPosition(), request.tiedRankCount(),
+            request.legacyAchievement(), request.credits(), request.careerSubject(), request.professionalCourse(),
             "MANUAL", 0);
     }
 
     private void validateCourse(UpsertTranscriptCourseRequest request) {
-        if (request.grade() == null && request.achievement() == null) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차등급 또는 성취도 중 하나는 필요합니다.");
+        if (request.grade() == null && request.achievement() == null && request.rankPosition() == null
+            && request.legacyAchievement() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "석차등급, 성취도, 석차 또는 구교육과정 평어 중 하나는 필요합니다.");
+        }
+        if (request.grade() != null && request.grade() > request.gradeScale().maximumGrade()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                request.gradeScale() + " 등급제에서는 " + request.gradeScale().maximumGrade() + "등급까지만 입력할 수 있습니다.");
+        }
+        if (request.rankPosition() != null && request.studentCount() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차를 입력할 때는 재적수도 필요합니다.");
+        }
+        if (request.rankPosition() != null && request.rankPosition() > request.studentCount()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차는 재적수 이하여야 합니다.");
+        }
+        if (request.tiedRankCount() != null && request.rankPosition() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "동석차 인원을 입력할 때는 석차도 필요합니다.");
         }
     }
 

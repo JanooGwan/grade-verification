@@ -32,6 +32,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCo
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +60,10 @@ class TranscriptServiceTest {
     private StudentAttendanceRepository attendanceRepository;
     @Mock
     private StudentSchoolViolenceActionRepository schoolViolenceRepository;
+    @Mock
+    private StudentGedSubjectScoreRepository gedSubjectScoreRepository;
+    @Mock
+    private StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
 
     private TranscriptService transcriptService;
 
@@ -69,7 +75,9 @@ class TranscriptServiceTest {
             courseRepository,
             importRepository,
             attendanceRepository,
-            schoolViolenceRepository
+            schoolViolenceRepository,
+            gedSubjectScoreRepository,
+            legacyGradeSummaryRepository
         );
     }
 

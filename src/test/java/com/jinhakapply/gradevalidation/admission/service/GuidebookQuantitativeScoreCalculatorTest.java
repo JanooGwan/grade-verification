@@ -15,8 +15,10 @@ import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRe
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +59,34 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
+    void reproducesMjcGuidebookGedThirtyFourUnitGoldenExample() {
+        var common = new StudentCommonEvaluationSnapshot(
+            EducationBackground.GED, com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType.GENERAL,
+            GraduationStatus.GRADUATE, null, null,
+            List.of(
+                ged(GedSubjectType.KOREAN, "국어", "87"), ged(GedSubjectType.ENGLISH, "영어", "82"),
+                ged(GedSubjectType.MATH, "수학", "78"), ged(GedSubjectType.KOREAN_HISTORY, "한국사", "84"),
+                ged(GedSubjectType.SOCIAL, "사회", "94"), ged(GedSubjectType.SCIENCE, "과학", "73"),
+                ged(GedSubjectType.ELECTIVE, "선택1", "77"), ged(GedSubjectType.ELECTIVE, "선택2", "95")
+            ), List.of(), List.of(), List.of()
+        );
+        var result = calculator.calculate(
+            rule("MJC", "명지전문대학교", 2027, "4", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)),
+            "정원내 일반전형", null, request(null), common
+        );
+
+        assertThat(result.academicBaseScore()).isEqualByComparingTo("41.76");
+        assertThat(result.academicScore()).isEqualByComparingTo("167.06");
+        assertThat(result.warnings()).isEmpty();
+        assertThat(result.calculationSteps()).filteredOn(step -> step.key().equals("MJC_GED_WEIGHTED_AVERAGE"))
+            .singleElement().satisfies(step -> {
+                assertThat(step.operands().get("환산등급단위합")).isEqualByComparingTo("232");
+                assertThat(step.operands().get("단위수합")).isEqualByComparingTo("34");
+                assertThat(step.result()).isEqualByComparingTo("6.82353");
+            });
+    }
+
+    @Test
     void appliesKbuBonusLimitAndViolenceDeduction() {
         EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1", scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
         var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("8"),
@@ -66,9 +96,21 @@ class GuidebookQuantitativeScoreCalculatorTest {
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("5.00");
         assertThat(result.finalScore()).isEqualByComparingTo("90.50");
 
+        var healthBoundary = calculator.calculate(rule, "간호학과", verification("87.5"), request("5"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+        var generalBoundary = calculator.calculate(rule, "일반학과", verification("87.5"), request("10"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+        assertThat(healthBoundary.additionalScore()).isEqualByComparingTo("5.00");
+        assertThat(generalBoundary.additionalScore()).isEqualByComparingTo("10.00");
+
         assertThatThrownBy(() -> calculator.calculate(rule, "간호학과", verification("87.5"), request("6"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
-            .isInstanceOf(CustomException.class);
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("-1"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
     }
 
     @Test
@@ -125,5 +167,11 @@ class GuidebookQuantitativeScoreCalculatorTest {
             result.put(index + 1, BigDecimal.valueOf(values[index]));
         }
         return result;
+    }
+
+    private StudentCommonEvaluationSnapshot.GedSubjectScore ged(
+        GedSubjectType type, String name, String score
+    ) {
+        return new StudentCommonEvaluationSnapshot.GedSubjectScore(type, name, new BigDecimal(score));
     }
 }

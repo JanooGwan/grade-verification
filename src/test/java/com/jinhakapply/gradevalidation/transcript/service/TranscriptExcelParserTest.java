@@ -10,6 +10,8 @@ import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -89,6 +91,55 @@ class TranscriptExcelParserTest {
             assertThat(result.errors()).isEmpty();
             assertThat(result.rows()).extracting(TranscriptExcelRow::subjectCategory)
                 .containsExactly(SubjectCategory.ENGLISH, SubjectCategory.OTHER);
+        }
+    }
+
+    @Test
+    void parsesLegacyRankAndAchievementInputs() throws Exception {
+        String[] headers = {
+            "applicantNumber", "studentName", "schoolYear", "semester", "subjectCategory",
+            "courseName", "gradeScale", "studentCount", "rank", "tiedRankCount",
+            "legacyAchievement", "credits"
+        };
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("transcript");
+            writeRow(sheet.createRow(0), headers);
+            writeRow(sheet.createRow(1), new Object[] {
+                "A-001", "TEST", 1, 1, "MATH", "ALGEBRA", "legacy", 126, 30, 3, "수", 3
+            });
+
+            TranscriptExcelParseResult result = parser.parse(file(workbook));
+
+            assertThat(result.errors()).isEmpty();
+            TranscriptExcelRow row = result.rows().getFirst();
+            assertThat(row.gradeScale()).isEqualTo(GradeScale.LEGACY);
+            assertThat(row.studentCount()).isEqualTo(126);
+            assertThat(row.rankPosition()).isEqualTo(30);
+            assertThat(row.tiedRankCount()).isEqualTo(3);
+            assertThat(row.legacyAchievement()).isEqualTo(LegacyAchievement.SU);
+        }
+    }
+
+    @Test
+    void rejectsGradeOutsideFiveLevelScale() throws Exception {
+        String[] headers = {
+            "applicantNumber", "studentName", "schoolYear", "semester", "subjectCategory",
+            "courseName", "grade", "gradeScale", "credits"
+        };
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("transcript");
+            writeRow(sheet.createRow(0), headers);
+            writeRow(sheet.createRow(1), new Object[] {
+                "A-001", "TEST", 1, 1, "MATH", "ALGEBRA", 6, "five-level", 3
+            });
+
+            TranscriptExcelParseResult result = parser.parse(file(workbook));
+
+            assertThat(result.rows()).isEmpty();
+            assertThat(result.errors()).singleElement()
+                .extracting(error -> error.reason())
+                .asString()
+                .contains("1~5");
         }
     }
 

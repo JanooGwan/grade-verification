@@ -14,6 +14,8 @@ import java.util.Set;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.slf4j.Logger;
@@ -135,15 +137,15 @@ class TranscriptExcelParser {
         }
 
         Integer grade = optionalInteger(row, columns, "grade", formatter, evaluator);
-        if (grade != null && (grade < 1 || grade > 9)) {
-            throw new IllegalArgumentException("석차등급은 1~9 사이여야 합니다.");
+        GradeScale gradeScale = parseGradeScale(optionalText(row, columns, "gradeScale", formatter, evaluator));
+        if (grade != null && (grade < 1 || grade > gradeScale.maximumGrade())) {
+            throw new IllegalArgumentException(
+                "석차등급은 1~%d 사이여야 합니다.".formatted(gradeScale.maximumGrade())
+            );
         }
         AchievementLevel achievement = parseAchievement(
             optionalText(row, columns, "achievement", formatter, evaluator)
         );
-        if (grade == null && achievement == null) {
-            throw new IllegalArgumentException("석차등급 또는 성취도 중 하나는 필요합니다.");
-        }
 
         BigDecimal rawScore = optionalDecimal(row, columns, "rawScore", formatter, evaluator);
         BigDecimal meanScore = optionalDecimal(row, columns, "meanScore", formatter, evaluator);
@@ -159,6 +161,21 @@ class TranscriptExcelParser {
         Integer studentCount = optionalInteger(row, columns, "studentCount", formatter, evaluator);
         if (studentCount != null && studentCount < 1) {
             throw new IllegalArgumentException("수강자수는 1 이상이어야 합니다.");
+        }
+        Integer rankPosition = optionalInteger(row, columns, "rankPosition", formatter, evaluator);
+        Integer tiedRankCount = optionalInteger(row, columns, "tiedRankCount", formatter, evaluator);
+        LegacyAchievement legacyAchievement = parseLegacyAchievement(
+            optionalText(row, columns, "legacyAchievement", formatter, evaluator)
+        );
+        if (grade == null && achievement == null && rankPosition == null && legacyAchievement == null) {
+            throw new IllegalArgumentException("석차등급, 성취도, 석차 또는 구교육과정 평어 중 하나는 필요합니다.");
+        }
+        if (rankPosition != null && (studentCount == null || rankPosition < 1 || rankPosition > studentCount)) {
+            throw new IllegalArgumentException("석차는 1 이상 재적수 이하여야 합니다.");
+        }
+        if (tiedRankCount != null && (rankPosition == null || tiedRankCount < 1
+            || rankPosition + tiedRankCount - 1 > studentCount)) {
+            throw new IllegalArgumentException("동석차 인원 범위가 재적수를 초과합니다.");
         }
 
         String highSchoolCode = optionalText(row, columns, "highSchoolCode", formatter, evaluator);
@@ -182,11 +199,15 @@ class TranscriptExcelParser {
             parseSubjectCategory(subjectText, courseName),
             courseName,
             grade,
+            gradeScale,
             achievement,
             rawScore,
             meanScore,
             standardDeviation,
             studentCount,
+            rankPosition,
+            tiedRankCount,
+            legacyAchievement,
             credits,
             optionalBoolean(row, columns, "careerSubject", formatter, evaluator),
             optionalBoolean(row, columns, "professionalCourse", formatter, evaluator)
@@ -365,6 +386,27 @@ class TranscriptExcelParser {
         }
     }
 
+    private GradeScale parseGradeScale(String value) {
+        if (value == null) return GradeScale.NINE_LEVEL;
+        String normalized = normalize(value);
+        if (normalized.equals("9등급제") || normalized.equals("ninelevel")) return GradeScale.NINE_LEVEL;
+        if (normalized.equals("5등급제") || normalized.equals("fivelevel")) return GradeScale.FIVE_LEVEL;
+        if (normalized.equals("구교육") || normalized.equals("legacy")) return GradeScale.LEGACY;
+        throw new IllegalArgumentException("등급제는 9등급제, 5등급제 또는 구교육만 입력할 수 있습니다.");
+    }
+
+    private LegacyAchievement parseLegacyAchievement(String value) {
+        if (value == null) return null;
+        return switch (value.trim().toUpperCase(Locale.ROOT)) {
+            case "수", "SU" -> LegacyAchievement.SU;
+            case "우", "WOO" -> LegacyAchievement.WOO;
+            case "미", "MI" -> LegacyAchievement.MI;
+            case "양", "YANG" -> LegacyAchievement.YANG;
+            case "가", "GA" -> LegacyAchievement.GA;
+            default -> throw new IllegalArgumentException("구교육과정 평어는 수·우·미·양·가 중 하나여야 합니다.");
+        };
+    }
+
     private String displayName(String key) {
         return switch (key) {
             case "applicantNumber" -> "지원자번호";
@@ -374,11 +416,15 @@ class TranscriptExcelParser {
             case "subjectCategory" -> "교과";
             case "courseName" -> "과목명";
             case "grade" -> "석차등급";
+            case "gradeScale" -> "등급제";
             case "achievement" -> "성취도";
             case "rawScore" -> "원점수";
             case "meanScore" -> "과목평균";
             case "standardDeviation" -> "표준편차";
             case "studentCount" -> "수강자수";
+            case "rankPosition" -> "석차";
+            case "tiedRankCount" -> "동석차인원";
+            case "legacyAchievement" -> "구교육과정평어";
             case "credits" -> "이수단위";
             case "careerSubject" -> "진로선택";
             case "professionalCourse" -> "전문교과";
@@ -412,11 +458,15 @@ class TranscriptExcelParser {
         addAliases(aliases, "subjectCategory", "교과", "교과구분", "subjectcategory");
         addAliases(aliases, "courseName", "과목명", "교과목명", "coursename");
         addAliases(aliases, "grade", "석차등급", "등급", "grade");
+        addAliases(aliases, "gradeScale", "등급제", "gradescale");
         addAliases(aliases, "achievement", "성취도", "achievement");
         addAliases(aliases, "rawScore", "원점수", "rawscore");
         addAliases(aliases, "meanScore", "과목평균", "평균", "meanscore");
         addAliases(aliases, "standardDeviation", "표준편차", "standarddeviation");
         addAliases(aliases, "studentCount", "수강자수", "재적수", "studentcount");
+        addAliases(aliases, "rankPosition", "석차", "rank", "rankposition");
+        addAliases(aliases, "tiedRankCount", "동석차", "동석차인원", "tiedrankcount");
+        addAliases(aliases, "legacyAchievement", "구교육과정평어", "평어", "수우미양가", "legacyachievement");
         addAliases(aliases, "credits", "이수단위", "단위수", "credits");
         addAliases(aliases, "careerSubject", "진로선택", "진로선택과목", "careersubject");
         addAliases(aliases, "professionalCourse", "전문교과", "professionalcourse");

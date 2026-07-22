@@ -8,6 +8,7 @@ import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreRun;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
+import com.jinhakapply.gradevalidation.admission.domain.ScoreCalculationStep;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 
 public record ApplicationScoreResponse(
@@ -36,6 +37,7 @@ public record ApplicationScoreResponse(
     List<String> pendingComponents,
     List<String> ineligibilityReasons,
     List<String> warnings,
+    List<ScoreCalculationStep> calculationSteps,
     GradeVerificationResponse gradeVerification
 ) {
     public static ApplicationScoreResponse from(
@@ -53,7 +55,8 @@ public record ApplicationScoreResponse(
             result.equivalentAbsenceDays(), result.attendanceScore(), result.additionalScore(),
             result.schoolViolenceDeduction(), result.quantitativeSubtotal(), result.scoreAfterDeduction(),
             result.finalScore(), result.maximumQuantitativeScore(), result.maximumTotalScore(),
-            result.pendingComponents(), result.ineligibilityReasons(), result.warnings(), gradeVerification
+            result.pendingComponents(), result.ineligibilityReasons(), result.warnings(), result.calculationSteps(),
+            gradeVerification
         );
     }
 }

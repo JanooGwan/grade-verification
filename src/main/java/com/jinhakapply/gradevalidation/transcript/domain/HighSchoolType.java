@@ -4,9 +4,11 @@ public enum HighSchoolType {
     GENERAL,
     SPECIALIZED,
     COMPREHENSIVE_VOCATIONAL,
-    LIFELONG_EDUCATION_FACILITY;
+    LIFELONG_EDUCATION_FACILITY,
+    TWO_YEAR;
 
     public boolean usesHanshinAllOrdinaryCoursesPolicy() {
-        return this != GENERAL;
+        return this == SPECIALIZED || this == COMPREHENSIVE_VOCATIONAL
+            || this == LIFELONG_EDUCATION_FACILITY;
     }
 }

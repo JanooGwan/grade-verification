@@ -59,6 +59,10 @@ public class StudentTranscriptCourse {
     private Integer grade;
 
     @Enumerated(STRING)
+    @Column(name = "grade_scale", nullable = false, length = 20)
+    private GradeScale gradeScale;
+
+    @Enumerated(STRING)
     @Column(length = 10)
     private AchievementLevel achievement;
 
@@ -73,6 +77,16 @@ public class StudentTranscriptCourse {
 
     @Column(name = "student_count")
     private Integer studentCount;
+
+    @Column(name = "rank_position")
+    private Integer rankPosition;
+
+    @Column(name = "tied_rank_count")
+    private Integer tiedRankCount;
+
+    @Enumerated(STRING)
+    @Column(name = "legacy_achievement", length = 10)
+    private LegacyAchievement legacyAchievement;
 
     @Column(nullable = false, precision = 6, scale = 2)
     private BigDecimal credits;
@@ -107,6 +121,7 @@ public class StudentTranscriptCourse {
         this.semester = semester;
         this.subjectCategory = subjectCategory;
         this.courseName = courseName;
+        this.gradeScale = GradeScale.NINE_LEVEL;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -133,12 +148,38 @@ public class StudentTranscriptCourse {
         String sourceFileName,
         int sourceRowNumber
     ) {
+        updateScore(grade, GradeScale.NINE_LEVEL, achievement, rawScore, meanScore, standardDeviation,
+            studentCount, null, null, null, credits, careerSubject, professionalCourse, sourceFileName,
+            sourceRowNumber);
+    }
+
+    public void updateScore(
+        Integer grade,
+        GradeScale gradeScale,
+        AchievementLevel achievement,
+        BigDecimal rawScore,
+        BigDecimal meanScore,
+        BigDecimal standardDeviation,
+        Integer studentCount,
+        Integer rankPosition,
+        Integer tiedRankCount,
+        LegacyAchievement legacyAchievement,
+        BigDecimal credits,
+        boolean careerSubject,
+        boolean professionalCourse,
+        String sourceFileName,
+        int sourceRowNumber
+    ) {
         this.grade = grade;
+        this.gradeScale = gradeScale == null ? GradeScale.NINE_LEVEL : gradeScale;
         this.achievement = achievement;
         this.rawScore = rawScore;
         this.meanScore = meanScore;
         this.standardDeviation = standardDeviation;
         this.studentCount = studentCount;
+        this.rankPosition = rankPosition;
+        this.tiedRankCount = tiedRankCount;
+        this.legacyAchievement = legacyAchievement;
         this.credits = credits;
         this.careerSubject = careerSubject;
         this.professionalCourse = professionalCourse;
@@ -164,11 +205,38 @@ public class StudentTranscriptCourse {
         String sourceFileName,
         int sourceRowNumber
     ) {
+        updateCourse(schoolYear, semester, subjectCategory, courseName, grade, GradeScale.NINE_LEVEL,
+            achievement, rawScore, meanScore, standardDeviation, studentCount, null, null, null,
+            credits, careerSubject, professionalCourse, sourceFileName, sourceRowNumber);
+    }
+
+    public void updateCourse(
+        int schoolYear,
+        int semester,
+        SubjectCategory subjectCategory,
+        String courseName,
+        Integer grade,
+        GradeScale gradeScale,
+        AchievementLevel achievement,
+        BigDecimal rawScore,
+        BigDecimal meanScore,
+        BigDecimal standardDeviation,
+        Integer studentCount,
+        Integer rankPosition,
+        Integer tiedRankCount,
+        LegacyAchievement legacyAchievement,
+        BigDecimal credits,
+        boolean careerSubject,
+        boolean professionalCourse,
+        String sourceFileName,
+        int sourceRowNumber
+    ) {
         this.schoolYear = schoolYear;
         this.semester = semester;
         this.subjectCategory = subjectCategory;
         this.courseName = courseName.trim();
-        updateScore(grade, achievement, rawScore, meanScore, standardDeviation, studentCount, credits,
-            careerSubject, professionalCourse, sourceFileName, sourceRowNumber);
+        updateScore(grade, gradeScale, achievement, rawScore, meanScore, standardDeviation, studentCount,
+            rankPosition, tiedRankCount, legacyAchievement, credits, careerSubject, professionalCourse,
+            sourceFileName, sourceRowNumber);
     }
 }

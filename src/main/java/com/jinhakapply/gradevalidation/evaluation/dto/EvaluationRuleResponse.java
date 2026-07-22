@@ -13,6 +13,8 @@ import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.ScoreAggregation;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 
 public record EvaluationRuleResponse(
     Long id, Long universityId, String universityName, String name, int admissionYear,
@@ -20,7 +22,8 @@ public record EvaluationRuleResponse(
     List<BigDecimal> gradeWeights, List<BigDecimal> subjectWeights,
     List<BigDecimal> gradeScores, SelectionStrategy selectionStrategy, int selectionCount,
     int achievementSelectionCount, int minimumCourseCount, ScoreAggregation scoreAggregation,
-    AchievementConversion achievementConversion, boolean includeThirdYearSecondSemester,
+    AchievementConversion achievementConversion, GradeScale inputGradeScale,
+    List<BigDecimal> legacyAchievementGrades, boolean includeThirdYearSecondSemester,
     boolean includeThirdYearSecondSemesterForGraduates,
     boolean includeProfessionalCourses, boolean applyGradeWeights,
     int intermediateScale, RoundingMode intermediateRounding,
@@ -40,7 +43,9 @@ public record EvaluationRuleResponse(
             IntStream.rangeClosed(1, 9).mapToObj(rule.getGradeScores()::get).toList(),
             rule.getSelectionStrategy(), rule.getSelectionCount(), rule.getAchievementSelectionCount(),
             rule.getMinimumCourseCount(),
-            rule.getScoreAggregation(), rule.getAchievementConversion(), rule.isIncludeThirdYearSecondSemester(),
+            rule.getScoreAggregation(), rule.getAchievementConversion(), rule.getInputGradeScale(),
+            java.util.Arrays.stream(LegacyAchievement.values()).map(rule.getLegacyAchievementGrades()::get).toList(),
+            rule.isIncludeThirdYearSecondSemester(),
             rule.isIncludeThirdYearSecondSemesterForGraduates(),
             rule.isIncludeProfessionalCourses(), rule.isApplyGradeWeights(), rule.getIntermediateScale(),
             rule.getIntermediateRounding(), rule.isNormalizeGradeWeights(),

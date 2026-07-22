@@ -8,10 +8,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
 import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
+import com.jinhakapply.gradevalidation.admission.domain.ScoreCalculationStep;
 import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
@@ -125,11 +127,22 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
             status = ApplicationScoreStatus.COMPLETE;
             finalScore = afterDeduction;
         }
+        List<ScoreCalculationStep> steps = List.of(
+            new ScoreCalculationStep("ACADEMIC_SCORE", "교과 반영점수", "기초점수 × 전형별 반영배수",
+                Map.of("기초점수", baseScore), academicScore),
+            new ScoreCalculationStep("QUANTITATIVE_SUBTOTAL", "정량평가 소계", "교과 + 출결 + 추가점수",
+                Map.of("교과", academicScore,
+                    "출결", attendanceScore == null ? BigDecimal.ZERO : attendanceScore,
+                    "추가점수", additionalScore == null ? BigDecimal.ZERO : additionalScore), subtotal),
+            new ScoreCalculationStep("SCHOOL_VIOLENCE", "학교폭력 반영 후 점수",
+                "정량평가 소계 - 학교폭력 감점",
+                Map.of("정량평가소계", subtotal, "학교폭력감점", violenceDeduction), afterDeduction)
+        );
 
         return new ApplicationScoreResult(
             status, score(baseScore), academicScore, equivalentAbsenceDays, attendanceScore, additionalScore,
             violenceDeduction, subtotal, afterDeduction, finalScore, maximumQuantitativeScore, MAX_TOTAL,
-            List.copyOf(pending), List.copyOf(ineligibilityReasons), List.copyOf(warnings)
+            List.copyOf(pending), List.copyOf(ineligibilityReasons), List.copyOf(warnings), steps
         );
     }
 

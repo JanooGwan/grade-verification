@@ -7,6 +7,7 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementConversion;
 import com.jinhakapply.gradevalidation.evaluation.domain.ScoreAggregation;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -43,9 +44,19 @@ public record CreateEvaluationRuleRequest(
     @NotNull @DecimalMin(value = "0.0001") BigDecimal scoreMultiplier,
     @NotNull @Size(min = 3, max = 3) List<@NotNull @DecimalMin(value = "1") BigDecimal> achievementGrades,
     @NotNull @Size(min = 3, max = 3) List<@NotNull @Min(0) BigDecimal> achievementScores,
+    GradeScale inputGradeScale,
+    @Size(min = 5, max = 5) List<@NotNull @DecimalMin(value = "1") BigDecimal> legacyAchievementGrades,
     @NotNull @Size(min = 6, max = 6) List<@NotNull @Min(1) Integer> subjectPriorities,
     @Size(max = 255) String sourceDocument,
     @Size(max = 50) String sourcePages,
     @Size(max = 1000) String interpretationNote,
     @Size(max = 1000) String changeSummary
-) {}
+) {
+    public CreateEvaluationRuleRequest {
+        inputGradeScale = inputGradeScale == null ? GradeScale.NINE_LEVEL : inputGradeScale;
+        legacyAchievementGrades = legacyAchievementGrades == null
+            ? List.of(BigDecimal.ONE, new BigDecimal("3"), new BigDecimal("5"),
+                new BigDecimal("7"), new BigDecimal("9"))
+            : List.copyOf(legacyAchievementGrades);
+    }
+}

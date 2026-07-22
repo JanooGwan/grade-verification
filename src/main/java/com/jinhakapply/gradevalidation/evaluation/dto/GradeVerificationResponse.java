@@ -9,6 +9,8 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.ScoreAggregation;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 
 public record GradeVerificationResponse(
     Long ruleId, String ruleName, int ruleVersion, String universityName,
@@ -41,7 +43,9 @@ public record GradeVerificationResponse(
     public record CourseCalculation(
         String courseName, int schoolYear, int semester, SubjectCategory subjectCategory,
         SubjectCategory appliedSubjectCategory,
-        Integer grade, AchievementLevel achievement, BigDecimal effectiveGrade,
+        Integer grade, GradeScale gradeScale, AchievementLevel achievement,
+        Integer rankPosition, Integer tiedRankCount, Integer cohortSize,
+        BigDecimal rankPercentile, LegacyAchievement legacyAchievement, BigDecimal effectiveGrade,
         BigDecimal convertedScore, BigDecimal gradeWeight,
         BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedCredits, BigDecimal appliedWeight,
         BigDecimal weightedScore, boolean included, String exclusionReason

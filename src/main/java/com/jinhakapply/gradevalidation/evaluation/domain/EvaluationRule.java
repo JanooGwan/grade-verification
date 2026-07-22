@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.List;
 
 import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -102,6 +104,10 @@ public class EvaluationRule {
     @Enumerated(EnumType.STRING)
     @Column(name = "achievement_conversion", nullable = false, length = 30)
     private AchievementConversion achievementConversion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "input_grade_scale", nullable = false, length = 20)
+    private GradeScale inputGradeScale;
 
     @Column(name = "include_third_year_second_semester", nullable = false)
     private boolean includeThirdYearSecondSemester;
@@ -202,6 +208,13 @@ public class EvaluationRule {
     private java.util.Map<AchievementLevel, BigDecimal> achievementScores = new java.util.LinkedHashMap<>();
 
     @ElementCollection
+    @CollectionTable(name = "evaluation_rule_legacy_achievement_grade", joinColumns = @JoinColumn(name = "rule_id"))
+    @MapKeyColumn(name = "legacy_achievement")
+    @MapKeyEnumerated(EnumType.STRING)
+    @Column(name = "converted_grade", nullable = false, precision = 5, scale = 2)
+    private java.util.Map<LegacyAchievement, BigDecimal> legacyAchievementGrades = new java.util.LinkedHashMap<>();
+
+    @ElementCollection
     @CollectionTable(name = "evaluation_rule_subject_priority", joinColumns = @JoinColumn(name = "rule_id"))
     @MapKeyColumn(name = "subject_category")
     @MapKeyEnumerated(EnumType.STRING)
@@ -244,6 +257,7 @@ public class EvaluationRule {
         rule.minimumCourseCount = minimumCourseCount;
         rule.scoreAggregation = scoreAggregation;
         rule.achievementConversion = achievementConversion;
+        rule.inputGradeScale = GradeScale.NINE_LEVEL;
         rule.includeThirdYearSecondSemester = includeThirdYearSecondSemester;
         rule.includeThirdYearSecondSemesterForGraduates = includeThirdYearSecondSemesterForGraduates;
         rule.includeProfessionalCourses = includeProfessionalCourses;
@@ -259,6 +273,11 @@ public class EvaluationRule {
             rule.achievementGrades.put(levels[i], achievementGrades.get(i));
             rule.achievementScores.put(levels[i], achievementScores.get(i));
         }
+        rule.legacyAchievementGrades.put(LegacyAchievement.SU, BigDecimal.ONE);
+        rule.legacyAchievementGrades.put(LegacyAchievement.WOO, new BigDecimal("3"));
+        rule.legacyAchievementGrades.put(LegacyAchievement.MI, new BigDecimal("5"));
+        rule.legacyAchievementGrades.put(LegacyAchievement.YANG, new BigDecimal("7"));
+        rule.legacyAchievementGrades.put(LegacyAchievement.GA, new BigDecimal("9"));
         SubjectCategory[] categories = SubjectCategory.values();
         for (int i = 0; i < categories.length; i++)
             rule.subjectPriorities.put(categories[i], subjectPriorities.get(i));
@@ -290,6 +309,19 @@ public class EvaluationRule {
 
     public void attachExtraction(Long extractionId) {
         this.extractionId = extractionId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void configureInputGradeScale(GradeScale gradeScale, List<BigDecimal> legacyGrades) {
+        this.inputGradeScale = gradeScale == null ? GradeScale.NINE_LEVEL : gradeScale;
+        LegacyAchievement[] values = LegacyAchievement.values();
+        if (legacyGrades == null || legacyGrades.size() != values.length) {
+            throw new IllegalArgumentException("수·우·미·양·가 환산등급은 5개여야 합니다.");
+        }
+        this.legacyAchievementGrades.clear();
+        for (int index = 0; index < values.length; index++) {
+            this.legacyAchievementGrades.put(values[index], legacyGrades.get(index));
+        }
         this.updatedAt = Instant.now();
     }
 

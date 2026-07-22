@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V19`를 기준으로 작성한 현재 MySQL 스키마의 ERD이다.
+이 문서는 Flyway 마이그레이션 `V1`~`V22`를 기준으로 작성한 현재 MySQL 스키마의 ERD이다. 구교육과정·검정고시 확장 모델은 [LEGACY_ACADEMIC_DATA_MODEL.md](LEGACY_ACADEMIC_DATA_MODEL.md)에 별도로 정리한다.
 
 ## 테이블 설명
 
