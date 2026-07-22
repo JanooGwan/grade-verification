@@ -67,9 +67,11 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 @RequiredArgsConstructor
 public class TranscriptService {
 
-    private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final long MAX_FILE_SIZE = 40L * 1024 * 1024;
 
     private final TranscriptExcelParser excelParser;
+    private final TransferExcelParser transferExcelParser;
+    private final TransferImportService transferImportService;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
@@ -80,12 +82,25 @@ public class TranscriptService {
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
-        return importExcel(admissionYear, TranscriptImportMode.VALID_ROWS_ONLY, file);
+        return importExcel(admissionYear, TranscriptImportMode.VALID_ROWS_ONLY, null, file);
     }
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, TranscriptImportMode mode, MultipartFile file) {
+        return importExcel(admissionYear, mode, null, file);
+    }
+
+    @Transactional
+    public TranscriptImportResponse importExcel(
+        int admissionYear,
+        TranscriptImportMode mode,
+        Long universityId,
+        MultipartFile file
+    ) {
         validateFile(admissionYear, file);
+        if (transferExcelParser.supports(file)) {
+            return transferImportService.importExcel(admissionYear, universityId, mode, file, sha256(file));
+        }
         String originalFileName = safeFileName(file.getOriginalFilename());
         TranscriptExcelParseResult parseResult = excelParser.parse(file);
         if (parseResult.totalRows() == 0) {
@@ -194,6 +209,7 @@ public class TranscriptService {
         return new TranscriptImportResponse(
             transcriptImport.getId(),
             transcriptImport.getStatus(),
+            "STANDARD_TRANSCRIPT_V1",
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
@@ -201,17 +217,32 @@ public class TranscriptService {
             updatedApplicants.size(),
             createdCourses,
             updatedCourses,
-            parseResult.errors()
+            0,
+            0,
+            0,
+            0,
+            parseResult.errors(),
+            List.of()
         );
     }
 
     @Transactional(readOnly = true)
     public TranscriptPreviewResponse previewExcel(int admissionYear, MultipartFile file) {
+        return previewExcel(admissionYear, null, file);
+    }
+
+    @Transactional(readOnly = true)
+    public TranscriptPreviewResponse previewExcel(int admissionYear, Long universityId, MultipartFile file) {
         validateFile(admissionYear, file);
+        if (transferExcelParser.supports(file)) {
+            return transferImportService.preview(file, sha256(file));
+        }
         TranscriptExcelParseResult result = excelParser.parse(file);
         return new TranscriptPreviewResponse(
             safeFileName(file.getOriginalFilename()),
             sha256(file),
+            "STANDARD_TRANSCRIPT_V1",
+            0,
             result.totalRows(),
             result.rows().size(),
             result.errors().size(),
@@ -219,7 +250,8 @@ public class TranscriptService {
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
             )).toList(),
-            result.errors()
+            result.errors(),
+            List.of()
         );
     }
 
@@ -516,7 +548,7 @@ public class TranscriptService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "업로드 파일이 비어 있습니다.");
         }
         if (file.getSize() > MAX_FILE_SIZE) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 크기는 10MB를 초과할 수 없습니다.");
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 크기는 40MB를 초과할 수 없습니다.");
         }
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("")
             .toLowerCase(Locale.ROOT);

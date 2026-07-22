@@ -46,7 +46,8 @@ public interface TranscriptApi {
     ResponseEntity<TranscriptImportResponse> importExcel(
         @RequestParam int admissionYear,
         @RequestParam(defaultValue = "VALID_ROWS_ONLY") TranscriptImportMode mode,
-        @Parameter(description = ".xlsx 또는 .xls, 최대 10MB")
+        @RequestParam(required = false) Long universityId,
+        @Parameter(description = ".xlsx 또는 .xls, 최대 40MB")
         @RequestPart("file") MultipartFile file
     );
 
@@ -54,6 +55,7 @@ public interface TranscriptApi {
     @PostMapping(value = "/imports/excel/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<TranscriptPreviewResponse> previewExcel(
         @RequestParam int admissionYear,
+        @RequestParam(required = false) Long universityId,
         @RequestPart("file") MultipartFile file
     );
 

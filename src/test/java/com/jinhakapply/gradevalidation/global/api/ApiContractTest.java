@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -271,8 +272,9 @@ class ApiContractTest {
             "file", "transcript.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[]{1, 2, 3}
         );
-        when(transcriptService.importExcel(anyInt(), any(), any())).thenReturn(new TranscriptImportResponse(
-            41L, TranscriptImportStatus.COMPLETED, 1, 1, 0, 1, 0, 1, 0, List.of()
+        when(transcriptService.importExcel(anyInt(), any(), isNull(), any())).thenReturn(new TranscriptImportResponse(
+            41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
+            1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
         ));
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel")

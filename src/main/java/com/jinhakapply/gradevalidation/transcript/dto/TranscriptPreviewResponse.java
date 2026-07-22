@@ -9,11 +9,14 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 public record TranscriptPreviewResponse(
     String originalFileName,
     String fileSha256,
+    String sourceFormat,
+    int applicationRows,
     int totalRows,
     int validRows,
     int invalidRows,
     List<PreviewRow> sampleRows,
-    List<TranscriptImportRowError> errors
+    List<TranscriptImportRowError> errors,
+    List<String> warnings
 ) {
     public record PreviewRow(
         int rowNumber,

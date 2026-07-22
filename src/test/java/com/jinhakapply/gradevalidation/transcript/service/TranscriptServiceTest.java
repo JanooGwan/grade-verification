@@ -51,6 +51,10 @@ class TranscriptServiceTest {
     @Mock
     private TranscriptExcelParser excelParser;
     @Mock
+    private TransferExcelParser transferExcelParser;
+    @Mock
+    private TransferImportService transferImportService;
+    @Mock
     private StudentRepository studentRepository;
     @Mock
     private StudentTranscriptCourseRepository courseRepository;
@@ -71,6 +75,8 @@ class TranscriptServiceTest {
     void setUp() {
         transcriptService = new TranscriptService(
             excelParser,
+            transferExcelParser,
+            transferImportService,
             studentRepository,
             courseRepository,
             importRepository,

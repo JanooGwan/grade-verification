@@ -30,17 +30,22 @@ public class TranscriptController implements TranscriptApi {
     public ResponseEntity<TranscriptImportResponse> importExcel(
         int admissionYear,
         TranscriptImportMode mode,
+        Long universityId,
         MultipartFile file
     ) {
-        TranscriptImportResponse response = transcriptService.importExcel(admissionYear, mode, file);
+        TranscriptImportResponse response = transcriptService.importExcel(admissionYear, mode, universityId, file);
         return ResponseEntity
             .created(URI.create("/api/transcripts/imports/" + response.importId()))
             .body(response);
     }
 
     @Override
-    public ResponseEntity<TranscriptPreviewResponse> previewExcel(int admissionYear, MultipartFile file) {
-        return ResponseEntity.ok(transcriptService.previewExcel(admissionYear, file));
+    public ResponseEntity<TranscriptPreviewResponse> previewExcel(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file
+    ) {
+        return ResponseEntity.ok(transcriptService.previewExcel(admissionYear, universityId, file));
     }
 
     @Override
