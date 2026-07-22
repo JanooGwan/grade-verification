@@ -50,7 +50,7 @@ public class ReadOnlySqlValidator {
         String normalized = sql.strip();
         String syntaxOnly = withoutStringLiterals(normalized);
         String lower = syntaxOnly.toLowerCase(Locale.ROOT);
-        if (!lower.matches("(?s)^select\\s+.*") || normalized.contains(";") || normalized.contains("--")
+        if (!lower.matches("(?s)^select\\s+.*") || syntaxOnly.contains(";") || syntaxOnly.contains("--")
             || syntaxOnly.contains("/*") || syntaxOnly.contains("#") || FORBIDDEN.matcher(syntaxOnly).find()) {
             throw new IllegalArgumentException("SELECT 한 문장만 허용됩니다.");
         }
