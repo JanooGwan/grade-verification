@@ -8,12 +8,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class AssistantTopicPolicy {
 
-    private static final List<String> ADMISSION_TERMS = List.of(
-        "입학", "대학", "전형", "모집", "지원자", "지원", "수험", "학생", "학생부", "성적", "내신",
-        "석차", "등급", "교과", "과목", "이수단위", "학년", "학기", "졸업", "검정고시", "외국고",
-        "출결", "결석", "지각", "조퇴", "학교폭력", "학폭", "환산", "점수", "평가", "규칙",
-        "모집요강", "합격", "모집단위", "학과", "검증", "데이터베이스", "테이블", "컬럼", "스키마",
-        "sql", "erd", "flyway", "migration", "admission", "transcript", "evaluation", "university"
+    private static final List<String> ADMISSION_CONTEXT_TERMS = List.of(
+        "입학", "입시", "대학", "전형", "모집", "지원자", "수험", "학생부", "내신", "석차", "이수단위",
+        "졸업", "검정고시", "외국고", "출결", "결석", "지각", "조퇴", "학교폭력", "학폭",
+        "환산", "모집요강", "합격", "모집단위", "admission", "transcript", "evaluation_rule",
+        "student_application", "university"
     );
 
     private static final List<String> CLEARLY_OUT_OF_SCOPE_TERMS = List.of(
@@ -31,6 +30,6 @@ public class AssistantTopicPolicy {
         if (CLEARLY_OUT_OF_SCOPE_TERMS.stream().anyMatch(normalized::contains)) {
             return false;
         }
-        return ADMISSION_TERMS.stream().anyMatch(normalized::contains);
+        return ADMISSION_CONTEXT_TERMS.stream().anyMatch(normalized::contains);
     }
 }

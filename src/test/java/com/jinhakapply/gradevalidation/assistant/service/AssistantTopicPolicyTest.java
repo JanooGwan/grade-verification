@@ -22,5 +22,9 @@ class AssistantTopicPolicyTest {
         assertThat(policy.isInScope("지금 원달러 환율은?")).isFalse();
         assertThat(policy.isInScope("최신 경제 주요 뉴스를 요약해줘")).isFalse();
         assertThat(policy.isInScope("자바 정렬 방법을 알려줘")).isFalse();
+        assertThat(policy.isInScope("학생 건강 상담을 해줘")).isFalse();
+        assertThat(policy.isInScope("SQL injection 방어 방법을 알려줘")).isFalse();
+        assertThat(policy.isInScope("데이터베이스 성능 튜닝 방법을 알려줘")).isFalse();
+        assertThat(policy.isInScope("학생 점수를 계산해줘")).isFalse();
     }
 }
