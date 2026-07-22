@@ -133,6 +133,11 @@ public class EvaluationService {
 
     public GradeVerificationResponse verify(VerifyGradeRequest request) {
         EvaluationRule rule = findRule(request.ruleId());
+        return verify(rule, request);
+    }
+
+    @Transactional(readOnly = true, noRollbackFor = CustomException.class)
+    public GradeVerificationResponse verify(EvaluationRule rule, VerifyGradeRequest request) {
         if (!rule.isPublished()) {
             throw CustomException.of(INVALID_EVALUATION_RULE_STATUS, "게시된 규칙만 성적 계산에 사용할 수 있습니다.");
         }

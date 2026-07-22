@@ -73,6 +73,7 @@ public class TranscriptService {
     private final TransferExcelParser transferExcelParser;
     private final TransferImportService transferImportService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final TranscriptBatchVerificationService batchVerificationService;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
@@ -264,15 +265,19 @@ public class TranscriptService {
         String fileName = safeFileName(file.getOriginalFilename());
         if (transferExcelParser.supports(file)) {
             TransferExcelParseResult result = transferExcelParser.parse(file);
+            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+                universityId, admissionYear, result.applications(), result.courses()
+            );
             return validationExcelWriter.write(
                 fileName, result.sourceFormat(), result.applications().size(), result.totalRows(),
-                result.skipped(), result.courses(), result.errors(), result.warnings()
+                result.skipped(), result.courses(), result.errors(), result.warnings(), verification
             );
         }
         TranscriptExcelParseResult result = excelParser.parse(file);
         return validationExcelWriter.write(
             fileName, "STANDARD_TRANSCRIPT_V1", 0, result.totalRows(), List.of(),
-            result.rows(), result.errors(), List.of()
+            result.rows(), result.errors(), List.of(),
+            new TranscriptBatchVerificationResult(List.of(), List.of())
         );
     }
 

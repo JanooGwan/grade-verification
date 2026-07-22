@@ -4,10 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
+import com.jinhakapply.gradevalidation.evaluation.domain.ScoreAggregation;
+import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -24,21 +29,56 @@ class TranscriptValidationExcelWriterTest {
             AchievementLevel.A, new BigDecimal("92"), new BigDecimal("70"),
             new BigDecimal("12.5"), 100, 2, 1, null, new BigDecimal("3"), false, false
         );
+        GradeVerificationResponse verification = verification();
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "06", "학생부교과", "21", "컴퓨터공학과", 2027
+        );
+        TransferApplicationRow failedApplication = new TransferApplicationRow(
+            3, 2027, "A-002", "06", "학생부교과", "22", "인공지능학과", 2027
+        );
+        TranscriptBatchVerificationResult batch = new TranscriptBatchVerificationResult(
+            List.of(new TranscriptBatchVerificationResult.Success(
+                application, "테스트 학생", verification,
+                List.of(new TranscriptBatchVerificationResult.SelectedCourse(
+                    course, verification.calculations().getFirst()
+                ))
+            )),
+            List.of(new TranscriptBatchVerificationResult.Failure(
+                failedApplication, "실패 학생", 11, "INVALID_EVALUATION_RULE",
+                "반영 가능한 교과성적이 최소 12과목 이상이어야 합니다."
+            ))
+        );
 
         byte[] file = writer.write(
             "테스트.xlsx", "HANSHIN_MULTI_SHEET_V1", 1, 3,
             List.of(new TranscriptImportRowError(14, "편제명 없음")),
             List.of(course), List.of(new TranscriptImportRowError(13, "학기가 올바르지 않습니다.")),
-            List.of("제외 행이 있습니다.")
+            List.of("제외 행이 있습니다."), batch
         );
 
         assertThat(file).isNotEmpty();
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
-            assertThat(workbook.getSheetName(0)).isEqualTo("검증 요약");
-            assertThat(workbook.getSheetName(1)).isEqualTo("정상 과목");
-            assertThat(workbook.getSheetName(2)).isEqualTo("제외 행");
-            assertThat(workbook.getSheetName(3)).isEqualTo("오류 행");
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(7);
+            assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
+            assertThat(workbook.getSheetName(1)).isEqualTo("상위 12과목 상세");
+            assertThat(workbook.getSheetName(2)).isEqualTo("검증 실패");
+            assertThat(workbook.getSheetName(3)).isEqualTo("검증 요약");
+            assertThat(workbook.getSheetName(4)).isEqualTo("정상 과목");
+            assertThat(workbook.getSheetName(5)).isEqualTo("제외 행");
+            assertThat(workbook.getSheetName(6)).isEqualTo("오류 행");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(24).getNumericCellValue())
+                .isEqualTo(982.14);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(13).getNumericCellValue())
+                .isEqualTo(117);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(19).getNumericCellValue())
+                .isCloseTo(2.785714285714, org.assertj.core.data.Offset.offset(0.000000000001));
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(20).getNumericCellValue())
+                .isEqualTo(2.786);
+            assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(4);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(4).getCell(7).getStringCellValue())
+                .isEqualTo("실패");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(4).getCell(29).getStringCellValue())
+                .isEqualTo("INVALID_EVALUATION_RULE");
             assertThat(workbook.getSheet("검증 요약").getRow(3).getCell(1).getStringCellValue())
                 .isEqualTo("테스트.xlsx");
             assertThat(workbook.getSheet("정상 과목").getRow(3).getCell(6).getStringCellValue())
@@ -46,5 +86,29 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getSheet("오류 행").getRow(3).getCell(1).getStringCellValue())
                 .isEqualTo("학기가 올바르지 않습니다.");
         }
+    }
+
+    private GradeVerificationResponse verification() {
+        var summary = new GradeVerificationResponse.CalculationSummary(
+            "Σ(과목 환산점수 × 이수단위) ÷ Σ(이수단위) × 점수 배율",
+            new BigDecimal("117"), new BigDecimal("4125"), new BigDecimal("117"),
+            new BigDecimal("4125"), new BigDecimal("42"), new BigDecimal("42"),
+            new BigDecimal("2.786"), new BigDecimal("98.214"), new BigDecimal("10"),
+            new BigDecimal("982.140"), 3, RoundingMode.HALF_UP, 2, RoundingMode.HALF_UP,
+            Map.of()
+        );
+        var calculation = new GradeVerificationResponse.CourseCalculation(
+            "국어", 1, 1, SubjectCategory.KOREAN, SubjectCategory.KOREAN,
+            2, GradeScale.NINE_LEVEL, AchievementLevel.A, 2, 1, 100,
+            new BigDecimal("2"), null, new BigDecimal("2"), new BigDecimal("99"),
+            BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("3"), new BigDecimal("3"),
+            new BigDecimal("3"), new BigDecimal("297"), true, null
+        );
+        return new GradeVerificationResponse(
+            1L, "한신대 상위 12과목", 1, "한신대학교", "학생부교과", "전체 모집단위",
+            new BigDecimal("982.14"), new BigDecimal("98.214"), new BigDecimal("2.786"),
+            SelectionStrategy.TOP_N_COURSES, ScoreAggregation.COURSE_SCORE_AVERAGE,
+            "2027 모집요강.pdf", "36-38", 12, 4, summary, List.of(calculation), List.of()
+        );
     }
 }
