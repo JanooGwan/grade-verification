@@ -86,6 +86,25 @@ class ApiContractTest {
     @MockitoBean OperationalMetrics operationalMetrics;
 
     @Test
+    void downloadsVerificationResultAsExcel() throws Exception {
+        when(admissionService.exportVerificationResult(10L, 20L)).thenReturn(new byte[] {1, 2, 3});
+
+        mockMvc.perform(get("/api/admissions/students/10/verifications/20/excel"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {1, 2, 3}));
+
+        verify(admissionService).exportVerificationResult(10L, 20L);
+    }
+
+    @Test
     void createsUniversityAndReturnsResourceLocation() throws Exception {
         when(universityService.create(any())).thenReturn(
             new UniversityResponse(7L, "TUK", "한국공학대학교", true, null, null)

@@ -52,6 +52,7 @@ class AdmissionCatalogServiceTest {
     @Mock EvaluationService evaluationService;
     @Mock VerificationRunRepository verificationRunRepository;
     @Mock ObjectMapper objectMapper;
+    @Mock VerificationResultExcelWriter verificationResultExcelWriter;
 
     private AdmissionService service;
 
@@ -60,7 +61,7 @@ class AdmissionCatalogServiceTest {
         service = new AdmissionService(
             trackRepository, unitRepository, applicationRepository, universityRepository,
             studentRepository, courseRepository, ruleRepository, evaluationService,
-            verificationRunRepository, objectMapper
+            verificationRunRepository, objectMapper, verificationResultExcelWriter
         );
     }
 

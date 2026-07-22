@@ -77,6 +77,7 @@ public class AdmissionService {
     private final EvaluationService evaluationService;
     private final VerificationRunRepository verificationRunRepository;
     private final ObjectMapper objectMapper;
+    private final VerificationResultExcelWriter verificationResultExcelWriter;
 
     @Transactional
     public AdmissionTrackResponse createTrack(CreateAdmissionTrackRequest request) {
@@ -233,15 +234,19 @@ public class AdmissionService {
     }
 
     public VerificationHistoryDetailResponse findVerificationHistoryDetail(Long studentId, Long runId) {
-        VerificationRun run = verificationRunRepository.findOneById(runId)
-            .orElseThrow(() -> CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.VERIFICATION_RUN_NOT_FOUND));
-        if (!run.getStudent().getId().equals(studentId)) {
-            throw CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.VERIFICATION_RUN_NOT_FOUND);
-        }
+        VerificationRun run = ownedVerificationRun(studentId, runId);
         GradeVerificationResponse result = objectMapper.readValue(run.getResultJson(), GradeVerificationResponse.class);
         return new VerificationHistoryDetailResponse(
             run.getId(), studentId, run.getApplication() == null ? null : run.getApplication().getId(),
             run.getCreatedAt(), result
+        );
+    }
+
+    public byte[] exportVerificationResult(Long studentId, Long runId) {
+        VerificationRun run = ownedVerificationRun(studentId, runId);
+        GradeVerificationResponse result = objectMapper.readValue(run.getResultJson(), GradeVerificationResponse.class);
+        return verificationResultExcelWriter.write(
+            run.getStudent().getApplicantNumber(), run.getStudent().getName(), run.getCreatedAt(), result
         );
     }
 
@@ -298,5 +303,14 @@ public class AdmissionService {
             throw CustomException.of(STUDENT_APPLICATION_NOT_FOUND);
         }
         return application;
+    }
+
+    private VerificationRun ownedVerificationRun(Long studentId, Long runId) {
+        VerificationRun run = verificationRunRepository.findOneById(runId)
+            .orElseThrow(() -> CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.VERIFICATION_RUN_NOT_FOUND));
+        if (!run.getStudent().getId().equals(studentId)) {
+            throw CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.VERIFICATION_RUN_NOT_FOUND);
+        }
+        return run;
     }
 }
