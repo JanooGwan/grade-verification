@@ -274,7 +274,7 @@ class ApiContractTest {
         );
         when(transcriptService.importExcel(anyInt(), any(), isNull(), any())).thenReturn(new TranscriptImportResponse(
             41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
-            1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
+            1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
         ));
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel")

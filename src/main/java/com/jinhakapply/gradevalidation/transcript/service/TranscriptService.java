@@ -213,6 +213,7 @@ public class TranscriptService {
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
+            0,
             createdApplicants.size(),
             updatedApplicants.size(),
             createdCourses,
@@ -246,6 +247,7 @@ public class TranscriptService {
             result.totalRows(),
             result.rows().size(),
             result.errors().size(),
+            0,
             result.rows().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()

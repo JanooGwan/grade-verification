@@ -92,6 +92,7 @@ class TransferExcelParser {
         List<TranscriptImportRowError> errors = new ArrayList<>();
         Set<String> found = new HashSet<>();
         int[] invalidRows = {0};
+        int[] skippedRows = {0};
         int[] missingAssessmentRows = {0};
         Path temporaryFile = null;
         try {
@@ -119,9 +120,13 @@ class TransferExcelParser {
                         found.add(COURSE_SHEET);
                         readSheet(styles, strings, sheet, (rowNumber, values) -> {
                             if (rowNumber == 0) return;
-                            if (courses.size() + invalidRows[0] >= MAX_COURSE_ROWS) {
+                            if (courses.size() + invalidRows[0] + skippedRows[0] >= MAX_COURSE_ROWS) {
                                 throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                                     "전달양식 성적은 한 번에 최대 %,d행까지 처리할 수 있습니다.".formatted(MAX_COURSE_ROWS));
+                            }
+                            if (optional(values, 6) == null) {
+                                skippedRows[0]++;
+                                return;
                             }
                             try {
                                 TranscriptExcelRow course = parseCourse(rowNumber + 1, values);
@@ -158,8 +163,9 @@ class TransferExcelParser {
             List.copyOf(applications),
             List.copyOf(courses),
             invalidRows[0],
+            skippedRows[0],
             List.copyOf(errors),
-            warnings(missingAssessmentRows[0])
+            warnings(missingAssessmentRows[0], skippedRows[0])
         );
     }
 
@@ -242,9 +248,13 @@ class TransferExcelParser {
         );
     }
 
-    private List<String> warnings(int missingAssessmentRows) {
+    private List<String> warnings(int missingAssessmentRows, int skippedRows) {
         List<String> warnings = new ArrayList<>();
         warnings.add("전달양식에 학생명이 없어 신규 지원자는 이름을 '미등록'으로 생성합니다.");
+        if (skippedRows > 0) {
+            warnings.add("편제명이 없는 %,d개 행은 한신대 성적 반영 대상 교과가 아닌 과목으로 보고 가져오기에서 제외합니다."
+                .formatted(skippedRows));
+        }
         if (missingAssessmentRows > 0) {
             warnings.add("성적값이 없는 %,d개 행은 과목 이력만 저장되며 성적 계산에서는 제외됩니다."
                 .formatted(missingAssessmentRows));

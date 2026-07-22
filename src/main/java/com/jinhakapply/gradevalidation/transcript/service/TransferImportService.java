@@ -61,6 +61,7 @@ class TransferImportService {
             result.totalRows(),
             result.courses().size(),
             result.invalidRows(),
+            result.skippedRows(),
             result.courses().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
@@ -142,6 +143,7 @@ class TransferImportService {
         return new TranscriptImportResponse(
             transcriptImport.getId(), transcriptImport.getStatus(), result.sourceFormat(),
             result.totalRows(), result.courses().size(), result.invalidRows(),
+            result.skippedRows(),
             createdStudents, updatedStudents, courses.created(), courses.updated(),
             result.applications().size(), catalog.createdApplications(), catalog.createdTracks(),
             catalog.createdUnits(), result.errors(), result.warnings()

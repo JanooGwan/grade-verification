@@ -31,6 +31,8 @@ class TransferExcelParserTest {
             assertThat(application.recruitmentUnitCode()).isEqualTo("21");
         });
         assertThat(result.courses()).hasSize(2);
+        assertThat(result.totalRows()).isEqualTo(3);
+        assertThat(result.skippedRows()).isEqualTo(1);
         assertThat(result.courses().getFirst()).satisfies(course -> {
             assertThat(course.applicantNumber()).isEqualTo("A-001");
             assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.MATH);
@@ -39,6 +41,7 @@ class TransferExcelParserTest {
             assertThat(course.credits()).isEqualByComparingTo(new BigDecimal("4"));
         });
         assertThat(result.invalidRows()).isZero();
+        assertThat(result.warnings()).anyMatch(item -> item.contains("편제명이 없는 1개 행"));
         assertThat(result.warnings()).anyMatch(item -> item.contains("성적값이 없는 1개 행"));
     }
 
@@ -65,6 +68,10 @@ class TransferExcelParserTest {
             writeRow(courses.createRow(2), new Object[] {
                 2026, 1, "A-001", 1, 2, "11122301010999", "기타", "0000000999", "진로와 직업",
                 1, 0, 0, 0, 0, 0, 0, 0, null
+            });
+            writeRow(courses.createRow(3), new Object[] {
+                2026, 1, "A-001", 2, 1, "000", " ", "0000001000", "C프로그래밍",
+                0, 0, 0, 0, 0, 0, 0, null, "A"
             });
             workbook.createSheet("CodeFormation");
             workbook.write(output);

@@ -11,6 +11,7 @@ public record TranscriptImportResponse(
     int totalRows,
     int importedRows,
     int failedRows,
+    int skippedRows,
     int createdStudents,
     int updatedStudents,
     int createdCourses,

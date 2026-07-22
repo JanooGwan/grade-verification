@@ -9,10 +9,11 @@ record TransferExcelParseResult(
     List<TransferApplicationRow> applications,
     List<TranscriptExcelRow> courses,
     int invalidRows,
+    int skippedRows,
     List<TranscriptImportRowError> errors,
     List<String> warnings
 ) {
     int totalRows() {
-        return courses.size() + invalidRows;
+        return courses.size() + invalidRows + skippedRows;
     }
 }

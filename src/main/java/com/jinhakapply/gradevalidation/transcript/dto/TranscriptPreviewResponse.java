@@ -14,6 +14,7 @@ public record TranscriptPreviewResponse(
     int totalRows,
     int validRows,
     int invalidRows,
+    int skippedRows,
     List<PreviewRow> sampleRows,
     List<TranscriptImportRowError> errors,
     List<String> warnings
