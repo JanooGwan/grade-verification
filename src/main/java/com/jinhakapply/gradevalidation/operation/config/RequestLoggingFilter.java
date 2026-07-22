@@ -41,10 +41,21 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             long durationMillis = (System.nanoTime() - started) / 1_000_000;
-            metrics.record(request.getMethod(), request.getRequestURI(), response.getStatus(), durationMillis);
+            String safePath = privacySafePath(request.getRequestURI());
+            metrics.record(request.getMethod(), safePath, response.getStatus(), durationMillis);
             log.info("http_request method={} path={} status={} durationMs={} requestId={}",
-                request.getMethod(), request.getRequestURI(), response.getStatus(), durationMillis, requestId);
+                request.getMethod(), safePath, response.getStatus(), durationMillis, requestId);
             MDC.clear();
         }
+    }
+
+    static String privacySafePath(String path) {
+        if (path == null) return "";
+        return path
+            .replaceAll("(?<=/students/)\\d+(?=/(?:courses|applications|common-data)(?:/|$))", "{studentId}")
+            .replaceAll("(?<=/students/)\\d+/[^/]+", "{admissionYear}/{applicantNumber}")
+            .replaceAll("(?<=/students/)\\d+", "{studentId}")
+            .replaceAll("(?<=/applications/)\\d+", "{applicationId}")
+            .replaceAll("(?<=/courses/)\\d+", "{courseId}");
     }
 }
