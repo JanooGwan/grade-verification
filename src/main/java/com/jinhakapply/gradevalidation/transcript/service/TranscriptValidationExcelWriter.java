@@ -35,7 +35,6 @@ class TranscriptValidationExcelWriter {
     private static final String[] RESULT_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-        "등급×적용가중치 합", "총 적용가중치",
         "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "전형별 교과 배율",
         "교과 반영점수(반올림 전)", "교과 반영점수"
     };
@@ -181,14 +180,13 @@ class TranscriptValidationExcelWriter {
             GradeVerificationResponse result = success.verification();
             GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
             BigDecimal preciseAverage = divide(
-                summary.gradeTimesWeightSum(), summary.totalAppliedWeight()
+                summary.gradeTimesCreditsSum(), summary.totalIncludedCredits()
             );
             Object[] values = {
                 application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
                 application.recruitmentUnitName(), summary.gradeTimesCreditsSum(),
                 summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
-                summary.gradeTimesWeightSum(), summary.totalAppliedWeight(), preciseAverage,
-                result.averageGrade(), result.baseScore(), summary.scoreMultiplier(),
+                preciseAverage, result.averageGrade(), result.baseScore(), summary.scoreMultiplier(),
                 summary.scoreBeforeFinalRounding(), result.finalScore()
             };
             writeRow(row, values, styles, -1);

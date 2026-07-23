@@ -64,18 +64,18 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
             assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
             assertThat(workbook.getSheetName(1)).isEqualTo("검증 요약");
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getLastCellNum()).isEqualTo((short) 15);
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(14).getStringCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getLastCellNum()).isEqualTo((short) 13);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(12).getStringCellValue())
                 .isEqualTo("교과 반영점수");
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
                 .contains("비교과·고사·학교폭력 미포함");
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(14).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(12).getNumericCellValue())
                 .isEqualTo(982.14);
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(4).getNumericCellValue())
                 .isEqualTo(117);
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(9).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(7).getNumericCellValue())
                 .isCloseTo(2.785714285714, org.assertj.core.data.Offset.offset(0.000000000001));
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(10).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(8).getNumericCellValue())
                 .isEqualTo(2.786);
             assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
             assertThat(workbook.getSheet("검증 요약").getRow(3).getCell(1).getStringCellValue())
