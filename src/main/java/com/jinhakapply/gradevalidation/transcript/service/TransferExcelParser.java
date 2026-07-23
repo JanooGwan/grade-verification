@@ -264,8 +264,10 @@ class TransferExcelParser {
         List<String> warnings = new ArrayList<>();
         warnings.add("전달양식에 학생명이 없어 신규 지원자는 이름을 '미등록'으로 생성합니다.");
         if (missingAssessmentRows > 0) {
-            warnings.add("성적값이 없는 %,d개 행은 과목 이력만 저장되며 성적 계산에서는 제외됩니다."
-                .formatted(missingAssessmentRows));
+            warnings.add((
+                "P·이수·기호 등 수치 환산할 수 없는 성적의 %,d개 행은 과목 이력만 저장되며 "
+                    + "성적 계산과 최소 반영 과목 수 충족 여부에서 제외됩니다."
+            ).formatted(missingAssessmentRows));
         }
         return List.copyOf(warnings);
     }

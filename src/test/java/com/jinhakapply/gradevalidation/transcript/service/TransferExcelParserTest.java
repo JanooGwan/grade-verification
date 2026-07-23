@@ -44,8 +44,15 @@ class TransferExcelParserTest {
             assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.OTHER);
             assertThat(course.courseName()).isEqualTo("C프로그래밍");
         });
+        assertThat(result.courses().get(1)).satisfies(course -> {
+            assertThat(course.courseName()).isEqualTo("진로와 직업");
+            assertThat(course.grade()).isNull();
+            assertThat(course.achievement()).isNull();
+        });
         assertThat(result.invalidRows()).isZero();
-        assertThat(result.warnings()).anyMatch(item -> item.contains("성적값이 없는 1개 행"));
+        assertThat(result.warnings()).anyMatch(item ->
+            item.contains("수치 환산할 수 없는 성적의 1개 행")
+                && item.contains("최소 반영 과목 수 충족 여부에서 제외"));
     }
 
     private MockMultipartFile hanshinWorkbook() throws Exception {
@@ -70,7 +77,7 @@ class TransferExcelParserTest {
             });
             writeRow(courses.createRow(2), new Object[] {
                 2026, 1, "A-001", 1, 2, "11122301010999", "기타", "0000000999", "진로와 직업",
-                1, 0, 0, 0, 0, 0, 0, 0, null
+                1, 0, 0, 0, 0, 0, 0, "P", null
             });
             writeRow(courses.createRow(3), new Object[] {
                 2026, 1, "A-001", 2, 1, "000", " ", "0000001000", "C프로그래밍",

@@ -2,6 +2,7 @@ package com.jinhakapply.gradevalidation.evaluation.service;
 
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.EVALUATION_RULE_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.DUPLICATE_EVALUATION_RULE;
+import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE_STATUS;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
@@ -151,7 +152,7 @@ public class EvaluationService {
         );
         Set<Integer> selectedIndexes = selection.indexes();
         if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
-            throw CustomException.of(INVALID_EVALUATION_RULE,
+            throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
                 "반영 가능한 교과성적이 최소 " + rule.getMinimumCourseCount() + "과목 이상이어야 합니다.");
         }
         Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(

@@ -33,7 +33,7 @@ class TranscriptBatchVerificationServiceTest {
     @Mock University university;
 
     @Test
-    void passesEveryApplicantCourseToThePublishedRule() {
+    void excludesCoursesWithoutGradableAssessmentBeforeVerification() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService
         );
@@ -54,7 +54,8 @@ class TranscriptBatchVerificationServiceTest {
         List<TranscriptExcelRow> courses = List.of(
             course(3, SubjectCategory.KOREAN, "국어"),
             course(4, SubjectCategory.SOCIAL, "한국사"),
-            course(5, SubjectCategory.OTHER, "미술")
+            course(5, SubjectCategory.OTHER, "미술"),
+            ungradedCourse(6, "진로와 직업")
         );
 
         TranscriptBatchVerificationResult result = service.verify(1L, 2027, List.of(application), courses);
@@ -154,6 +155,15 @@ class TranscriptBatchVerificationServiceTest {
             1, 1, category, name, 2, GradeScale.NINE_LEVEL, null,
             null, null, null, null, null, null, null,
             new BigDecimal("3"), false, false
+        );
+    }
+
+    private TranscriptExcelRow ungradedCourse(int rowNumber, String name) {
+        return new TranscriptExcelRow(
+            rowNumber, "A-001", "미등록", null, null, 2027,
+            1, 1, SubjectCategory.OTHER, name, null, GradeScale.NINE_LEVEL, null,
+            null, null, null, null, null, null, null,
+            BigDecimal.ONE, false, false
         );
     }
 }

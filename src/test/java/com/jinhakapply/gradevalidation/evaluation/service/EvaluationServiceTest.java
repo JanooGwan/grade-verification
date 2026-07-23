@@ -334,21 +334,31 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void rejectsApplicantsBelowConfiguredMinimumCourseCount() {
+    void rejectsApplicantsWithFewerThanTwelveGradableCoursesAfterUnscoredCoursesAreExcluded() {
         EvaluationRule minimumTwelveRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
             decimals("1", "1", "1", "1", "1", "0"));
         ReflectionTestUtils.setField(minimumTwelveRule, "minimumCourseCount", 12);
         mockRule(minimumTwelveRule);
-        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.rangeClosed(1, 11)
+        List<VerifyGradeRequest.CourseGrade> courses = new java.util.ArrayList<>(
+            java.util.stream.IntStream.rangeClosed(1, 11)
             .mapToObj(index -> course(1 + (index - 1) / 4, 1, SubjectCategory.KOREAN,
                 "국어" + index, 3, "3"))
-            .toList();
+            .toList()
+        );
+        courses.add(new VerifyGradeRequest.CourseGrade(
+            3, 1, SubjectCategory.OTHER, "진로와 직업", null, null,
+            null, null, null, null, false, false, BigDecimal.ONE
+        ));
 
         assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, false, courses)))
             .isInstanceOf(CustomException.class)
-            .satisfies(exception -> assertThat(((CustomException) exception).getDetail())
-                .contains("최소 12과목"));
+            .satisfies(exception -> {
+                CustomException customException = (CustomException) exception;
+                assertThat(customException.getErrorCode().getCode())
+                    .isEqualTo("INSUFFICIENT_ELIGIBLE_COURSES");
+                assertThat(customException.getDetail()).contains("최소 12과목");
+            });
     }
 
     @Test

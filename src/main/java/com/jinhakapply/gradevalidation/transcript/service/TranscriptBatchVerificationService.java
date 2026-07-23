@@ -53,19 +53,22 @@ class TranscriptBatchVerificationService {
                 application.applicantNumber(), List.of()
             );
             String studentName = applicantCourses.isEmpty() ? "미등록" : applicantCourses.getFirst().studentName();
+            List<TranscriptExcelRow> gradableCourses = applicantCourses.stream()
+                .filter(this::hasGradableAssessment)
+                .toList();
             List<EvaluationRule> matchedRules = matchRules(rules, application);
             if (matchedRules.isEmpty()) {
-                failures.add(failure(application, studentName, applicantCourses.size(),
+                failures.add(failure(application, studentName, gradableCourses.size(),
                     "RULE_NOT_FOUND", "전형·모집단위에 맞는 게시 규칙이 없습니다."));
                 continue;
             }
             if (matchedRules.size() > 1) {
-                failures.add(failure(application, studentName, applicantCourses.size(),
+                failures.add(failure(application, studentName, gradableCourses.size(),
                     "RULE_CONFLICT", "적용 가능한 게시 규칙이 여러 개입니다: " +
                         matchedRules.stream().map(rule -> "#" + rule.getId()).collect(Collectors.joining(", "))));
                 continue;
             }
-            if (applicantCourses.isEmpty()) {
+            if (gradableCourses.isEmpty()) {
                 failures.add(failure(application, studentName, 0,
                     "COURSE_NOT_FOUND", "국어·영어·수학·사회·과학·한국사 성적이 없습니다."));
                 continue;
@@ -76,7 +79,7 @@ class TranscriptBatchVerificationService {
                 && application.graduationYear() < admissionYear;
             VerifyGradeRequest request = new VerifyGradeRequest(
                 rule.getId(), graduated, HighSchoolType.GENERAL, application.graduationYear(),
-                applicantCourses.stream().map(this::toCourseGrade).toList()
+                gradableCourses.stream().map(this::toCourseGrade).toList()
             );
             try {
                 GradeVerificationResponse verification = evaluationService.verify(rule, request);
@@ -85,7 +88,7 @@ class TranscriptBatchVerificationService {
                     GradeVerificationResponse.CourseCalculation calculation = verification.calculations().get(index);
                     if (calculation.included()) {
                         selected.add(new TranscriptBatchVerificationResult.SelectedCourse(
-                            applicantCourses.get(index), calculation
+                            gradableCourses.get(index), calculation
                         ));
                     }
                 }
@@ -93,7 +96,7 @@ class TranscriptBatchVerificationService {
                     application, studentName, compact(verification, application), List.copyOf(selected)
                 ));
             } catch (CustomException exception) {
-                failures.add(failure(application, studentName, applicantCourses.size(),
+                failures.add(failure(application, studentName, gradableCourses.size(),
                     exception.getErrorCode().getCode(), exception.getFullMessage()));
             }
         }
@@ -163,6 +166,13 @@ class TranscriptBatchVerificationService {
             course.standardDeviation(), course.studentCount(), course.rankPosition(), course.tiedRankCount(),
             course.legacyAchievement(), course.careerSubject(), course.professionalCourse(), course.credits()
         );
+    }
+
+    private boolean hasGradableAssessment(TranscriptExcelRow course) {
+        return course.grade() != null
+            || course.achievement() != null
+            || course.rankPosition() != null
+            || course.legacyAchievement() != null;
     }
 
     private TranscriptBatchVerificationResult.Failure failure(

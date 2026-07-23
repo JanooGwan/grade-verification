@@ -14,6 +14,7 @@ public enum ApiResponseCode {
     EVALUATION_RULE_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 반영 규칙을 찾을 수 없습니다."),
     DUPLICATE_EVALUATION_RULE(HttpStatus.CONFLICT, "동일한 대학·연도·전형·모집단위·버전의 규칙이 이미 존재합니다."),
     INVALID_EVALUATION_RULE(HttpStatus.BAD_REQUEST, "성적 반영 규칙이 올바르지 않습니다."),
+    INSUFFICIENT_ELIGIBLE_COURSES(HttpStatus.BAD_REQUEST, "반영 가능한 교과성적 수가 부족합니다."),
     INVALID_EVALUATION_RULE_STATUS(HttpStatus.CONFLICT, "현재 상태에서는 성적 반영 규칙을 변경할 수 없습니다."),
     INVALID_RULE_EXTRACTION_FILE(HttpStatus.BAD_REQUEST, "모집요강 PDF 파일이 올바르지 않습니다."),
     RULE_EXTRACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "규칙 추출 결과를 찾을 수 없습니다."),
