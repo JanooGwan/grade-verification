@@ -23,7 +23,7 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
     private final String configuredKey;
 
     public AdminApiKeyFilter(
-        @Value("${app.security.admin-api.enabled:false}") boolean enabled,
+        @Value("${app.security.admin-api.enabled:true}") boolean enabled,
         @Value("${app.security.admin-api.key:}") String configuredKey
     ) {
         this.enabled = enabled;
