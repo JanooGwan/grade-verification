@@ -60,7 +60,11 @@ class TranscriptValidationExcelWriterTest {
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(7);
             assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
-            assertThat(workbook.getSheetName(1)).isEqualTo("상위 12과목 상세");
+            assertThat(workbook.getSheetName(1)).isEqualTo("반영 과목 상세");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(24).getStringCellValue())
+                .isEqualTo("교과 반영점수");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
+                .contains("비교과·고사·학교폭력 미포함");
             assertThat(workbook.getSheetName(2)).isEqualTo("검증 실패");
             assertThat(workbook.getSheetName(3)).isEqualTo("검증 요약");
             assertThat(workbook.getSheetName(4)).isEqualTo("정상 과목");

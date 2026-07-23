@@ -11,7 +11,6 @@ import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
-import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
@@ -29,14 +28,6 @@ class TranscriptBatchVerificationService {
         "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
         "공통", "모든모집단위"
     );
-    private static final Set<SubjectCategory> HANSHIN_SUBJECTS = Set.of(
-        SubjectCategory.KOREAN,
-        SubjectCategory.MATH,
-        SubjectCategory.ENGLISH,
-        SubjectCategory.SOCIAL,
-        SubjectCategory.SCIENCE
-    );
-
     private final EvaluationRuleRepository ruleRepository;
     private final EvaluationService evaluationService;
 
@@ -53,7 +44,6 @@ class TranscriptBatchVerificationService {
             universityId, admissionYear, EvaluationRuleStatus.PUBLISHED
         );
         Map<String, List<TranscriptExcelRow>> coursesByApplicant = courses.stream()
-            .filter(course -> HANSHIN_SUBJECTS.contains(course.subjectCategory()))
             .collect(Collectors.groupingBy(TranscriptExcelRow::applicantNumber));
 
         List<TranscriptBatchVerificationResult.Success> successes = new ArrayList<>();
@@ -100,7 +90,7 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(verification), List.copyOf(selected)
+                    application, studentName, compact(verification, application), List.copyOf(selected)
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
@@ -110,13 +100,26 @@ class TranscriptBatchVerificationService {
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
     }
 
-    private GradeVerificationResponse compact(GradeVerificationResponse result) {
+    private GradeVerificationResponse compact(
+        GradeVerificationResponse result,
+        TransferApplicationRow application
+    ) {
+        List<String> warnings = new ArrayList<>(result.warnings());
+        String track = normalizePolicyText(application.admissionTrackName());
+        if (track.contains("참인재")) {
+            warnings.add("교과 540점만 산출했습니다. 출결 60점과 면접 400점은 전달양식에 없어 포함하지 않았습니다.");
+        } else if (track.contains("논술")) {
+            warnings.add("학생부교과 200점만 산출했습니다. 논술고사 800점은 전달양식에 없어 포함하지 않았습니다.");
+        } else if (track.contains("체육실기")) {
+            warnings.add("학생부교과 450점만 산출했습니다. 체육실기 550점은 전달양식에 없어 포함하지 않았습니다.");
+        }
+        warnings.add("학교폭력 조치사항 감점은 전달양식에 없어 포함하지 않았습니다.");
         return new GradeVerificationResponse(
             result.ruleId(), result.ruleName(), result.ruleVersion(), result.universityName(),
             result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
             result.averageGrade(), result.selectionStrategy(), result.scoreAggregation(), result.sourceDocument(),
             result.sourcePages(), result.includedCourseCount(), result.excludedCourseCount(),
-            result.calculationSummary(), List.of(), result.warnings()
+            result.calculationSummary(), List.of(), List.copyOf(warnings)
         );
     }
 
@@ -126,6 +129,7 @@ class TranscriptBatchVerificationService {
                 .equals(normalizePolicyText(application.admissionTrackName())))
             .toList();
         if (sameTrack.isEmpty()) {
+            if (requiresDedicatedHanshinRule(application.admissionTrackName())) return List.of();
             sameTrack = rules.stream().filter(this::isHanshinCommonGradeRule).toList();
         }
         List<EvaluationRule> exact = sameTrack.stream()
@@ -136,6 +140,14 @@ class TranscriptBatchVerificationService {
         return sameTrack.stream()
             .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
             .toList();
+    }
+
+    private boolean requiresDedicatedHanshinRule(String admissionTrackName) {
+        String track = normalizePolicyText(admissionTrackName);
+        return track.contains("참인재")
+            || track.contains("논술")
+            || track.contains("체육실기")
+            || track.contains("특성화고교졸업자");
     }
 
     private boolean isHanshinCommonGradeRule(EvaluationRule rule) {

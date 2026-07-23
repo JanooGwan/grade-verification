@@ -42,8 +42,8 @@ class TranscriptValidationExcelWriter {
         "검증 상태", "규칙 ID", "규칙명", "규칙 버전", "반영 과목 수", "제외 과목 수",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
         "등급×적용가중치 합", "환산점수×적용가중치 합", "총 적용가중치",
-        "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "점수 배율",
-        "최종점수(반올림 전)", "최종 환산점수", "중간 반올림", "최종 반올림",
+        "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "전형별 교과 배율",
+        "교과 반영점수(반올림 전)", "교과 반영점수", "중간 반올림", "최종 반올림",
         "계산식", "주의 사항", "실패 코드", "실패 사유"
     };
     private static final String[] SELECTED_HEADERS = {
@@ -140,7 +140,7 @@ class TranscriptValidationExcelWriter {
     ) {
         Sheet sheet = workbook.createSheet("학생별 검증 결과");
         sheet.setDisplayGridlines(false);
-        title(sheet, styles, "지원정보별 한신대 성적 검증 결과", RESULT_HEADERS.length - 1);
+        title(sheet, styles, "한신대 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
         header(sheet, styles, RESULT_HEADERS);
         List<Object> results = new ArrayList<>();
         results.addAll(verification.successes());
@@ -202,7 +202,7 @@ class TranscriptValidationExcelWriter {
         Styles styles,
         List<TranscriptBatchVerificationResult.Success> successes
     ) {
-        Sheet sheet = workbook.createSheet("상위 12과목 상세");
+        Sheet sheet = workbook.createSheet("반영 과목 상세");
         sheet.setDisplayGridlines(false);
         title(sheet, styles, "지원정보별 반영 과목 상세", SELECTED_HEADERS.length - 1);
         header(sheet, styles, SELECTED_HEADERS);

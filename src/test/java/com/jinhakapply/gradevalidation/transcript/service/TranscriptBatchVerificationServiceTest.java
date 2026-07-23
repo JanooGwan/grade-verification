@@ -2,6 +2,7 @@ package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,7 +33,7 @@ class TranscriptBatchVerificationServiceTest {
     @Mock University university;
 
     @Test
-    void verifiesEachApplicationWithPublishedRuleAndHanshinSubjects() {
+    void passesEveryApplicantCourseToThePublishedRule() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService
         );
@@ -63,7 +64,7 @@ class TranscriptBatchVerificationServiceTest {
         ArgumentCaptor<VerifyGradeRequest> requestCaptor = ArgumentCaptor.forClass(VerifyGradeRequest.class);
         verify(evaluationService).verify(eq(rule), requestCaptor.capture());
         assertThat(requestCaptor.getValue().courses()).extracting(VerifyGradeRequest.CourseGrade::courseName)
-            .containsExactly("국어", "한국사");
+            .containsExactly("국어", "한국사", "미술");
     }
 
     @Test
@@ -87,6 +88,64 @@ class TranscriptBatchVerificationServiceTest {
             assertThat(failure.code()).isEqualTo("RULE_NOT_FOUND");
             assertThat(failure.application().rowNumber()).isEqualTo(2);
         });
+    }
+
+    @Test
+    void doesNotApplyCommonTimesTenRuleToTalentTrack() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getAdmissionType()).thenReturn("학생부교과");
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "06", "참인재", "21", "컴퓨터공학과", 2027
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            1L, 2027, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).isEmpty();
+        assertThat(result.failures()).singleElement()
+            .satisfies(failure -> assertThat(failure.code()).isEqualTo("RULE_NOT_FOUND"));
+    }
+
+    @Test
+    void prefersSpecializedGraduateRuleOverCommonHanshinRule() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        EvaluationRule specializedRule = mock(EvaluationRule.class);
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule, specializedRule));
+        when(rule.getAdmissionType()).thenReturn("학생부교과");
+        when(specializedRule.getId()).thenReturn(12L);
+        when(specializedRule.getAdmissionType()).thenReturn("특성화고교졸업자");
+        when(specializedRule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(evaluationService.verify(eq(specializedRule), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "12", "특성화고교졸업자", "21", "컴퓨터공학과", 2027
+        );
+        List<TranscriptExcelRow> courses = List.of(
+            course(3, SubjectCategory.KOREAN, "국어"),
+            course(4, SubjectCategory.OTHER, "상업경제")
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            1L, 2027, List.of(application), courses
+        );
+
+        assertThat(result.successes()).hasSize(1);
+        ArgumentCaptor<VerifyGradeRequest> requestCaptor = ArgumentCaptor.forClass(VerifyGradeRequest.class);
+        verify(evaluationService).verify(eq(specializedRule), requestCaptor.capture());
+        assertThat(requestCaptor.getValue().courses()).extracting(VerifyGradeRequest.CourseGrade::courseName)
+            .containsExactly("국어", "상업경제");
     }
 
     private TranscriptExcelRow course(int rowNumber, SubjectCategory category, String name) {

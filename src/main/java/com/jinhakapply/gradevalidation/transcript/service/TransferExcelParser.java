@@ -124,16 +124,6 @@ class TransferExcelParser {
                                 throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                                     "전달양식 성적은 한 번에 최대 %,d행까지 처리할 수 있습니다.".formatted(MAX_COURSE_ROWS));
                             }
-                            if (optional(values, 6) == null) {
-                                skippedRows[0]++;
-                                String courseName = optional(values, 8);
-                                skipped.add(new TranscriptImportRowError(
-                                    rowNumber + 1,
-                                    "편제명 없음 - 한신대 반영 대상 외 과목" +
-                                        (courseName == null ? "" : " (" + courseName + ")")
-                                ));
-                                return;
-                            }
                             try {
                                 TranscriptExcelRow course = parseCourse(rowNumber + 1, values);
                                 if (course.grade() == null && course.achievement() == null
@@ -172,7 +162,7 @@ class TransferExcelParser {
             skippedRows[0],
             List.copyOf(skipped),
             List.copyOf(errors),
-            warnings(missingAssessmentRows[0], skippedRows[0])
+            warnings(missingAssessmentRows[0])
         );
     }
 
@@ -232,7 +222,7 @@ class TransferExcelParser {
         String applicantNumber = required(values, 2, "수험번호");
         int schoolYear = requiredInteger(values, 3, "학년", 1, 3);
         int semester = requiredInteger(values, 4, "학기", 1, 2);
-        String organizationName = required(values, 6, "편제명");
+        String organizationName = optional(values, 6);
         String courseName = required(values, 8, "과목명");
         BigDecimal credits = decimal(values, 9);
         if (credits == null || credits.signum() <= 0) {
@@ -252,7 +242,7 @@ class TransferExcelParser {
             null,
             schoolYear,
             semester,
-            subjectCategory(organizationName, courseName),
+            subjectCategory(organizationName == null ? "" : organizationName, courseName),
             courseName,
             grade,
             GradeScale.NINE_LEVEL,
@@ -266,17 +256,13 @@ class TransferExcelParser {
             null,
             credits,
             false,
-            isProfessional(organizationName)
+            organizationName != null && isProfessional(organizationName)
         );
     }
 
-    private List<String> warnings(int missingAssessmentRows, int skippedRows) {
+    private List<String> warnings(int missingAssessmentRows) {
         List<String> warnings = new ArrayList<>();
         warnings.add("전달양식에 학생명이 없어 신규 지원자는 이름을 '미등록'으로 생성합니다.");
-        if (skippedRows > 0) {
-            warnings.add("편제명이 없는 %,d개 행은 한신대 성적 반영 대상 교과가 아닌 과목으로 보고 가져오기에서 제외합니다."
-                .formatted(skippedRows));
-        }
         if (missingAssessmentRows > 0) {
             warnings.add("성적값이 없는 %,d개 행은 과목 이력만 저장되며 성적 계산에서는 제외됩니다."
                 .formatted(missingAssessmentRows));
