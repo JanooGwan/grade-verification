@@ -54,8 +54,12 @@ class TransferImportService {
     private final StudentTranscriptImportRepository importRepository;
     private final JdbcTemplate jdbcTemplate;
 
-    TranscriptPreviewResponse preview(MultipartFile file, String fileSha256) {
-        TransferExcelParseResult result = parser.parse(file);
+    TranscriptPreviewResponse preview(
+        MultipartFile file,
+        String fileSha256,
+        TransferExcelParseResult result,
+        TranscriptBatchVerificationResult verification
+    ) {
         return new TranscriptPreviewResponse(
             file.getOriginalFilename(),
             fileSha256,
@@ -69,6 +73,23 @@ class TransferImportService {
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
             )).toList(),
+            new TranscriptPreviewResponse.VerificationSummary(
+                result.applications().size(),
+                verification.successes().size(),
+                verification.failures().size(),
+                verification.successes().stream().limit(20).map(success ->
+                    new TranscriptPreviewResponse.VerificationResultRow(
+                        success.application().rowNumber(),
+                        success.application().applicantNumber(),
+                        success.studentName(),
+                        success.application().admissionTrackName(),
+                        success.application().recruitmentUnitName(),
+                        success.verification().finalScore(),
+                        success.verification().averageGrade(),
+                        success.verification().includedCourseCount()
+                    )
+                ).toList()
+            ),
             result.errors(),
             result.warnings()
         );

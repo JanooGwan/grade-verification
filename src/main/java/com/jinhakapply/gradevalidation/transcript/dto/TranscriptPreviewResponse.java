@@ -16,6 +16,7 @@ public record TranscriptPreviewResponse(
     int invalidRows,
     int skippedRows,
     List<PreviewRow> sampleRows,
+    VerificationSummary verification,
     List<TranscriptImportRowError> errors,
     List<String> warnings
 ) {
@@ -30,5 +31,23 @@ public record TranscriptPreviewResponse(
         Integer grade,
         AchievementLevel achievement,
         BigDecimal credits
+    ) {}
+
+    public record VerificationSummary(
+        int totalApplications,
+        int successfulApplications,
+        int failedApplications,
+        List<VerificationResultRow> sampleResults
+    ) {}
+
+    public record VerificationResultRow(
+        int applicationRowNumber,
+        String applicantNumber,
+        String studentName,
+        String admissionTrackName,
+        String recruitmentUnitName,
+        BigDecimal finalScore,
+        BigDecimal averageGrade,
+        int includedCourseCount
     ) {}
 }

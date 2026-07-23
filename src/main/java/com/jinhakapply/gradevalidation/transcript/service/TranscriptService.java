@@ -238,7 +238,11 @@ public class TranscriptService {
     public TranscriptPreviewResponse previewExcel(int admissionYear, Long universityId, MultipartFile file) {
         validateFile(admissionYear, file);
         if (transferExcelParser.supports(file)) {
-            return transferImportService.preview(file, sha256(file));
+            TransferExcelParseResult result = transferExcelParser.parse(file);
+            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+                universityId, admissionYear, result.applications(), result.courses()
+            );
+            return transferImportService.preview(file, sha256(file), result, verification);
         }
         TranscriptExcelParseResult result = excelParser.parse(file);
         return new TranscriptPreviewResponse(
@@ -254,6 +258,7 @@ public class TranscriptService {
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
             )).toList(),
+            null,
             result.errors(),
             List.of()
         );
