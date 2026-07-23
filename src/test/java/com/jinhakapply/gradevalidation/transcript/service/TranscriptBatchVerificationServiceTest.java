@@ -43,7 +43,7 @@ class TranscriptBatchVerificationServiceTest {
         when(rule.getAdmissionType()).thenReturn("학생부교과");
         when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
         when(rule.getUniversity()).thenReturn(university);
-        when(university.getName()).thenReturn("한신대학교");
+        when(university.getCode()).thenReturn("HS");
         when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any())).thenReturn(verification);
         when(verification.calculations()).thenReturn(List.of());
 

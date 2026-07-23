@@ -41,6 +41,7 @@ erDiagram
         VARCHAR summary_type "SEMESTER 또는 YEAR"
         INT school_year "학년"
         INT semester "학기; 학년 요약은 NULL"
+        INT semester_key "NULL을 0으로 정규화한 유니크 키"
         INT rank_position "계열 또는 학년 석차"
         INT tied_rank_count "동석차 인원"
         INT cohort_size "재적수"

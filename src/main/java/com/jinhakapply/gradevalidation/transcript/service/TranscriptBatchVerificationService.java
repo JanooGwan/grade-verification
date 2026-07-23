@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 class TranscriptBatchVerificationService {
+    private static final String HANSHIN_UNIVERSITY_CODE = "HS";
     private static final Set<String> COMMON_UNIT_NAMES = Set.of(
         "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
         "공통", "모든모집단위"
@@ -138,7 +139,7 @@ class TranscriptBatchVerificationService {
     }
 
     private boolean isHanshinCommonGradeRule(EvaluationRule rule) {
-        return rule.getUniversity().getName().contains("한신")
+        return HANSHIN_UNIVERSITY_CODE.equals(rule.getUniversity().getCode())
             && "학생부교과".equals(normalizePolicyText(rule.getAdmissionType()))
             && COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit()));
     }

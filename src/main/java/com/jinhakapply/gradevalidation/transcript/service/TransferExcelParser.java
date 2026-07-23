@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -58,8 +59,7 @@ class TransferExcelParser {
         }
         Path temporaryFile = null;
         try {
-            temporaryFile = Files.createTempFile("transfer-detect-", ".xlsx");
-            file.transferTo(temporaryFile);
+            temporaryFile = copyToTemporaryFile(file, "transfer-detect-");
             try (OPCPackage pkg = OPCPackage.open(temporaryFile.toFile(), PackageAccess.READ)) {
             XSSFReader reader = new XSSFReader(pkg);
             Set<String> sheets = new HashSet<>();
@@ -97,8 +97,7 @@ class TransferExcelParser {
         int[] missingAssessmentRows = {0};
         Path temporaryFile = null;
         try {
-            temporaryFile = Files.createTempFile("transfer-import-", ".xlsx");
-            file.transferTo(temporaryFile);
+            temporaryFile = copyToTemporaryFile(file, "transfer-import-");
             try (OPCPackage pkg = OPCPackage.open(temporaryFile.toFile(), PackageAccess.READ)) {
             XSSFReader reader = new XSSFReader(pkg);
             StylesTable styles = reader.getStylesTable();
@@ -183,6 +182,21 @@ class TransferExcelParser {
             Files.deleteIfExists(path);
         } catch (java.io.IOException exception) {
             log.warn("Failed to delete temporary transfer workbook: {}", path.getFileName());
+        }
+    }
+
+    private Path copyToTemporaryFile(MultipartFile file, String prefix) throws java.io.IOException {
+        Path path = Files.createTempFile(prefix, ".xlsx");
+        try (InputStream input = file.getInputStream()) {
+            Files.copy(input, path, StandardCopyOption.REPLACE_EXISTING);
+            return path;
+        } catch (java.io.IOException exception) {
+            try {
+                Files.deleteIfExists(path);
+            } catch (java.io.IOException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+            throw exception;
         }
     }
 

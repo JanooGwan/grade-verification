@@ -16,6 +16,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerMapping;
 
 @Slf4j
 @Component
@@ -41,12 +42,18 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             long durationMillis = (System.nanoTime() - started) / 1_000_000;
-            String safePath = privacySafePath(request.getRequestURI());
+            String safePath = resolvedPath(request);
             metrics.record(request.getMethod(), safePath, response.getStatus(), durationMillis);
             log.info("http_request method={} path={} status={} durationMs={} requestId={}",
                 request.getMethod(), safePath, response.getStatus(), durationMillis, requestId);
             MDC.clear();
         }
+    }
+
+    static String resolvedPath(HttpServletRequest request) {
+        Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        if (pattern instanceof String value && !value.isBlank()) return value;
+        return privacySafePath(request.getRequestURI());
     }
 
     static String privacySafePath(String path) {

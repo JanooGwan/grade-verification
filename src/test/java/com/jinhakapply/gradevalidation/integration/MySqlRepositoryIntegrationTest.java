@@ -98,12 +98,23 @@ class MySqlRepositoryIntegrationTest {
               AND TABLE_NAME = 'evaluation_rule'
               AND COLUMN_NAME = 'status'
             """, String.class);
+        List<String> legacySummaryUniqueColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_legacy_grade_summary'
+              AND INDEX_NAME = 'uk_student_legacy_grade_summary'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19", "20", "21", "22"
+            "17", "18", "19", "20", "21", "22", "23"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
+        assertThat(legacySummaryUniqueColumns).containsExactly(
+            "student_id", "summary_type", "school_year", "semester_key"
+        );
     }
 
     @Test

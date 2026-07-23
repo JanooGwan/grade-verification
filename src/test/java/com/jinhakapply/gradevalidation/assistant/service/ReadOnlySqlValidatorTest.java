@@ -72,6 +72,17 @@ class ReadOnlySqlValidatorTest {
     }
 
     @Test
+    void ignoresTableReferencesInsideStandardAndBackslashEscapedStringLiterals() {
+        Set<String> tables = validator.validate(
+            "SELECT 'FROM users' AS first_label, 'O\\'Reilly FROM users' AS second_label, s.id "
+                + "FROM student s",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
+    }
+
+    @Test
     void rejectsWildcardProjection() {
         assertThatThrownBy(() -> validator.validate("SELECT * FROM student", allowedTables))
             .isInstanceOf(IllegalArgumentException.class);

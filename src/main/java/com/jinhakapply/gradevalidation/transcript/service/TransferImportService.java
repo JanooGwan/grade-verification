@@ -4,6 +4,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
 
 import java.math.BigDecimal;
+import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,6 +32,7 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptIm
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 class TransferImportService {
 
     private static final int BATCH_SIZE = 1_000;
@@ -231,8 +234,6 @@ class TransferImportService {
                 professional_course=VALUES(professional_course), source_file_name=VALUES(source_file_name),
                 source_row_number=VALUES(source_row_number), updated_at=CURRENT_TIMESTAMP(6)
             """;
-        int created = 0;
-        int updated = 0;
         int[][] results = jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
             statement.setLong(1, students.get(row.applicantNumber()).getId());
             statement.setInt(2, row.schoolYear());
@@ -255,13 +256,28 @@ class TransferImportService {
             statement.setString(19, sourceFileName);
             statement.setInt(20, row.rowNumber());
         });
+        CourseResult result = classifyBatchResults(results);
+        if (result.unknown() > 0) {
+            log.warn("Could not classify {} transcript course batch results", result.unknown());
+        }
+        return result;
+    }
+
+    static CourseResult classifyBatchResults(int[][] results) {
+        int created = 0;
+        int updated = 0;
+        int unchanged = 0;
+        int unknown = 0;
         for (int[] batch : results) {
             for (int count : batch) {
-                if (count == 2) updated++;
-                else created++;
+                if (count == 1) created++;
+                else if (count == 2) updated++;
+                else if (count == 0) unchanged++;
+                else if (count == Statement.SUCCESS_NO_INFO) unknown++;
+                else unknown++;
             }
         }
-        return new CourseResult(created, updated);
+        return new CourseResult(created, updated, unchanged, unknown);
     }
 
     private void setInteger(java.sql.PreparedStatement statement, int index, Integer value) throws java.sql.SQLException {
@@ -303,6 +319,6 @@ class TransferImportService {
     }
 
     private record CatalogResult(int createdTracks, int createdUnits, int createdApplications) {}
-    private record CourseResult(int created, int updated) {}
+    record CourseResult(int created, int updated, int unchanged, int unknown) {}
     private record ApplicationCandidate(Student student, RecruitmentUnit unit) {}
 }
