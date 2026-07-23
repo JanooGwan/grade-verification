@@ -15,6 +15,9 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +25,7 @@ class TranscriptValidationExcelWriterTest {
     private final TranscriptValidationExcelWriter writer = new TranscriptValidationExcelWriter();
 
     @Test
-    void writesSummaryValidCoursesAndErrors() throws Exception {
+    void writesCondensedResultsAndIssueSummary() throws Exception {
         TranscriptExcelRow course = new TranscriptExcelRow(
             12, "A-001", "테스트 학생", null, null, 2027,
             1, 1, SubjectCategory.KOREAN, "국어", 2, GradeScale.NINE_LEVEL,
@@ -58,38 +61,44 @@ class TranscriptValidationExcelWriterTest {
 
         assertThat(file).isNotEmpty();
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(7);
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
             assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
-            assertThat(workbook.getSheetName(1)).isEqualTo("반영 과목 상세");
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(24).getStringCellValue())
+            assertThat(workbook.getSheetName(1)).isEqualTo("검증 요약");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getLastCellNum()).isEqualTo((short) 15);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(14).getStringCellValue())
                 .isEqualTo("교과 반영점수");
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
                 .contains("비교과·고사·학교폭력 미포함");
-            assertThat(workbook.getSheetName(2)).isEqualTo("검증 실패");
-            assertThat(workbook.getSheetName(3)).isEqualTo("검증 요약");
-            assertThat(workbook.getSheetName(4)).isEqualTo("정상 과목");
-            assertThat(workbook.getSheetName(5)).isEqualTo("제외 행");
-            assertThat(workbook.getSheetName(6)).isEqualTo("오류 행");
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(24).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(14).getNumericCellValue())
                 .isEqualTo(982.14);
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(13).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(4).getNumericCellValue())
                 .isEqualTo(117);
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(19).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(9).getNumericCellValue())
                 .isCloseTo(2.785714285714, org.assertj.core.data.Offset.offset(0.000000000001));
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(20).getNumericCellValue())
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(10).getNumericCellValue())
                 .isEqualTo(2.786);
-            assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(4);
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(4).getCell(7).getStringCellValue())
-                .isEqualTo("실패");
-            assertThat(workbook.getSheet("학생별 검증 결과").getRow(4).getCell(29).getStringCellValue())
-                .isEqualTo("INVALID_EVALUATION_RULE");
+            assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
             assertThat(workbook.getSheet("검증 요약").getRow(3).getCell(1).getStringCellValue())
                 .isEqualTo("테스트.xlsx");
-            assertThat(workbook.getSheet("정상 과목").getRow(3).getCell(6).getStringCellValue())
-                .isEqualTo("국어");
-            assertThat(workbook.getSheet("오류 행").getRow(3).getCell(1).getStringCellValue())
-                .isEqualTo("학기가 올바르지 않습니다.");
+            Sheet summarySheet = workbook.getSheet("검증 요약");
+            assertThat(containsCellValue(summarySheet, "INVALID_EVALUATION_RULE")).isTrue();
+            assertThat(containsCellValue(summarySheet, "반영 가능한 교과성적이 최소 12과목 이상이어야 합니다."))
+                .isTrue();
+            assertThat(containsCellValue(summarySheet, "편제명 없음")).isTrue();
+            assertThat(containsCellValue(summarySheet, "학기가 올바르지 않습니다.")).isTrue();
         }
+    }
+
+    private boolean containsCellValue(Sheet sheet, String expected) {
+        for (Row row : sheet) {
+            for (Cell cell : row) {
+                if (cell.getCellType() == org.apache.poi.ss.usermodel.CellType.STRING
+                    && expected.equals(cell.getStringCellValue())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private GradeVerificationResponse verification() {

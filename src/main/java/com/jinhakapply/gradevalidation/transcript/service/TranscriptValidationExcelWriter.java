@@ -32,27 +32,12 @@ import org.springframework.stereotype.Component;
 
 @Component
 class TranscriptValidationExcelWriter {
-    private static final String[] COURSE_HEADERS = {
-        "원본 행", "수험번호", "학생명", "학년", "학기", "교과", "과목명", "석차등급", "등급제",
-        "성취도", "원점수", "과목평균", "표준편차", "수강자 수", "석차", "동석차 인원",
-        "구 교육과정 평어", "이수단위", "진로선택", "전문교과"
-    };
     private static final String[] RESULT_HEADERS = {
-        "지원정보 행", "수험번호", "학생명", "전형코드", "전형명", "모집단위코드", "모집단위명",
-        "검증 상태", "규칙 ID", "규칙명", "규칙 버전", "반영 과목 수", "제외 과목 수",
+        "지원정보 행", "수험번호", "전형명", "모집단위명",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-        "등급×적용가중치 합", "환산점수×적용가중치 합", "총 적용가중치",
+        "등급×적용가중치 합", "총 적용가중치",
         "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "전형별 교과 배율",
-        "교과 반영점수(반올림 전)", "교과 반영점수", "중간 반올림", "최종 반올림",
-        "계산식", "주의 사항", "실패 코드", "실패 사유"
-    };
-    private static final String[] SELECTED_HEADERS = {
-        "지원정보 행", "원본 성적 행", "수험번호", "전형명", "모집단위명", "학년", "학기",
-        "교과", "과목명", "석차등급", "유효등급", "과목 환산점수", "이수단위", "적용 이수단위",
-        "학년 가중치", "교과 가중치", "적용 가중치", "가중 환산점수"
-    };
-    private static final String[] FAILURE_HEADERS = {
-        "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명", "대상 과목 수", "실패 코드", "실패 사유"
+        "교과 반영점수(반올림 전)", "교과 반영점수"
     };
 
     byte[] write(
@@ -71,16 +56,11 @@ class TranscriptValidationExcelWriter {
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
             createVerificationResultSheet(workbook, styles, verification);
-            createSelectedCourseSheet(workbook, styles, verification.successes());
-            createVerificationFailureSheet(workbook, styles, verification.failures());
             createSummarySheet(
                 workbook, styles, originalFileName, sourceFormat, applicationRows,
                 totalRows, courses.size(), errors.size(), skipped.size(), warnings,
-                verification.successes().size(), verification.failures().size()
+                verification, skipped, errors
             );
-            createCourseSheet(workbook, styles, courses);
-            createIssueSheet(workbook, styles, "제외 행", "가져오기 제외 행", skipped);
-            createErrorSheet(workbook, styles, errors);
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException exception) {
@@ -99,12 +79,13 @@ class TranscriptValidationExcelWriter {
         int invalidRows,
         int skippedRows,
         List<String> warnings,
-        int verificationSuccesses,
-        int verificationFailures
+        TranscriptBatchVerificationResult verification,
+        List<TranscriptImportRowError> skipped,
+        List<TranscriptImportRowError> errors
     ) {
         Sheet sheet = workbook.createSheet("검증 요약");
         sheet.setDisplayGridlines(false);
-        title(sheet, styles, "Excel 가져오기 검증 결과", 3);
+        title(sheet, styles, "Excel 가져오기 검증 결과", 7);
 
         int rowIndex = 2;
         rowIndex = section(sheet, styles, rowIndex, "파일 정보");
@@ -114,7 +95,8 @@ class TranscriptValidationExcelWriter {
         rowIndex = keyValue(sheet, styles, rowIndex, "지원정보", applicationRows, "전체 성적", totalRows);
         rowIndex = keyValue(sheet, styles, rowIndex, "정상", validRows, "제외", skippedRows);
         rowIndex = keyValue(sheet, styles, rowIndex, "오류", invalidRows, "DB 저장 가능", invalidRows == 0 ? "가능" : "저장 정책에 따름");
-        rowIndex = keyValue(sheet, styles, rowIndex, "성적 검증 성공", verificationSuccesses, "성적 검증 실패", verificationFailures);
+        rowIndex = keyValue(sheet, styles, rowIndex, "성적 검증 성공", verification.successes().size(),
+            "성적 검증 실패", verification.failures().size());
 
         if (warnings != null && !warnings.isEmpty()) {
             rowIndex++;
@@ -123,14 +105,61 @@ class TranscriptValidationExcelWriter {
                 Row row = sheet.createRow(rowIndex++);
                 Cell cell = row.createCell(0);
                 set(cell, warning, styles.warning);
-                sheet.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 3));
+                sheet.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 7));
             }
         }
-        sheet.setColumnWidth(0, 20 * 256);
-        sheet.setColumnWidth(1, 42 * 256);
-        sheet.setColumnWidth(2, 20 * 256);
-        sheet.setColumnWidth(3, 28 * 256);
+
+        if (!verification.failures().isEmpty()) {
+            rowIndex++;
+            rowIndex = section(sheet, styles, rowIndex, "성적 검증 실패 상세");
+            rowIndex = tableHeader(sheet, styles, rowIndex, new String[] {
+                "지원정보 행", "수험번호", "전형명", "모집단위명", "대상 과목 수", "실패 코드", "실패 사유"
+            });
+            for (TranscriptBatchVerificationResult.Failure failure : verification.failures()) {
+                TransferApplicationRow application = failure.application();
+                writeRow(sheet.createRow(rowIndex++), new Object[] {
+                    application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                    application.recruitmentUnitName(), failure.availableCourseCount(), failure.code(), failure.reason()
+                }, styles, 5);
+            }
+        }
+        rowIndex = appendImportIssues(sheet, styles, rowIndex, "가져오기 제외 상세", skipped, styles.warning);
+        appendImportIssues(sheet, styles, rowIndex, "가져오기 오류 상세", errors, styles.error);
+
+        int[] widths = {18, 24, 24, 28, 16, 22, 70, 18};
+        for (int column = 0; column < widths.length; column++) {
+            sheet.setColumnWidth(column, widths[column] * 256);
+        }
         sheet.createFreezePane(0, 2);
+    }
+
+    private int appendImportIssues(
+        Sheet sheet,
+        Styles styles,
+        int rowIndex,
+        String label,
+        List<TranscriptImportRowError> issues,
+        CellStyle reasonStyle
+    ) {
+        if (issues == null || issues.isEmpty()) return rowIndex;
+        rowIndex++;
+        rowIndex = section(sheet, styles, rowIndex, label);
+        rowIndex = tableHeader(sheet, styles, rowIndex, new String[] {"원본 행", "처리 사유"});
+        for (TranscriptImportRowError issue : issues) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row.createCell(0), issue.rowNumber(), styles.integer);
+            set(row.createCell(1), issue.reason(), reasonStyle);
+        }
+        return rowIndex;
+    }
+
+    private int tableHeader(Sheet sheet, Styles styles, int rowIndex, String[] headers) {
+        Row row = sheet.createRow(rowIndex);
+        row.setHeightInPoints(28);
+        for (int column = 0; column < headers.length; column++) {
+            set(row.createCell(column), headers[column], styles.header);
+        }
+        return rowIndex + 1;
     }
 
     private void createVerificationResultSheet(
@@ -142,28 +171,12 @@ class TranscriptValidationExcelWriter {
         sheet.setDisplayGridlines(false);
         title(sheet, styles, "한신대 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
         header(sheet, styles, RESULT_HEADERS);
-        List<Object> results = new ArrayList<>();
-        results.addAll(verification.successes());
-        results.addAll(verification.failures());
-        results.sort(Comparator.comparingInt(this::applicationRowNumber));
+        List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
+        results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
 
         int rowIndex = 3;
-        for (Object item : results) {
+        for (TranscriptBatchVerificationResult.Success success : results) {
             Row row = sheet.createRow(rowIndex++);
-            if (item instanceof TranscriptBatchVerificationResult.Failure failure) {
-                TransferApplicationRow application = failure.application();
-                Object[] values = {
-                    application.rowNumber(), application.applicantNumber(), failure.studentName(),
-                    application.admissionTrackCode(), application.admissionTrackName(),
-                    application.recruitmentUnitCode(), application.recruitmentUnitName(), "실패",
-                    null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, null, null, null, null, null, null, null, failure.code(), failure.reason()
-                };
-                writeRow(row, values, styles, RESULT_HEADERS.length - 2);
-                continue;
-            }
-            TranscriptBatchVerificationResult.Success success =
-                (TranscriptBatchVerificationResult.Success) item;
             TransferApplicationRow application = success.application();
             GradeVerificationResponse result = success.verification();
             GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
@@ -171,83 +184,17 @@ class TranscriptValidationExcelWriter {
                 summary.gradeTimesWeightSum(), summary.totalAppliedWeight()
             );
             Object[] values = {
-                application.rowNumber(), application.applicantNumber(), success.studentName(),
-                application.admissionTrackCode(), application.admissionTrackName(),
-                application.recruitmentUnitCode(), application.recruitmentUnitName(), "성공",
-                result.ruleId(), result.ruleName(), result.ruleVersion(), result.includedCourseCount(),
-                result.excludedCourseCount(), summary.gradeTimesCreditsSum(),
+                application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                application.recruitmentUnitName(), summary.gradeTimesCreditsSum(),
                 summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
-                summary.gradeTimesWeightSum(), summary.convertedScoreTimesWeightSum(),
-                summary.totalAppliedWeight(), preciseAverage, result.averageGrade(), result.baseScore(),
-                summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(), result.finalScore(),
-                rounding(summary.intermediateScale(), summary.intermediateRounding()),
-                rounding(summary.finalScale(), summary.finalRounding()), summary.formula(),
-                String.join(" | ", result.warnings()), null, null
+                summary.gradeTimesWeightSum(), summary.totalAppliedWeight(), preciseAverage,
+                result.averageGrade(), result.baseScore(), summary.scoreMultiplier(),
+                summary.scoreBeforeFinalRounding(), result.finalScore()
             };
             writeRow(row, values, styles, -1);
         }
         finishTable(sheet, results.size(), RESULT_HEADERS.length);
-        setWidths(sheet, RESULT_HEADERS, Set.of(9, 27, 28, 30));
-    }
-
-    private int applicationRowNumber(Object result) {
-        if (result instanceof TranscriptBatchVerificationResult.Success success) {
-            return success.application().rowNumber();
-        }
-        return ((TranscriptBatchVerificationResult.Failure) result).application().rowNumber();
-    }
-
-    private void createSelectedCourseSheet(
-        SXSSFWorkbook workbook,
-        Styles styles,
-        List<TranscriptBatchVerificationResult.Success> successes
-    ) {
-        Sheet sheet = workbook.createSheet("반영 과목 상세");
-        sheet.setDisplayGridlines(false);
-        title(sheet, styles, "지원정보별 반영 과목 상세", SELECTED_HEADERS.length - 1);
-        header(sheet, styles, SELECTED_HEADERS);
-        int rowIndex = 3;
-        for (TranscriptBatchVerificationResult.Success success : successes) {
-            for (TranscriptBatchVerificationResult.SelectedCourse selected : success.selectedCourses()) {
-                TransferApplicationRow application = success.application();
-                TranscriptExcelRow source = selected.source();
-                GradeVerificationResponse.CourseCalculation calculation = selected.calculation();
-                Object[] values = {
-                    application.rowNumber(), source.rowNumber(), application.applicantNumber(),
-                    application.admissionTrackName(), application.recruitmentUnitName(), source.schoolYear(),
-                    source.semester(), value(calculation.appliedSubjectCategory()), calculation.courseName(),
-                    calculation.grade(), calculation.effectiveGrade(), calculation.convertedScore(),
-                    calculation.credits(), calculation.appliedCredits(), calculation.gradeWeight(),
-                    calculation.subjectWeight(), calculation.appliedWeight(), calculation.weightedScore()
-                };
-                writeRow(sheet.createRow(rowIndex++), values, styles, -1);
-            }
-        }
-        finishTable(sheet, rowIndex - 3, SELECTED_HEADERS.length);
-        setWidths(sheet, SELECTED_HEADERS, Set.of(3, 4, 8));
-    }
-
-    private void createVerificationFailureSheet(
-        SXSSFWorkbook workbook,
-        Styles styles,
-        List<TranscriptBatchVerificationResult.Failure> failures
-    ) {
-        Sheet sheet = workbook.createSheet("검증 실패");
-        sheet.setDisplayGridlines(false);
-        title(sheet, styles, "성적 검증 실패 지원정보", FAILURE_HEADERS.length - 1);
-        header(sheet, styles, FAILURE_HEADERS);
-        int rowIndex = 3;
-        for (TranscriptBatchVerificationResult.Failure failure : failures) {
-            TransferApplicationRow application = failure.application();
-            Object[] values = {
-                application.rowNumber(), application.applicantNumber(), failure.studentName(),
-                application.admissionTrackName(), application.recruitmentUnitName(), failure.availableCourseCount(),
-                failure.code(), failure.reason()
-            };
-            writeRow(sheet.createRow(rowIndex++), values, styles, 6);
-        }
-        finishTable(sheet, failures.size(), FAILURE_HEADERS.length);
-        setWidths(sheet, FAILURE_HEADERS, Set.of(3, 4, 7));
+        setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
     }
 
     private void writeRow(Row row, Object[] values, Styles styles, int errorFromColumn) {
@@ -283,73 +230,6 @@ class TranscriptValidationExcelWriter {
         return numerator.divide(denominator, 12, RoundingMode.HALF_UP).stripTrailingZeros();
     }
 
-    private String rounding(int scale, RoundingMode mode) {
-        return "소수 " + scale + "자리 / " + mode;
-    }
-
-    private void createCourseSheet(SXSSFWorkbook workbook, Styles styles, List<TranscriptExcelRow> courses) {
-        Sheet sheet = workbook.createSheet("정상 과목");
-        sheet.setDisplayGridlines(false);
-        title(sheet, styles, "정상 처리 대상 과목", COURSE_HEADERS.length - 1);
-        header(sheet, styles, COURSE_HEADERS);
-
-        int rowIndex = 3;
-        for (TranscriptExcelRow course : courses) {
-            Row row = sheet.createRow(rowIndex++);
-            Object[] values = {
-                course.rowNumber(), course.applicantNumber(), course.studentName(), course.schoolYear(),
-                course.semester(), value(course.subjectCategory()), course.courseName(), course.grade(),
-                value(course.gradeScale()), value(course.achievement()), course.rawScore(), course.meanScore(),
-                course.standardDeviation(), course.studentCount(), course.rankPosition(), course.tiedRankCount(),
-                value(course.legacyAchievement()), course.credits(), course.careerSubject() ? "Y" : "N",
-                course.professionalCourse() ? "Y" : "N"
-            };
-            for (int column = 0; column < values.length; column++) {
-                CellStyle style = values[column] instanceof Integer || values[column] instanceof Long
-                    ? styles.integer : values[column] instanceof Number ? styles.decimal : styles.text;
-                set(row.createCell(column), values[column], style);
-            }
-        }
-        sheet.createFreezePane(0, 3);
-        if (!courses.isEmpty()) {
-            sheet.setAutoFilter(new CellRangeAddress(2, rowIndex - 1, 0, COURSE_HEADERS.length - 1));
-        }
-        setCourseWidths(sheet);
-    }
-
-    private void createErrorSheet(
-        SXSSFWorkbook workbook,
-        Styles styles,
-        List<TranscriptImportRowError> errors
-    ) {
-        createIssueSheet(workbook, styles, "오류 행", "가져오기 오류 행", errors);
-    }
-
-    private void createIssueSheet(
-        SXSSFWorkbook workbook,
-        Styles styles,
-        String sheetName,
-        String title,
-        List<TranscriptImportRowError> errors
-    ) {
-        Sheet sheet = workbook.createSheet(sheetName);
-        sheet.setDisplayGridlines(false);
-        title(sheet, styles, title, 1);
-        header(sheet, styles, new String[] {"원본 행", "처리 사유"});
-        int rowIndex = 3;
-        for (TranscriptImportRowError error : errors) {
-            Row row = sheet.createRow(rowIndex++);
-            set(row.createCell(0), error.rowNumber(), styles.integer);
-            set(row.createCell(1), error.reason(), "오류 행".equals(sheetName) ? styles.error : styles.warning);
-        }
-        sheet.createFreezePane(0, 3);
-        if (!errors.isEmpty()) {
-            sheet.setAutoFilter(new CellRangeAddress(2, rowIndex - 1, 0, 1));
-        }
-        sheet.setColumnWidth(0, 14 * 256);
-        sheet.setColumnWidth(1, 70 * 256);
-    }
-
     private void title(Sheet sheet, Styles styles, String value, int lastColumn) {
         Row row = sheet.createRow(0);
         row.setHeightInPoints(30);
@@ -369,7 +249,7 @@ class TranscriptValidationExcelWriter {
     private int section(Sheet sheet, Styles styles, int rowIndex, String value) {
         Row row = sheet.createRow(rowIndex);
         set(row.createCell(0), value, styles.section);
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 0, 3));
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 0, 7));
         return rowIndex + 1;
     }
 
@@ -392,26 +272,10 @@ class TranscriptValidationExcelWriter {
         return rowIndex + 1;
     }
 
-    private void setCourseWidths(Sheet sheet) {
-        for (int column = 0; column < COURSE_HEADERS.length; column++) {
-            int width = switch (column) {
-                case 1 -> 18;
-                case 2 -> 16;
-                case 5, 6 -> 20;
-                default -> 13;
-            };
-            sheet.setColumnWidth(column, width * 256);
-        }
-    }
-
     private void set(Cell cell, Object value, CellStyle style) {
         cell.setCellStyle(style);
         if (value instanceof Number number) cell.setCellValue(number.doubleValue());
         else cell.setCellValue(value == null ? "" : value.toString());
-    }
-
-    private String value(Object value) {
-        return value == null ? "" : value.toString();
     }
 
     private String formatLabel(String sourceFormat) {
