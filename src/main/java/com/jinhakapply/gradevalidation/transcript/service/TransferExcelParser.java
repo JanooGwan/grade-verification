@@ -273,6 +273,8 @@ class TransferExcelParser {
     }
 
     private SubjectCategory subjectCategory(String organizationName, String courseName) {
+        if (isOtherOrganization(organizationName)) return SubjectCategory.OTHER;
+
         String value = organizationName + " " + courseName;
         if (value.contains("국어")) return SubjectCategory.KOREAN;
         if (value.contains("수학")) return SubjectCategory.MATH;
@@ -282,6 +284,14 @@ class TransferExcelParser {
             return SubjectCategory.SOCIAL;
         }
         return SubjectCategory.OTHER;
+    }
+
+    private boolean isOtherOrganization(String organizationName) {
+        return organizationName.contains("기술") || organizationName.contains("가정")
+            || organizationName.contains("제2외국어") || organizationName.contains("한문")
+            || organizationName.contains("교양") || organizationName.contains("예술")
+            || organizationName.contains("음악") || organizationName.contains("미술")
+            || organizationName.contains("체육");
     }
 
     private boolean isProfessional(String organizationName) {
