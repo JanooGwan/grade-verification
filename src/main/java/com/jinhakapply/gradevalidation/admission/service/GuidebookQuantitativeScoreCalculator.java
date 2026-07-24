@@ -43,6 +43,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         StudentCommonEvaluationSnapshot commonData
     ) {
         String university = normalizePolicyText(rule.getUniversity().getName());
+        String admissionTrack = normalizePolicyText(admissionTrackName);
+        String recruitmentUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String track = normalizePolicyText(admissionTrackName + " " + rule.getAdmissionType() + " " + rule.getRecruitmentUnit());
         List<String> pending = new ArrayList<>();
         List<String> ineligible = new ArrayList<>();
@@ -57,6 +59,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         Integer equivalentAbsenceDays = null;
         BigDecimal additionalScore = null;
         BigDecimal maximumTotal = score(new BigDecimal("100").multiply(rule.getScoreMultiplier()));
+        BigDecimal maximumQuantitative = maximumTotal;
 
         if (university.contains("명지전문") && track.contains("항공서비스")) {
             pending.add("면접 정성평가 600점");
@@ -71,16 +74,29 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             }
             additionalScore = score(requestedBonus);
             maximumTotal = score(new BigDecimal("100").add(allowedBonus));
+            maximumQuantitative = maximumTotal;
         }
-        if (university.contains("삼육") && isSyuArtTrack(track)) {
+        if (university.contains("삼육") && isSyuAthleticTalent(admissionTrack, recruitmentUnit)) {
             equivalentAbsenceDays = equivalentAbsenceDays(commonData);
-            attendanceScore = score(syuAttendanceBase(equivalentAbsenceDays).multiply(new BigDecimal("0.10")));
-            academicScore = score(baseScore.multiply(new BigDecimal("0.90")));
-            maximumTotal = new BigDecimal("100.00");
+            attendanceScore = score(syuAttendanceBase(equivalentAbsenceDays).multiply(new BigDecimal("0.40")));
+            maximumQuantitative = new BigDecimal("400.00");
+            maximumTotal = new BigDecimal("1000.00");
+            pending.add("1단계 수상실적 600점");
+            pending.add("2단계 면접 200점");
+            warnings.add("예체능인재 체육학과 2단계는 1단계 성적 80%와 면접 20%를 합산합니다.");
+        } else if (university.contains("삼육")
+            && isSyuPracticalTrack(admissionTrack, recruitmentUnit)) {
+            BigDecimal practicalMaximum = recruitmentUnit.contains("아트앤디자인")
+                ? new BigDecimal("800.00") : new BigDecimal("600.00");
+            maximumQuantitative = score(new BigDecimal("100").multiply(rule.getScoreMultiplier()));
+            maximumTotal = new BigDecimal("1000.00");
+            pending.add("실기고사 " + practicalMaximum.setScale(0).toPlainString() + "점");
         }
 
         int action = commonData.highestActiveSchoolViolenceAction();
-        BigDecimal violenceDeduction = schoolViolenceDeduction(university, track, action, ineligible);
+        BigDecimal violenceDeduction = schoolViolenceDeduction(
+            university, track, admissionTrack, action, ineligible
+        );
         BigDecimal subtotal = academicScore
             .add(attendanceScore == null ? BigDecimal.ZERO : attendanceScore)
             .add(additionalScore == null ? BigDecimal.ZERO : additionalScore)
@@ -102,7 +118,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         BigDecimal finalScore = status == ApplicationScoreStatus.COMPLETE ? afterDeduction : null;
         return new ApplicationScoreResult(status, score(baseScore == null ? BigDecimal.ZERO : baseScore), academicScore,
             equivalentAbsenceDays, attendanceScore, additionalScore, violenceDeduction, subtotal, afterDeduction,
-            finalScore, maximumTotal, maximumTotal, List.copyOf(pending), List.copyOf(ineligible),
+            finalScore, maximumQuantitative, maximumTotal, List.copyOf(pending), List.copyOf(ineligible),
             List.copyOf(warnings), List.copyOf(steps));
     }
 
@@ -299,6 +315,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     private BigDecimal schoolViolenceDeduction(
         String university,
         String track,
+        String admissionTrack,
         int action,
         List<String> ineligible
     ) {
@@ -319,16 +336,16 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             if (action <= 3) return ZERO;
             return action <= 5 ? new BigDecimal("5.00") : new BigDecimal("10.00");
         }
-        if (university.contains("삼육")) return syuSchoolViolence(track, action, ineligible);
+        if (university.contains("삼육")) return syuSchoolViolence(admissionTrack, action, ineligible);
         return ZERO;
     }
 
-    private BigDecimal syuSchoolViolence(String track, int action, List<String> ineligible) {
-        if (track.contains("학교장추천")) {
+    private BigDecimal syuSchoolViolence(String admissionTrack, int action, List<String> ineligible) {
+        if (admissionTrack.equals("학교장추천")) {
             if (action >= 4) ineligible.add("학교장추천전형은 학교폭력 4호 이상 처분 시 지원 자격이 제한됩니다.");
             return action <= 3 ? new BigDecimal("5.00") : ZERO;
         }
-        if (track.contains("논술") || track.contains("실기우수자")) {
+        if (admissionTrack.contains("논술") || admissionTrack.contains("실기우수자")) {
             if (action <= 3) return new BigDecimal("10.00");
             if (action <= 5) return new BigDecimal("30.00");
             if (action <= 7) return new BigDecimal("50.00");
@@ -363,8 +380,14 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             || track.contains("임상병리") || track.contains("물리치료");
     }
 
-    private boolean isSyuArtTrack(String track) {
-        return track.contains("예체능인재") || track.contains("아트앤디자인") || track.contains("체육학과");
+    private boolean isSyuAthleticTalent(String admissionTrack, String recruitmentUnit) {
+        return admissionTrack.equals("예체능인재") && recruitmentUnit.contains("체육학과");
+    }
+
+    private boolean isSyuPracticalTrack(String admissionTrack, String recruitmentUnit) {
+        boolean practicalUnit = recruitmentUnit.contains("아트앤디자인")
+            || recruitmentUnit.contains("체육학과");
+        return practicalUnit && (admissionTrack.equals("학교장추천") || admissionTrack.equals("농어촌"));
     }
 
     private BigDecimal score(BigDecimal value) {

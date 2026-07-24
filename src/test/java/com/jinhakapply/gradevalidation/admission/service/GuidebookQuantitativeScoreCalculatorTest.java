@@ -114,14 +114,53 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
-    void appliesSyuArtAcademicNinetyPercentAndAttendanceTenPercent() {
-        var result = calculator.calculate(rule("SY", "삼육대학교", 2027, "1", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)),
-            "예체능인재 체육학과", verification("99"), request(null),
+    void appliesSyuAthleticTalentAcademicAndAttendanceWithinFourHundredPoints() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "3.6", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("체육학과");
+
+        var result = calculator.calculate(rule, "예체능인재", verification("99"), request(null),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 8, 0));
 
-        assertThat(result.academicScore()).isEqualByComparingTo("89.10");
-        assertThat(result.attendanceScore()).isEqualByComparingTo("9.60");
-        assertThat(result.finalScore()).isEqualByComparingTo("98.70");
+        assertThat(result.academicScore()).isEqualByComparingTo("356.40");
+        assertThat(result.attendanceScore()).isEqualByComparingTo("38.40");
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("400.00");
+        assertThat(result.maximumTotalScore()).isEqualByComparingTo("1000.00");
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
+        assertThat(result.finalScore()).isNull();
+        assertThat(result.pendingComponents()).containsExactly("1단계 수상실적 600점", "2단계 면접 200점");
+    }
+
+    @Test
+    void syuSchoolRecommendationPhysicalEducationDoesNotApplyAttendance() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "4", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("체육학과");
+
+        var result = calculator.calculate(rule, "학교장추천", verification("99"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 8, 0));
+
+        assertThat(result.academicScore()).isEqualByComparingTo("396.00");
+        assertThat(result.attendanceScore()).isNull();
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("400.00");
+        assertThat(result.pendingComponents()).containsExactly("실기고사 600점");
+    }
+
+    @Test
+    void syuRuralTrackUsesPointDeductionInsteadOfSchoolRecommendationIneligibility() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "10", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("일반학과(부)");
+
+        var result = calculator.calculate(rule, "농어촌", verification("99"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 4));
+
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.COMPLETE);
+        assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("10.00");
+        assertThat(result.finalScore()).isEqualByComparingTo("980.00");
     }
 
     private EvaluationRule rule(String code, String name, int year, String multiplier, Map<Integer, BigDecimal> scores) {

@@ -147,6 +147,7 @@ public class EvaluationService {
             rule, request.courses(), request.graduated(), scope.includeProfessionalCourses(),
             scope.includeAllSubjectCategories(), request.highSchoolType()
         );
+        validateSyuMinimumSemesters(rule, candidates);
         CourseSelection selection = selectCourses(
             rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
         );
@@ -259,6 +260,8 @@ public class EvaluationService {
             else if (isMjcTwoYear(rule, highSchoolType)
                 && (course.schoolYear() > 2 || (course.schoolYear() == 2 && course.semester() > 1)))
                 exclusionReason = "2년제 고등학교는 1학년 1·2학기와 2학년 1학기만 반영합니다.";
+            else if (isSyu2027(rule) && Integer.valueOf(1).equals(course.studentCount()))
+                exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
             else if (course.careerSubject() && rule.getAchievementConversion() == AchievementConversion.EXCLUDE)
@@ -367,8 +370,10 @@ public class EvaluationService {
             case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible);
             case TOP_N_SEMESTERS -> CourseSelection.of(selectTopGroups(rule, eligible,
                 candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(), rule.getSelectionCount(), null));
-            case TOP_N_SUBJECTS -> CourseSelection.of(selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
-                rule.getSelectionCount(), rule.getSubjectPriorities()));
+            case TOP_N_SUBJECTS -> isSyu2027(rule)
+                ? selectSyuTopDomains(rule, eligible)
+                : CourseSelection.of(selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
+                    rule.getSelectionCount(), rule.getSubjectPriorities()));
             case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
     }
@@ -391,6 +396,11 @@ public class EvaluationService {
     private boolean isHanshin2027(EvaluationRule rule) {
         return rule.getAdmissionYear() == 2027
             && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
+    }
+
+    private boolean isSyu2027(EvaluationRule rule) {
+        return rule.getAdmissionYear() == 2027
+            && normalizePolicyText(rule.getUniversity().getName()).contains("삼육");
     }
 
     private boolean isMjcTwoYear(EvaluationRule rule, HighSchoolType highSchoolType) {
@@ -423,6 +433,23 @@ public class EvaluationService {
             || admissionType.contains("특성화고졸업자");
     }
 
+    private void validateSyuMinimumSemesters(EvaluationRule rule, List<Candidate> candidates) {
+        if (!isSyu2027(rule)) return;
+        String admissionType = normalizePolicyText(rule.getAdmissionType());
+        int requiredSemesters = admissionType.contains("특성화고교")
+            || admissionType.contains("특성화고졸재직자") ? 1 : 3;
+        long eligibleSemesters = candidates.stream()
+            .filter(Candidate::eligible)
+            .map(candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester())
+            .distinct()
+            .count();
+        if (eligibleSemesters < requiredSemesters) {
+            throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
+                "삼육대학교 해당 전형은 반영 교과영역의 성적이 "
+                    + requiredSemesters + "개 학기 이상 있어야 합니다.");
+        }
+    }
+
     private String normalizePolicyText(String value) {
         return value == null ? "" : value.replaceAll("[^\\p{L}\\p{N}]", "");
     }
@@ -438,6 +465,36 @@ public class EvaluationService {
                 .limit(rule.getAchievementSelectionCount()).map(Candidate::index).forEach(selected::add);
         }
         return selected;
+    }
+
+    private CourseSelection selectSyuTopDomains(EvaluationRule rule, List<Candidate> eligible) {
+        Map<SyuSubjectDomain, Integer> priorities = new EnumMap<>(SyuSubjectDomain.class);
+        priorities.put(SyuSubjectDomain.KOREAN,
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.KOREAN, Integer.MAX_VALUE));
+        priorities.put(SyuSubjectDomain.MATH,
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.MATH, Integer.MAX_VALUE));
+        priorities.put(SyuSubjectDomain.ENGLISH,
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.ENGLISH, Integer.MAX_VALUE));
+        priorities.put(SyuSubjectDomain.INQUIRY, Math.min(
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.SOCIAL, Integer.MAX_VALUE),
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.SCIENCE, Integer.MAX_VALUE)
+        ));
+        priorities.put(SyuSubjectDomain.OTHER,
+            rule.getSubjectPriorities().getOrDefault(SubjectCategory.OTHER, Integer.MAX_VALUE));
+        return CourseSelection.of(selectTopGroups(
+            rule, eligible, candidate -> syuSubjectDomain(candidate.course().subjectCategory()),
+            rule.getSelectionCount(), priorities
+        ));
+    }
+
+    private SyuSubjectDomain syuSubjectDomain(SubjectCategory category) {
+        return switch (category) {
+            case KOREAN -> SyuSubjectDomain.KOREAN;
+            case MATH -> SyuSubjectDomain.MATH;
+            case ENGLISH -> SyuSubjectDomain.ENGLISH;
+            case SOCIAL, SCIENCE -> SyuSubjectDomain.INQUIRY;
+            case OTHER -> SyuSubjectDomain.OTHER;
+        };
     }
 
     private CourseSelection selectCoreScienceSubjects(EvaluationRule rule, List<Candidate> eligible) {
@@ -654,6 +711,14 @@ public class EvaluationService {
         boolean eligible() {
             return exclusionReason == null;
         }
+    }
+
+    private enum SyuSubjectDomain {
+        KOREAN,
+        MATH,
+        ENGLISH,
+        INQUIRY,
+        OTHER
     }
 
     private record EvaluationScope(

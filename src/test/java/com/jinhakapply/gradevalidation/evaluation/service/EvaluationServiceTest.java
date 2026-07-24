@@ -259,13 +259,111 @@ class EvaluationServiceTest {
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
             course(1, 1, SubjectCategory.KOREAN, "국어1", 1, "1"),
             course(1, 2, SubjectCategory.KOREAN, "국어2", 8, "1"),
+            course(2, 1, SubjectCategory.KOREAN, "국어3", 8, "1"),
             course(1, 1, SubjectCategory.MATH, "수학1", 5, "1"),
-            course(1, 2, SubjectCategory.MATH, "수학2", 5, "1")
+            course(1, 2, SubjectCategory.MATH, "수학2", 5, "1"),
+            course(2, 1, SubjectCategory.MATH, "수학3", 5, "1")
         )));
 
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::subjectCategory)
             .containsOnly(SubjectCategory.MATH);
+    }
+
+    @Test
+    void syuTreatsSocialAndScienceAsOneInquiryDomainWhenSelectingTopTwo() {
+        EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 2,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        syuRule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "100", "99", "99", "98", "90", "90", "70", "70");
+        for (int grade = 1; grade <= 9; grade++) syuRule.getGradeScores().put(grade, scores.get(grade - 1));
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 3, "1"),
+            course(1, 1, SubjectCategory.SOCIAL, "사회", 1, "1"),
+            course(1, 2, SubjectCategory.SCIENCE, "과학", 1, "1"),
+            course(1, 2, SubjectCategory.MATH, "수학", 5, "1"),
+            course(2, 1, SubjectCategory.ENGLISH, "영어", 6, "1")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("국어", "사회", "과학");
+    }
+
+    @Test
+    void syuExcludesCoursesWithOnlyOneEnrolledStudent() {
+        EvaluationRule syuRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        mockRule(syuRule);
+        VerifyGradeRequest.CourseGrade singleStudentCourse = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.KOREAN, "소인수 과목", 1, null,
+            null, null, null, 1, false, false, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            singleStudentCourse,
+            course(1, 1, SubjectCategory.KOREAN, "국어1", 3, "3"),
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 3, "3"),
+            course(2, 1, SubjectCategory.KOREAN, "국어3", 3, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("소인수 과목"))
+            .singleElement().satisfies(item -> {
+                assertThat(item.included()).isFalse();
+                assertThat(item.exclusionReason()).contains("재적인원이 1명");
+            });
+    }
+
+    @Test
+    void syuRequiresGradesFromAtLeastThreeSemesters() {
+        EvaluationRule syuRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        mockRule(syuRule);
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어1", 3, "3"),
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 3, "3")
+        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
+            assertThat(exception.getDetail()).contains("3개 학기");
+        });
+    }
+
+    @Test
+    void syuTruncatesTheFifthDecimalPlaceAfterApplyingScoreMultiplier() {
+        EvaluationRule syuRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        ReflectionTestUtils.setField(syuRule, "intermediateScale", 10);
+        ReflectionTestUtils.setField(syuRule, "finalScale", 4);
+        ReflectionTestUtils.setField(syuRule, "finalRounding", RoundingMode.DOWN);
+        ReflectionTestUtils.setField(syuRule, "scoreMultiplier", new BigDecimal("10"));
+        syuRule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "100", "99", "99", "98", "90", "90", "70", "70");
+        for (int grade = 1; grade <= 9; grade++) syuRule.getGradeScores().put(grade, scores.get(grade - 1));
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어1", 1, "1"),
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 2, "1"),
+            course(2, 1, SubjectCategory.KOREAN, "국어3", 3, "1")
+        )));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("996.6666");
+        assertThat(response.calculationSummary().finalRounding()).isEqualTo(RoundingMode.DOWN);
     }
 
     @Test
