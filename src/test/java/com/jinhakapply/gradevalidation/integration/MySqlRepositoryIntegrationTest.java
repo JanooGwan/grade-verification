@@ -109,7 +109,7 @@ class MySqlRepositoryIntegrationTest {
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26"
+            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
@@ -132,7 +132,7 @@ class MySqlRepositoryIntegrationTest {
               )
             """, BigDecimal.class);
 
-        assertThat(multipliers).isNotEmpty().allMatch(
+        assertThat(multipliers).hasSize(10).allMatch(
             multiplier -> multiplier.compareTo(new BigDecimal("10.0000")) == 0
         );
     }
