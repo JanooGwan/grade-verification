@@ -17,6 +17,8 @@ import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -93,6 +95,39 @@ class TranscriptBatchVerificationServiceTest {
         verify(evaluationService).verify(eq(rule), requestCaptor.capture());
         assertThat(requestCaptor.getValue().graduated()).isTrue();
         assertThat(requestCaptor.getValue().graduationYear()).isEqualTo(2026);
+    }
+
+    @Test
+    void appliesSpecializedSchoolPolicyEvenForGeneralAdmissionTrack() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getId()).thenReturn(11L);
+        when(rule.getAdmissionType()).thenReturn("참인재");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any())).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "06", "참인재", "21", "컴퓨터공학과", 2027
+        );
+        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
+            2, 2026, "A-001", 2027, "S-001", "직업고등학교", "전문학과",
+            "실업고", "특성화고", "전문계고교",
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
+        );
+
+        service.verify(
+            1L, 2027, List.of(application),
+            List.of(course(3, SubjectCategory.KOREAN, "국어")),
+            java.util.Map.of("A-001", schoolInfo)
+        );
+
+        ArgumentCaptor<VerifyGradeRequest> requestCaptor = ArgumentCaptor.forClass(VerifyGradeRequest.class);
+        verify(evaluationService).verify(eq(rule), requestCaptor.capture());
+        assertThat(requestCaptor.getValue().highSchoolType()).isEqualTo(HighSchoolType.SPECIALIZED);
     }
 
     @Test

@@ -53,6 +53,8 @@ class TranscriptServiceTest {
     @Mock
     private TransferExcelParser transferExcelParser;
     @Mock
+    private ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
+    @Mock
     private TransferImportService transferImportService;
     @Mock
     private TranscriptValidationExcelWriter validationExcelWriter;
@@ -80,6 +82,7 @@ class TranscriptServiceTest {
         transcriptService = new TranscriptService(
             excelParser,
             transferExcelParser,
+            applicantSchoolInfoExcelParser,
             transferImportService,
             validationExcelWriter,
             batchVerificationService,

@@ -43,7 +43,8 @@ class TranscriptValidationExcelWriter {
         "선택순번", "원본 성적 행", "고교코드", "고교명", "학년", "학기",
         "원본 교과", "적용 교과", "과목명", "석차등급", "성취도", "이수단위",
         "유효등급", "환산점수", "반영 이수단위", "적용 가중치", "가중점수",
-        "진로선택", "전문교과", "석차", "동석차", "수강자수"
+        "진로선택", "전문교과", "석차", "동석차", "수강자수",
+        "학력구분", "적용 고교유형", "원본 고교타입", "원본 고교구분", "지원자 고교구분코드"
     };
 
     byte[] write(
@@ -228,17 +229,27 @@ class TranscriptValidationExcelWriter {
                 TranscriptExcelRow source = selected.source();
                 GradeVerificationResponse.CourseCalculation calculation = selected.calculation();
                 TransferApplicationRow application = success.application();
+                ApplicantSchoolInfoRow schoolInfo = success.schoolInfo();
                 writeRow(sheet.createRow(rowIndex++), new Object[] {
                     application.rowNumber(), application.applicantNumber(), success.studentName(),
                     application.admissionTrackName(), application.recruitmentUnitName(),
-                    application.graduationYear(), index + 1, source.rowNumber(),
-                    source.highSchoolCode(), source.highSchoolName(), source.schoolYear(), source.semester(),
+                    schoolInfo == null || schoolInfo.graduationYear() == null
+                        ? application.graduationYear() : schoolInfo.graduationYear(),
+                    index + 1, source.rowNumber(),
+                    schoolInfo == null ? source.highSchoolCode() : schoolInfo.highSchoolCode(),
+                    schoolInfo == null ? source.highSchoolName() : schoolInfo.highSchoolName(),
+                    source.schoolYear(), source.semester(),
                     source.subjectCategory(), calculation.appliedSubjectCategory(), source.courseName(),
                     source.grade(), source.achievement(), source.credits(), calculation.effectiveGrade(),
                     calculation.convertedScore(), calculation.appliedCredits(), calculation.appliedWeight(),
                     calculation.weightedScore(), source.careerSubject() ? "Y" : "N",
                     source.professionalCourse() ? "Y" : "N", source.rankPosition(),
-                    source.tiedRankCount(), source.studentCount()
+                    source.tiedRankCount(), source.studentCount(),
+                    schoolInfo == null ? "DOMESTIC_HIGH_SCHOOL" : schoolInfo.educationBackground(),
+                    schoolInfo == null ? "GENERAL" : schoolInfo.highSchoolType(),
+                    schoolInfo == null ? null : schoolInfo.sourceHighSchoolType(),
+                    schoolInfo == null ? null : schoolInfo.sourceHighSchoolCategory(),
+                    schoolInfo == null ? null : schoolInfo.applicantHighSchoolCategoryCode()
                 }, styles, -1);
             }
         }

@@ -17,6 +17,7 @@ import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepos
 import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -37,6 +38,16 @@ class TranscriptBatchVerificationService {
         List<TransferApplicationRow> applications,
         List<TranscriptExcelRow> courses
     ) {
+        return verify(universityId, admissionYear, applications, courses, Map.of());
+    }
+
+    TranscriptBatchVerificationResult verify(
+        Long universityId,
+        int admissionYear,
+        List<TransferApplicationRow> applications,
+        List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant
+    ) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
         }
@@ -56,6 +67,7 @@ class TranscriptBatchVerificationService {
             List<TranscriptExcelRow> gradableCourses = applicantCourses.stream()
                 .filter(this::hasGradableAssessment)
                 .toList();
+            ApplicantSchoolInfoRow schoolInfo = schoolInfoByApplicant.get(application.applicantNumber());
             List<EvaluationRule> matchedRules = matchRules(rules, application);
             if (matchedRules.isEmpty()) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
@@ -68,6 +80,15 @@ class TranscriptBatchVerificationService {
                         matchedRules.stream().map(rule -> "#" + rule.getId()).collect(Collectors.joining(", "))));
                 continue;
             }
+            if (schoolInfo != null
+                && schoolInfo.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) {
+                failures.add(failure(application, studentName, gradableCourses.size(),
+                    "ALTERNATIVE_ACADEMIC_INPUT_REQUIRED",
+                    schoolInfo.educationBackground() == EducationBackground.GED
+                        ? "검정고시 출신자는 전 과목 평균점수가 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다."
+                        : "외국고 출신자는 전형별 대체 환산 입력이 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다."));
+                continue;
+            }
             if (gradableCourses.isEmpty()) {
                 failures.add(failure(application, studentName, 0,
                     "COURSE_NOT_FOUND", "국어·영어·수학·사회·과학·한국사 성적이 없습니다."));
@@ -75,10 +96,13 @@ class TranscriptBatchVerificationService {
             }
 
             EvaluationRule rule = matchedRules.getFirst();
-            boolean graduated = application.graduationYear() != null
-                && application.graduationYear() < admissionYear;
+            Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
+                ? schoolInfo.graduationYear() : application.graduationYear();
+            boolean graduated = graduationYear != null && graduationYear < admissionYear;
+            HighSchoolType highSchoolType = schoolInfo == null
+                ? HighSchoolType.GENERAL : schoolInfo.highSchoolType();
             VerifyGradeRequest request = new VerifyGradeRequest(
-                rule.getId(), graduated, HighSchoolType.GENERAL, application.graduationYear(),
+                rule.getId(), graduated, highSchoolType, graduationYear,
                 gradableCourses.stream().map(this::toCourseGrade).toList()
             );
             try {
@@ -93,7 +117,7 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(verification, application), List.copyOf(selected)
+                    application, studentName, compact(verification, application), List.copyOf(selected), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, gradableCourses.size(),

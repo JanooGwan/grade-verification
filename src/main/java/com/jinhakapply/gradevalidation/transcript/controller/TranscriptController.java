@@ -33,9 +33,12 @@ public class TranscriptController implements TranscriptApi {
         int admissionYear,
         TranscriptImportMode mode,
         Long universityId,
-        MultipartFile file
+        MultipartFile file,
+        MultipartFile schoolInfoFile
     ) {
-        TranscriptImportResponse response = transcriptService.importExcel(admissionYear, mode, universityId, file);
+        TranscriptImportResponse response = transcriptService.importExcel(
+            admissionYear, mode, universityId, file, schoolInfoFile
+        );
         return ResponseEntity
             .created(URI.create("/api/transcripts/imports/" + response.importId()))
             .body(response);
@@ -45,14 +48,24 @@ public class TranscriptController implements TranscriptApi {
     public ResponseEntity<TranscriptPreviewResponse> previewExcel(
         int admissionYear,
         Long universityId,
-        MultipartFile file
+        MultipartFile file,
+        MultipartFile schoolInfoFile
     ) {
-        return ResponseEntity.ok(transcriptService.previewExcel(admissionYear, universityId, file));
+        return ResponseEntity.ok(
+            transcriptService.previewExcel(admissionYear, universityId, file, schoolInfoFile)
+        );
     }
 
     @Override
-    public ResponseEntity<byte[]> exportExcelValidation(int admissionYear, Long universityId, MultipartFile file) {
-        byte[] result = transcriptService.exportExcelValidation(admissionYear, universityId, file);
+    public ResponseEntity<byte[]> exportExcelValidation(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
+        byte[] result = transcriptService.exportExcelValidation(
+            admissionYear, universityId, file, schoolInfoFile
+        );
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .contentLength(result.length)

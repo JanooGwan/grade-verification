@@ -48,7 +48,9 @@ public interface TranscriptApi {
         @RequestParam(defaultValue = "VALID_ROWS_ONLY") TranscriptImportMode mode,
         @RequestParam(required = false) Long universityId,
         @Parameter(description = ".xlsx 또는 .xls, 최대 40MB")
-        @RequestPart("file") MultipartFile file
+        @RequestPart("file") MultipartFile file,
+        @Parameter(description = "선택: 수험번호별 출신고교 추가정보 Excel")
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
     @Operation(summary = "학생부 Excel 저장 전 미리보기")
@@ -56,7 +58,8 @@ public interface TranscriptApi {
     ResponseEntity<TranscriptPreviewResponse> previewExcel(
         @RequestParam int admissionYear,
         @RequestParam(required = false) Long universityId,
-        @RequestPart("file") MultipartFile file
+        @RequestPart("file") MultipartFile file,
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
     @Operation(summary = "학생부 Excel 가져오기 검증 결과 다운로드")
@@ -68,7 +71,8 @@ public interface TranscriptApi {
     ResponseEntity<byte[]> exportExcelValidation(
         @RequestParam int admissionYear,
         @RequestParam(required = false) Long universityId,
-        @RequestPart("file") MultipartFile file
+        @RequestPart("file") MultipartFile file,
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
     @Operation(summary = "학생부 Excel 업로드 양식 다운로드")

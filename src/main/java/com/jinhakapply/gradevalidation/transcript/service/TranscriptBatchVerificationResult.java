@@ -12,7 +12,8 @@ record TranscriptBatchVerificationResult(
         TransferApplicationRow application,
         String studentName,
         GradeVerificationResponse verification,
-        List<SelectedCourse> selectedCourses
+        List<SelectedCourse> selectedCourses,
+        ApplicantSchoolInfoRow schoolInfo
     ) {}
 
     record SelectedCourse(

@@ -23,6 +23,7 @@ import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepos
 import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
@@ -58,8 +59,11 @@ class TransferImportService {
         MultipartFile file,
         String fileSha256,
         TransferExcelParseResult result,
-        TranscriptBatchVerificationResult verification
+        TranscriptBatchVerificationResult verification,
+        List<String> additionalWarnings
     ) {
+        List<String> warnings = new ArrayList<>(result.warnings());
+        if (additionalWarnings != null) warnings.addAll(additionalWarnings);
         return new TranscriptPreviewResponse(
             file.getOriginalFilename(),
             fileSha256,
@@ -91,7 +95,7 @@ class TransferImportService {
                 ).toList()
             ),
             result.errors(),
-            result.warnings()
+            List.copyOf(warnings)
         );
     }
 
@@ -102,6 +106,20 @@ class TransferImportService {
         TranscriptImportMode mode,
         MultipartFile file,
         String fileSha256
+    ) {
+        return importExcel(
+            admissionYear, universityId, mode, file, fileSha256, ApplicantSchoolInfoParseResult.empty()
+        );
+    }
+
+    @Transactional
+    TranscriptImportResponse importExcel(
+        int admissionYear,
+        Long universityId,
+        TranscriptImportMode mode,
+        MultipartFile file,
+        String fileSha256,
+        ApplicantSchoolInfoParseResult schoolInfoResult
     ) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "전달양식을 가져올 대상 대학교를 선택해 주세요.");
@@ -127,6 +145,7 @@ class TransferImportService {
             .map(TransferApplicationRow::applicantNumber).toList());
         Map<String, TransferApplicationRow> applicationByApplicant = result.applications().stream()
             .collect(Collectors.toMap(TransferApplicationRow::applicantNumber, Function.identity(), (first, ignored) -> first));
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant = schoolInfoResult.byApplicantNumber();
 
         Map<String, Student> students = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
             admissionYear, applicantNumbers
@@ -136,20 +155,31 @@ class TransferImportService {
         for (String applicantNumber : applicantNumbers) {
             Student existing = students.get(applicantNumber);
             TransferApplicationRow application = applicationByApplicant.get(applicantNumber);
+            ApplicantSchoolInfoRow schoolInfo = schoolInfoByApplicant.get(applicantNumber);
+            Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
+                ? schoolInfo.graduationYear() : application == null ? null : application.graduationYear();
+            String highSchoolCode = schoolInfo == null ? null : schoolInfo.highSchoolCode();
+            String highSchoolName = schoolInfo == null ? null : schoolInfo.highSchoolName();
             if (existing == null) {
                 Student created = studentRepository.save(Student.create(
                     admissionYear,
                     applicantNumber,
                     "미등록",
-                    null,
-                    null,
-                    application == null ? null : application.graduationYear()
+                    highSchoolCode,
+                    highSchoolName,
+                    graduationYear
                 ));
+                applySchoolInfo(created, schoolInfo, admissionYear);
                 students.put(applicantNumber, created);
                 createdStudents++;
-            } else if (application != null && application.graduationYear() != null) {
-                existing.updateProfile(existing.getName(), existing.getHighSchoolCode(), existing.getHighSchoolName(),
-                    application.graduationYear());
+            } else if (application != null || schoolInfo != null) {
+                existing.updateProfile(
+                    existing.getName(),
+                    highSchoolCode == null ? existing.getHighSchoolCode() : highSchoolCode,
+                    highSchoolName == null ? existing.getHighSchoolName() : highSchoolName,
+                    graduationYear == null ? existing.getGraduationYear() : graduationYear
+                );
+                applySchoolInfo(existing, schoolInfo, admissionYear);
             }
         }
 
@@ -164,13 +194,49 @@ class TransferImportService {
             result.courses().size(),
             result.invalidRows()
         ));
+        List<String> warnings = new ArrayList<>(result.warnings());
+        warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
         return new TranscriptImportResponse(
             transcriptImport.getId(), transcriptImport.getStatus(), result.sourceFormat(),
             result.totalRows(), result.courses().size(), result.invalidRows(),
             result.skippedRows(),
             createdStudents, updatedStudents, courses.created(), courses.updated(),
             result.applications().size(), catalog.createdApplications(), catalog.createdTracks(),
-            catalog.createdUnits(), result.errors(), result.warnings()
+            catalog.createdUnits(), result.errors(), List.copyOf(warnings)
+        );
+    }
+
+    private String schoolInfoImportWarning(
+        List<TransferApplicationRow> applications,
+        ApplicantSchoolInfoParseResult schoolInfo
+    ) {
+        Set<String> applicationNumbers = applications.stream()
+            .map(TransferApplicationRow::applicantNumber)
+            .collect(Collectors.toSet());
+        long linked = schoolInfo.rows().stream()
+            .filter(row -> applicationNumbers.contains(row.applicantNumber()))
+            .count();
+        long allCourseTypes = schoolInfo.rows().stream()
+            .filter(row -> applicationNumbers.contains(row.applicantNumber()))
+            .filter(row -> row.highSchoolType().usesHanshinAllOrdinaryCoursesPolicy())
+            .count();
+        long missing = applicationNumbers.stream()
+            .filter(applicantNumber -> !schoolInfo.byApplicantNumber().containsKey(applicantNumber))
+            .count();
+        return "지원자 추가정보 %,d건을 저장했습니다. 전 과목 반영 고교유형 %,d건, 미연결 지원자 %,d건입니다."
+            .formatted(linked, allCourseTypes, missing);
+    }
+
+    private void applySchoolInfo(Student student, ApplicantSchoolInfoRow schoolInfo, int admissionYear) {
+        if (schoolInfo == null) return;
+        Integer graduationYear = schoolInfo.graduationYear();
+        GraduationStatus graduationStatus = graduationYear != null && graduationYear < admissionYear
+            ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
+        student.updateCommonEvaluationProfile(
+            schoolInfo.educationBackground(),
+            schoolInfo.highSchoolType(),
+            graduationStatus,
+            student.getGedAverageScore()
         );
     }
 

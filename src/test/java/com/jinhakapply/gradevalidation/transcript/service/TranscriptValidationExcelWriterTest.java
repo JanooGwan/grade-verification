@@ -44,7 +44,8 @@ class TranscriptValidationExcelWriterTest {
                 application, "테스트 학생", verification,
                 List.of(new TranscriptBatchVerificationResult.SelectedCourse(
                     course, verification.calculations().getFirst()
-                ))
+                )),
+                null
             )),
             List.of(new TranscriptBatchVerificationResult.Failure(
                 failedApplication, "실패 학생", 11, "INVALID_EVALUATION_RULE",
@@ -80,7 +81,7 @@ class TranscriptValidationExcelWriterTest {
                 .isEqualTo(2.786);
             assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
             Sheet selectedCourseSheet = workbook.getSheet("학생별 선택 과목");
-            assertThat(selectedCourseSheet.getRow(2).getLastCellNum()).isEqualTo((short) 28);
+            assertThat(selectedCourseSheet.getRow(2).getLastCellNum()).isEqualTo((short) 33);
             assertThat(selectedCourseSheet.getRow(2).getCell(14).getStringCellValue()).isEqualTo("과목명");
             assertThat(selectedCourseSheet.getRow(3).getCell(1).getStringCellValue()).isEqualTo("A-001");
             assertThat(selectedCourseSheet.getRow(3).getCell(6).getNumericCellValue()).isEqualTo(1);

@@ -91,7 +91,9 @@ class ApiContractTest {
             "file", "sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[] {1, 2, 3}
         );
-        when(transcriptService.exportExcelValidation(anyInt(), anyLong(), any(MultipartFile.class)))
+        when(transcriptService.exportExcelValidation(
+            anyInt(), anyLong(), any(MultipartFile.class), isNull()
+        ))
             .thenReturn(new byte[] {4, 5, 6});
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel/preview/export")
@@ -316,7 +318,9 @@ class ApiContractTest {
             "file", "transcript.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[]{1, 2, 3}
         );
-        when(transcriptService.importExcel(anyInt(), any(), isNull(), any())).thenReturn(new TranscriptImportResponse(
+        when(transcriptService.importExcel(
+            anyInt(), any(), isNull(), any(), isNull()
+        )).thenReturn(new TranscriptImportResponse(
             41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
             1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
         ));
