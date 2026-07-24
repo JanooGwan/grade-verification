@@ -133,6 +133,12 @@ class TransferImportService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "화면의 모집연도와 전달양식의 입학연도가 일치하지 않습니다.");
         }
+        boolean mismatchedSchoolInfoYear = schoolInfoResult.rows().stream()
+            .anyMatch(row -> row.admissionYear() != null && row.admissionYear() != admissionYear);
+        if (mismatchedSchoolInfoYear) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "DB 저장 시에는 화면의 모집연도와 지원자 추가정보의 입학연도가 일치해야 합니다.");
+        }
         if (mode == TranscriptImportMode.ALL_OR_NOTHING && result.invalidRows() > 0) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));

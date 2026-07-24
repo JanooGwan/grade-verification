@@ -113,7 +113,7 @@ public class TranscriptService {
     ) {
         validateFile(admissionYear, file);
         if (transferExcelParser.supports(file)) {
-            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(admissionYear, schoolInfoFile);
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
             return transferImportService.importExcel(
                 admissionYear, universityId, mode, file, sha256(file), schoolInfo
             );
@@ -264,11 +264,12 @@ public class TranscriptService {
         validateFile(admissionYear, file);
         if (transferExcelParser.supports(file)) {
             TransferExcelParseResult result = transferExcelParser.parse(file);
-            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(admissionYear, schoolInfoFile);
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
             TranscriptBatchVerificationResult verification = batchVerificationService.verify(
                 universityId, admissionYear, result.applications(), result.courses(),
                 schoolInfo.byApplicantNumber()
             );
+            requireMatchedVerificationRule(verification);
             return transferImportService.preview(
                 file, sha256(file), result, verification,
                 schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications())
@@ -310,11 +311,12 @@ public class TranscriptService {
         String fileName = safeFileName(file.getOriginalFilename());
         if (transferExcelParser.supports(file)) {
             TransferExcelParseResult result = transferExcelParser.parse(file);
-            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(admissionYear, schoolInfoFile);
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
             TranscriptBatchVerificationResult verification = batchVerificationService.verify(
                 universityId, admissionYear, result.applications(), result.courses(),
                 schoolInfo.byApplicantNumber()
             );
+            requireMatchedVerificationRule(verification);
             List<String> warnings = new java.util.ArrayList<>(result.warnings());
             warnings.addAll(schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications()));
             return validationExcelWriter.write(
@@ -632,7 +634,7 @@ public class TranscriptService {
         }
     }
 
-    private ApplicantSchoolInfoParseResult parseSchoolInfoFile(int admissionYear, MultipartFile schoolInfoFile) {
+    private ApplicantSchoolInfoParseResult parseSchoolInfoFile(MultipartFile schoolInfoFile) {
         if (schoolInfoFile == null || schoolInfoFile.isEmpty()) return ApplicantSchoolInfoParseResult.empty();
         if (schoolInfoFile.getSize() > MAX_FILE_SIZE) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원자 추가정보 Excel 파일은 40MB 이하여야 합니다.");
@@ -642,16 +644,7 @@ public class TranscriptService {
             && !fileName.toLowerCase(Locale.ROOT).endsWith(".xls"))) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원자 추가정보는 Excel 파일(.xlsx, .xls)만 가능합니다.");
         }
-        ApplicantSchoolInfoParseResult result = applicantSchoolInfoExcelParser.parse(schoolInfoFile);
-        boolean mismatchedYear = result.rows().stream()
-            .anyMatch(row -> row.admissionYear() != null && row.admissionYear() != admissionYear);
-        if (mismatchedYear) {
-            throw CustomException.of(
-                INVALID_TRANSCRIPT_FILE,
-                "화면의 모집연도와 지원자 추가정보의 입학연도가 일치하지 않습니다."
-            );
-        }
-        return result;
+        return applicantSchoolInfoExcelParser.parse(schoolInfoFile);
     }
 
     private List<String> schoolInfoWarnings(
@@ -682,11 +675,33 @@ public class TranscriptService {
             .distinct()
             .filter(applicantNumber -> !schoolInfo.byApplicantNumber().containsKey(applicantNumber))
             .count();
+        String sourceYears = linkedRows.stream()
+            .map(ApplicantSchoolInfoRow::admissionYear)
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .sorted()
+            .map(String::valueOf)
+            .collect(java.util.stream.Collectors.joining(", "));
         return List.of(
-            "지원자 추가정보 %,d건을 연결했습니다. 전 과목 반영 고교유형 %,d건, 검정고시·외국고 %,d건, "
-                + "추가정보 미연결 지원자 %,d건입니다."
-                .formatted(linkedRows.size(), allCourseTypes, alternativeBackgrounds, missing)
+            (
+                "지원자 추가정보 %,d건을 연결했습니다. 전 과목 반영 고교유형 %,d건, "
+                    + "검정고시·외국고 %,d건, 추가정보 미연결 지원자 %,d건입니다. "
+                    + "추가정보 입학연도: %s"
+            ).formatted(linkedRows.size(), allCourseTypes, alternativeBackgrounds, missing,
+                sourceYears.isBlank() ? "미확인" : sourceYears)
         );
+    }
+
+    private void requireMatchedVerificationRule(TranscriptBatchVerificationResult verification) {
+        if (!verification.failures().isEmpty()
+            && verification.successes().isEmpty()
+            && verification.failures().stream().allMatch(failure -> "RULE_NOT_FOUND".equals(failure.code()))) {
+            throw CustomException.of(
+                INVALID_TRANSCRIPT_FILE,
+                "선택한 대학교·모집연도에 전달양식의 전형과 맞는 게시 규칙이 없습니다. "
+                    + "검증할 모집요강 연도와 대상 대학교를 확인해 주세요."
+            );
+        }
     }
 
     private String safeFileName(String originalFileName) {

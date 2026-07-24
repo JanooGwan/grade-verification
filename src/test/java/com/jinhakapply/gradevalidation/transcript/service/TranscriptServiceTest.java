@@ -9,12 +9,14 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
@@ -170,6 +172,55 @@ class TranscriptServiceTest {
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_STUDENT_COMMON_DATA));
         verifyNoInteractions(attendanceRepository, schoolViolenceRepository);
+    }
+
+    @Test
+    void formatsLinkedSchoolInformationWarningForHistoricalApplicantData() {
+        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
+            2, 2026, "A-001", 2026, "S001", "직업고등학교", "D001",
+            "특성화고", "특성화고", "전문계고교",
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
+        );
+        ApplicantSchoolInfoParseResult schoolInfoResult = new ApplicantSchoolInfoParseResult(
+            List.of(schoolInfo), Map.of("A-001", schoolInfo)
+        );
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
+        );
+        MockMultipartFile schoolInfoFile = new MockMultipartFile(
+            "schoolInfoFile", "지원자 추가정보.xlsx", null, new byte[] {1}
+        );
+
+        List<String> warnings = ReflectionTestUtils.invokeMethod(
+            transcriptService,
+            "schoolInfoWarnings",
+            schoolInfoResult,
+            schoolInfoFile,
+            List.of(application)
+        );
+
+        assertThat(warnings).containsExactly(
+            "지원자 추가정보 1건을 연결했습니다. 전 과목 반영 고교유형 1건, "
+                + "검정고시·외국고 0건, 추가정보 미연결 지원자 0건입니다. 추가정보 입학연도: 2026"
+        );
+    }
+
+    @Test
+    void rejectsEmptyExportWhenEveryApplicationHasNoMatchingRule() {
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
+        );
+        TranscriptBatchVerificationResult verification = new TranscriptBatchVerificationResult(
+            List.of(),
+            List.of(new TranscriptBatchVerificationResult.Failure(
+                application, "학생", 12, "RULE_NOT_FOUND", "게시 규칙 없음"
+            ))
+        );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+            transcriptService, "requireMatchedVerificationRule", verification
+        )).isInstanceOfSatisfying(CustomException.class, exception ->
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_TRANSCRIPT_FILE));
     }
 
     @Test
