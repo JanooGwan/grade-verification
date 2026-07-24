@@ -61,9 +61,10 @@ class TranscriptValidationExcelWriterTest {
 
         assertThat(file).isNotEmpty();
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(3);
             assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
-            assertThat(workbook.getSheetName(1)).isEqualTo("검증 요약");
+            assertThat(workbook.getSheetName(1)).isEqualTo("학생별 선택 과목");
+            assertThat(workbook.getSheetName(2)).isEqualTo("검증 요약");
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getLastCellNum()).isEqualTo((short) 13);
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(2).getCell(12).getStringCellValue())
                 .isEqualTo("교과 반영점수");
@@ -78,6 +79,15 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(3).getCell(8).getNumericCellValue())
                 .isEqualTo(2.786);
             assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
+            Sheet selectedCourseSheet = workbook.getSheet("학생별 선택 과목");
+            assertThat(selectedCourseSheet.getRow(2).getLastCellNum()).isEqualTo((short) 28);
+            assertThat(selectedCourseSheet.getRow(2).getCell(14).getStringCellValue()).isEqualTo("과목명");
+            assertThat(selectedCourseSheet.getRow(3).getCell(1).getStringCellValue()).isEqualTo("A-001");
+            assertThat(selectedCourseSheet.getRow(3).getCell(6).getNumericCellValue()).isEqualTo(1);
+            assertThat(selectedCourseSheet.getRow(3).getCell(14).getStringCellValue()).isEqualTo("국어");
+            assertThat(selectedCourseSheet.getRow(3).getCell(18).getNumericCellValue()).isEqualTo(2);
+            assertThat(selectedCourseSheet.getRow(3).getCell(19).getNumericCellValue()).isEqualTo(99);
+            assertThat(selectedCourseSheet.getRow(3).getCell(22).getNumericCellValue()).isEqualTo(297);
             assertThat(workbook.getSheet("검증 요약").getRow(3).getCell(1).getStringCellValue())
                 .isEqualTo("테스트.xlsx");
             Sheet summarySheet = workbook.getSheet("검증 요약");

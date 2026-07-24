@@ -69,6 +69,33 @@ class TranscriptBatchVerificationServiceTest {
     }
 
     @Test
+    void treatsEarlierGraduationYearAsGraduateForSemesterScope() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getId()).thenReturn(11L);
+        when(rule.getAdmissionType()).thenReturn("학생부우수자");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any())).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "01", "학생부우수자", "21", "컴퓨터공학과", 2026
+        );
+
+        service.verify(
+            1L, 2027, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        ArgumentCaptor<VerifyGradeRequest> requestCaptor = ArgumentCaptor.forClass(VerifyGradeRequest.class);
+        verify(evaluationService).verify(eq(rule), requestCaptor.capture());
+        assertThat(requestCaptor.getValue().graduated()).isTrue();
+        assertThat(requestCaptor.getValue().graduationYear()).isEqualTo(2026);
+    }
+
+    @Test
     void recordsFailureWhenNoPublishedRuleMatches() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService

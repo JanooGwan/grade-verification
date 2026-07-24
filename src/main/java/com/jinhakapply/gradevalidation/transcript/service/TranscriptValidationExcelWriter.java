@@ -38,6 +38,13 @@ class TranscriptValidationExcelWriter {
         "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "전형별 교과 배율",
         "교과 반영점수(반올림 전)", "교과 반영점수"
     };
+    private static final String[] SELECTED_COURSE_HEADERS = {
+        "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명", "졸업연도",
+        "선택순번", "원본 성적 행", "고교코드", "고교명", "학년", "학기",
+        "원본 교과", "적용 교과", "과목명", "석차등급", "성취도", "이수단위",
+        "유효등급", "환산점수", "반영 이수단위", "적용 가중치", "가중점수",
+        "진로선택", "전문교과", "석차", "동석차", "수강자수"
+    };
 
     byte[] write(
         String originalFileName,
@@ -55,6 +62,7 @@ class TranscriptValidationExcelWriter {
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
             createVerificationResultSheet(workbook, styles, verification);
+            createSelectedCourseSheet(workbook, styles, verification);
             createSummarySheet(
                 workbook, styles, originalFileName, sourceFormat, applicationRows,
                 totalRows, courses.size(), errors.size(), skipped.size(), warnings,
@@ -193,6 +201,72 @@ class TranscriptValidationExcelWriter {
         }
         finishTable(sheet, results.size(), RESULT_HEADERS.length);
         setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
+    }
+
+    private void createSelectedCourseSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        TranscriptBatchVerificationResult verification
+    ) {
+        Sheet sheet = workbook.createSheet("학생별 선택 과목");
+        sheet.setDisplayGridlines(false);
+        title(
+            sheet, styles, "학생별 선택 과목 상세 - 실제 교과성적 계산에 반영된 과목",
+            SELECTED_COURSE_HEADERS.length - 1
+        );
+        header(sheet, styles, SELECTED_COURSE_HEADERS);
+
+        List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
+        results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
+        int rowIndex = 3;
+        for (TranscriptBatchVerificationResult.Success success : results) {
+            List<TranscriptBatchVerificationResult.SelectedCourse> selectedCourses =
+                new ArrayList<>(success.selectedCourses());
+            selectedCourses.sort(selectedCourseComparator());
+            for (int index = 0; index < selectedCourses.size(); index++) {
+                TranscriptBatchVerificationResult.SelectedCourse selected = selectedCourses.get(index);
+                TranscriptExcelRow source = selected.source();
+                GradeVerificationResponse.CourseCalculation calculation = selected.calculation();
+                TransferApplicationRow application = success.application();
+                writeRow(sheet.createRow(rowIndex++), new Object[] {
+                    application.rowNumber(), application.applicantNumber(), success.studentName(),
+                    application.admissionTrackName(), application.recruitmentUnitName(),
+                    application.graduationYear(), index + 1, source.rowNumber(),
+                    source.highSchoolCode(), source.highSchoolName(), source.schoolYear(), source.semester(),
+                    source.subjectCategory(), calculation.appliedSubjectCategory(), source.courseName(),
+                    source.grade(), source.achievement(), source.credits(), calculation.effectiveGrade(),
+                    calculation.convertedScore(), calculation.appliedCredits(), calculation.appliedWeight(),
+                    calculation.weightedScore(), source.careerSubject() ? "Y" : "N",
+                    source.professionalCourse() ? "Y" : "N", source.rankPosition(),
+                    source.tiedRankCount(), source.studentCount()
+                }, styles, -1);
+            }
+        }
+        finishTable(sheet, rowIndex - 3, SELECTED_COURSE_HEADERS.length);
+        setWidths(sheet, SELECTED_COURSE_HEADERS, Set.of(3, 4, 9, 14));
+        sheet.setColumnWidth(2, 24 * 256);
+    }
+
+    private Comparator<TranscriptBatchVerificationResult.SelectedCourse> selectedCourseComparator() {
+        return Comparator
+            .comparing(
+                (TranscriptBatchVerificationResult.SelectedCourse selected) ->
+                    selected.calculation().effectiveGrade(),
+                Comparator.nullsLast(Comparator.naturalOrder())
+            )
+            .thenComparing(
+                selected -> selected.calculation().appliedCredits(),
+                Comparator.nullsLast(Comparator.reverseOrder())
+            )
+            .thenComparing(
+                selected -> selected.source().schoolYear(),
+                Comparator.reverseOrder()
+            )
+            .thenComparing(
+                selected -> selected.source().semester(),
+                Comparator.reverseOrder()
+            )
+            .thenComparingInt(selected -> selected.source().rowNumber());
     }
 
     private void writeRow(Row row, Object[] values, Styles styles, int errorFromColumn) {

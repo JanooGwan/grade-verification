@@ -68,7 +68,10 @@ class TransferExcelParserTest {
                 org.assertj.core.api.Assertions.tuple("한문Ⅰ", SubjectCategory.OTHER),
                 org.assertj.core.api.Assertions.tuple("한국지리", SubjectCategory.SOCIAL),
                 org.assertj.core.api.Assertions.tuple("세계지리", SubjectCategory.SOCIAL),
-                org.assertj.core.api.Assertions.tuple("세계사", SubjectCategory.SOCIAL)
+                org.assertj.core.api.Assertions.tuple("세계사", SubjectCategory.SOCIAL),
+                org.assertj.core.api.Assertions.tuple("교육학", SubjectCategory.OTHER),
+                org.assertj.core.api.Assertions.tuple("미술 창작", SubjectCategory.OTHER),
+                org.assertj.core.api.Assertions.tuple("운동과 건강", SubjectCategory.OTHER)
             );
     }
 
@@ -131,6 +134,9 @@ class TransferExcelParserTest {
             writeSubjectRow(courses, 4, "사회(역사/도덕포함)", "한국지리");
             writeSubjectRow(courses, 5, "사회(역사/도덕포함)", "세계지리");
             writeSubjectRow(courses, 6, "사회(역사/도덕포함)", "세계사");
+            writeSubjectRow(courses, 7, "기술·가정/제2외국어/한문/교양", "교육학");
+            writeSubjectRow(courses, 8, "예술(음악/미술)", "미술 창작");
+            writeSubjectRow(courses, 9, "체육", "운동과 건강");
             workbook.createSheet("CodeFormation");
             workbook.write(output);
             return new MockMultipartFile(

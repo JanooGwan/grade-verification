@@ -497,6 +497,25 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void topCoursesPreferHigherCreditsWhenGradesAreTied() {
+        EvaluationRule topTwoRule = rule(SelectionStrategy.TOP_N_COURSES, 2,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(topTwoRule, "applyGradeWeights", false);
+        mockRule(topTwoRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "최우수 과목", 1, "3"),
+            course(1, 1, SubjectCategory.MATH, "동점 저단위 과목", 2, "2"),
+            course(1, 2, SubjectCategory.ENGLISH, "동점 고단위 과목", 2, "5")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("최우수 과목", "동점 고단위 과목");
+    }
+
+    @Test
     void hanshinSpecializedHighSchoolUsesAllOrdinaryCoursesInsteadOfTopTwelve() {
         EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
