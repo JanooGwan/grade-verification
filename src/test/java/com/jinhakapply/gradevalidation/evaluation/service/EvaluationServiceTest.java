@@ -528,6 +528,10 @@ class EvaluationServiceTest {
                 "보통교과" + index, 1 + index % 9, "3"))
             .toList());
         courses.add(course(3, 1, SubjectCategory.OTHER, "예술교과", 3, "2"));
+        courses.add(new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.OTHER, "환경 화학 기초", 2, null,
+            null, null, null, null, false, true, new BigDecimal("3")
+        ));
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
             1L, false, HighSchoolType.SPECIALIZED, courses
@@ -535,6 +539,12 @@ class EvaluationServiceTest {
 
         assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
         assertThat(response.includedCourseCount()).isEqualTo(13);
+        assertThat(response.calculations()).filteredOn(calculation -> !calculation.included())
+            .singleElement()
+            .satisfies(calculation -> {
+                assertThat(calculation.courseName()).isEqualTo("환경 화학 기초");
+                assertThat(calculation.exclusionReason()).contains("전문교과");
+            });
     }
 
     @Test

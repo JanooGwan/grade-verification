@@ -43,6 +43,7 @@ class TransferExcelParserTest {
         assertThat(result.courses().get(2)).satisfies(course -> {
             assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.OTHER);
             assertThat(course.courseName()).isEqualTo("C프로그래밍");
+            assertThat(course.professionalCourse()).isTrue();
         });
         assertThat(result.courses().get(1)).satisfies(course -> {
             assertThat(course.courseName()).isEqualTo("진로와 직업");
@@ -73,6 +74,20 @@ class TransferExcelParserTest {
                 org.assertj.core.api.Assertions.tuple("미술 창작", SubjectCategory.OTHER),
                 org.assertj.core.api.Assertions.tuple("운동과 건강", SubjectCategory.OTHER)
             );
+        assertThat(result.courses()).allMatch(course -> !course.professionalCourse());
+    }
+
+    @Test
+    void classifiesAmbiguousMissingFormationAsNonOrdinaryWhenAnyCatalogFormationIsProfessional() throws Exception {
+        MockMultipartFile file = hanshinMissingFormationWorkbook();
+
+        TransferExcelParseResult result = parser.parse(file);
+
+        assertThat(result.courses()).singleElement().satisfies(course -> {
+            assertThat(course.courseName()).isEqualTo("환경 화학 기초");
+            assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.OTHER);
+            assertThat(course.professionalCourse()).isTrue();
+        });
     }
 
     private MockMultipartFile hanshinWorkbook() throws Exception {
@@ -141,6 +156,49 @@ class TransferExcelParserTest {
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "한신대-교과분류-검증.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
+            );
+        }
+    }
+
+    private MockMultipartFile hanshinMissingFormationWorkbook() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet applications = workbook.createSheet("vwapplyinfo");
+            writeRow(applications.createRow(0), new Object[] {
+                "입학연도", "모집시기", "모집시기명", "수험번호", "군ID", "계열", "계열명",
+                "전형코드", "전형명", "모집단위코드", "모집단위명", "졸업연도", "동의코드", "동의"
+            });
+            writeRow(applications.createRow(1), new Object[] {
+                2027, 1, "수시", "TEST-002", 0, 1, "인문", "10", "기회균형선발",
+                "20", "사회복지학", 2027, 1, "동의"
+            });
+
+            Sheet courses = workbook.createSheet("hsbsubjectscore");
+            writeRow(courses.createRow(0), new Object[] {
+                "입학연도", "모집시기", "수험번호", "학년", "학기", "편제코드", "편제명", "과목코드",
+                "과목명", "이수단위", "석차", "재적수", "동석차", "원점수", "평균", "표준편차", "석차등급", "성취도"
+            });
+            writeRow(courses.createRow(1), new Object[] {
+                2027, 1, "TEST-002", 1, 1, "000", " ", "0000000619", "환경 화학 기초",
+                3, 0, 29, 0, 86, 61.9, 20.3, 3, null
+            });
+
+            Sheet formations = workbook.createSheet("CodeFormation");
+            writeRow(formations.createRow(0), new Object[] {
+                "입학연도", "모집시기", "편제코드", "편제명", "교과코드",
+                "교과명", "과목코드", "과목명", "과목구분코드", "과목구분"
+            });
+            writeRow(formations.createRow(1), new Object[] {
+                2027, 1, "011122301010401", "기술·가정/제2외국어/한문/교양", "000",
+                " ", "0000000619", "환경 화학 기초", null, null
+            });
+            writeRow(formations.createRow(2), new Object[] {
+                2027, 1, "011122301020215", "환경·안전", "000",
+                " ", "0000000619", "환경 화학 기초", null, null
+            });
+            workbook.write(output);
+            return new MockMultipartFile(
+                "file", "한신대-편제누락-검증.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
             );
         }
