@@ -127,7 +127,8 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(verification, application), List.copyOf(selected), schoolInfo
+                    application, studentName, compact(verification, application, admissionYear),
+                    List.copyOf(selected), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
@@ -175,7 +176,8 @@ class TranscriptBatchVerificationService {
 
     private GradeVerificationResponse compact(
         GradeVerificationResponse result,
-        TransferApplicationRow application
+        TransferApplicationRow application,
+        int admissionYear
     ) {
         List<String> warnings = new ArrayList<>(result.warnings());
         String track = normalizePolicyText(application.admissionTrackName());
@@ -184,7 +186,9 @@ class TranscriptBatchVerificationService {
         } else if (track.contains("논술")) {
             warnings.add("학생부교과 200점만 산출했습니다. 논술고사 800점은 전달양식에 없어 포함하지 않았습니다.");
         } else if (track.contains("체육실기")) {
-            warnings.add("학생부교과 450점만 산출했습니다. 체육실기 550점은 전달양식에 없어 포함하지 않았습니다.");
+            warnings.add(admissionYear == 2026
+                ? "학생부교과 600점만 산출했습니다. 체육실기 400점은 전달양식에 없어 포함하지 않았습니다."
+                : "학생부교과 450점만 산출했습니다. 체육실기 550점은 전달양식에 없어 포함하지 않았습니다.");
         }
         warnings.add("학교폭력 조치사항 감점은 전달양식에 없어 포함하지 않았습니다.");
         return new GradeVerificationResponse(

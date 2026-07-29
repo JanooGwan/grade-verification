@@ -251,6 +251,33 @@ class TranscriptBatchVerificationServiceTest {
         verifyNoInteractions(evaluationService);
     }
 
+    @Test
+    void describesPhysicalEducationComponentsForRequestedAdmissionYear() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2026, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getAdmissionType()).thenReturn("체육실기");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "13", "체육실기", "21", "특수체육학과", 2026
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            1L, 2026, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).singleElement().satisfies(success ->
+            assertThat(success.verification().warnings())
+                .contains("학생부교과 600점만 산출했습니다. 체육실기 400점은 전달양식에 없어 포함하지 않았습니다.")
+        );
+    }
+
     private TranscriptExcelRow course(int rowNumber, SubjectCategory category, String name) {
         return new TranscriptExcelRow(
             rowNumber, "A-001", "미등록", null, null, 2027,

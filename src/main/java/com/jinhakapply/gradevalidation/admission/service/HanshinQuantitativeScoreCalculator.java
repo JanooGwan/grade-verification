@@ -20,11 +20,12 @@ import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import org.springframework.stereotype.Component;
 
 @Component
-public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScoreCalculator {
+public class HanshinQuantitativeScoreCalculator implements QuantitativeScoreCalculator {
     private static final BigDecimal MAX_TOTAL = new BigDecimal("1000");
 
     public boolean supports(String universityName, int admissionYear) {
-        return admissionYear == 2027 && normalizePolicyText(universityName).contains("한신");
+        return (admissionYear == 2026 || admissionYear == 2027)
+            && normalizePolicyText(universityName).contains("한신");
     }
 
     @Override
@@ -54,7 +55,10 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
         StudentCommonEvaluationSnapshot commonData
     ) {
         if (!supports(universityName, admissionYear)) {
-            throw CustomException.of(APPLICATION_SCORE_POLICY_NOT_FOUND, "2027학년도 한신대학교 전형만 지원합니다.");
+            throw CustomException.of(
+                APPLICATION_SCORE_POLICY_NOT_FOUND,
+                "한신대학교 2026·2027학년도 전형만 지원합니다."
+            );
         }
         String track = normalizePolicyText(admissionTrackName);
         boolean essay = track.contains("논술");
@@ -89,8 +93,13 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
             additionalScore = score(essayScore);
             maximumQuantitativeScore = MAX_TOTAL;
         } else if (physical) {
-            academicScore = scale(baseScore, "4.5");
-            additionalScore = score(required(request.practicalScore(), "체육실기전형은 550점 만점 실기점수가 필요합니다."));
+            String academicMultiplier = admissionYear == 2026 ? "6" : "4.5";
+            String practicalMaximum = admissionYear == 2026 ? "400" : "550";
+            academicScore = scale(baseScore, academicMultiplier);
+            additionalScore = score(required(
+                request.practicalScore(),
+                "체육실기전형은 " + practicalMaximum + "점 만점 실기점수가 필요합니다."
+            ));
             maximumQuantitativeScore = MAX_TOTAL;
         } else {
             academicScore = scale(baseScore, "10");

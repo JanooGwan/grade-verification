@@ -566,6 +566,28 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void hanshin2026SpecializedHighSchoolAlsoUsesAllOrdinaryCourses() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(hanshinRule, "admissionType", "학생부교과(학생부우수자)");
+        ReflectionTestUtils.setField(hanshinRule, "minimumCourseCount", 0);
+        mockRule(hanshinRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+                course(1, 1, SubjectCategory.OTHER, "예술교과", 3, "2")
+            )
+        ));
+
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+    }
+
+    @Test
     void allSubjectScopeUsesOneForNormalizedYearDenominator() {
         EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),

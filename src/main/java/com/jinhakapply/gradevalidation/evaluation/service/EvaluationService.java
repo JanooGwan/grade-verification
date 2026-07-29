@@ -387,14 +387,14 @@ public class EvaluationService {
         if (isKbuLegacyAnnualPolicy(rule, graduationYear)) {
             return new EvaluationScope(SelectionStrategy.ALL_COURSES, rule.isIncludeProfessionalCourses(), false);
         }
-        if (!isHanshin2027(rule) || !resolvedType.usesHanshinAllOrdinaryCoursesPolicy()) {
+        if (!isHanshinAdmissionYear(rule) || !resolvedType.usesHanshinAllOrdinaryCoursesPolicy()) {
             return new EvaluationScope(rule.getSelectionStrategy(), rule.isIncludeProfessionalCourses(), false);
         }
         return new EvaluationScope(SelectionStrategy.ALL_COURSES, isSpecializedGraduateTrack(rule), true);
     }
 
-    private boolean isHanshin2027(EvaluationRule rule) {
-        return rule.getAdmissionYear() == 2027
+    private boolean isHanshinAdmissionYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
     }
 
