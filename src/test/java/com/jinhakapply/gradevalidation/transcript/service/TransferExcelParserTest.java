@@ -78,13 +78,15 @@ class TransferExcelParserTest {
     }
 
     @Test
-    void classifiesAmbiguousMissingFormationAsNonOrdinaryWhenAnyCatalogFormationIsProfessional() throws Exception {
+    void excludesBlankFormationWithoutInferringSubjectFromCourseNameOrCatalog() throws Exception {
         MockMultipartFile file = hanshinMissingFormationWorkbook();
 
         TransferExcelParseResult result = parser.parse(file);
 
-        assertThat(result.courses()).singleElement().satisfies(course -> {
-            assertThat(course.courseName()).isEqualTo("환경 화학 기초");
+        assertThat(result.courses())
+            .extracting(TranscriptExcelRow::courseName)
+            .containsExactly("환경 화학 기초", "아카데믹 영어", "영어 비평적 읽기와 쓰기");
+        assertThat(result.courses()).allSatisfy(course -> {
             assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.OTHER);
             assertThat(course.professionalCourse()).isTrue();
         });
@@ -182,6 +184,14 @@ class TransferExcelParserTest {
                 2027, 1, "TEST-002", 1, 1, "000", " ", "0000000619", "환경 화학 기초",
                 3, 0, 29, 0, 86, 61.9, 20.3, 3, null
             });
+            writeRow(courses.createRow(2), new Object[] {
+                2027, 1, "TEST-002", 2, 1, "000", " ", "0000002001", "아카데믹 영어",
+                3, 0, 29, 0, 86, 61.9, 20.3, 3, null
+            });
+            writeRow(courses.createRow(3), new Object[] {
+                2027, 1, "TEST-002", 3, 1, "000", " ", "0000002002", "영어 비평적 읽기와 쓰기",
+                3, 0, 29, 0, 86, 61.9, 20.3, 3, null
+            });
 
             Sheet formations = workbook.createSheet("CodeFormation");
             writeRow(formations.createRow(0), new Object[] {
@@ -195,6 +205,14 @@ class TransferExcelParserTest {
             writeRow(formations.createRow(2), new Object[] {
                 2027, 1, "011122301020215", "환경·안전", "000",
                 " ", "0000000619", "환경 화학 기초", null, null
+            });
+            writeRow(formations.createRow(3), new Object[] {
+                2027, 1, "011122301030101", "영어", "000",
+                " ", "0000002001", "아카데믹 영어", null, null
+            });
+            writeRow(formations.createRow(4), new Object[] {
+                2027, 1, "011122301030102", "영어", "000",
+                " ", "0000002002", "영어 비평적 읽기와 쓰기", null, null
             });
             workbook.write(output);
             return new MockMultipartFile(

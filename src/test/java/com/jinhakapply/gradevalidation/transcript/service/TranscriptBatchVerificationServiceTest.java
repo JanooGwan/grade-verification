@@ -3,6 +3,7 @@ package com.jinhakapply.gradevalidation.transcript.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -209,6 +210,45 @@ class TranscriptBatchVerificationServiceTest {
         verify(evaluationService).verify(eq(specializedRule), requestCaptor.capture());
         assertThat(requestCaptor.getValue().courses()).extracting(VerifyGradeRequest.CourseGrade::courseName)
             .containsExactly("국어", "상업경제");
+    }
+
+    @Test
+    void returnsZeroWithoutCalculationWhenSpecializedGraduateApplicantIsNotProfessionalCategory() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getAdmissionType()).thenReturn("특성화고교졸업자");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(rule.getScoreMultiplier()).thenReturn(BigDecimal.TEN);
+
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "12", "특성화고교졸업자", "21", "컴퓨터공학과", 2027
+        );
+        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
+            2, 2027, "A-001", 2027, "S-001", "직업고등학교", "전문학과",
+            "실업고", "특성화고", "일반계고교",
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            1L, 2027, List.of(application),
+            List.of(course(3, SubjectCategory.KOREAN, "국어")),
+            java.util.Map.of("A-001", schoolInfo)
+        );
+
+        assertThat(result.failures()).isEmpty();
+        assertThat(result.successes()).singleElement().satisfies(success -> {
+            assertThat(success.verification().finalScore()).isZero();
+            assertThat(success.verification().baseScore()).isZero();
+            assertThat(success.verification().includedCourseCount()).isZero();
+            assertThat(success.selectedCourses()).isEmpty();
+            assertThat(success.verification().warnings())
+                .anyMatch(warning -> warning.contains("전문계고교가 아니므로 0점 처리"));
+        });
+        verifyNoInteractions(evaluationService);
     }
 
     private TranscriptExcelRow course(int rowNumber, SubjectCategory category, String name) {

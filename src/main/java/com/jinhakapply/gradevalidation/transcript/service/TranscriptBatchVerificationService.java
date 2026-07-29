@@ -3,6 +3,7 @@ package com.jinhakapply.gradevalidation.transcript.service;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_TRANSCRIPT_FILE;
 import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -89,13 +90,22 @@ class TranscriptBatchVerificationService {
                         : "외국고 출신자는 전형별 대체 환산 입력이 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다."));
                 continue;
             }
+            EvaluationRule rule = matchedRules.getFirst();
+            if (isIneligibleSpecializedGraduateApplicant(application, schoolInfo)) {
+                GradeVerificationResponse verification = ineligibleVerification(
+                    rule, application, gradableCourses.size()
+                );
+                successes.add(new TranscriptBatchVerificationResult.Success(
+                    application, studentName, verification, List.of(), schoolInfo
+                ));
+                continue;
+            }
             if (gradableCourses.isEmpty()) {
                 failures.add(failure(application, studentName, 0,
                     "COURSE_NOT_FOUND", "국어·영어·수학·사회·과학·한국사 성적이 없습니다."));
                 continue;
             }
 
-            EvaluationRule rule = matchedRules.getFirst();
             Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
                 ? schoolInfo.graduationYear() : application.graduationYear();
             boolean graduated = graduationYear != null && graduationYear < admissionYear;
@@ -125,6 +135,42 @@ class TranscriptBatchVerificationService {
             }
         }
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
+    }
+
+    private boolean isIneligibleSpecializedGraduateApplicant(
+        TransferApplicationRow application,
+        ApplicantSchoolInfoRow schoolInfo
+    ) {
+        if (!normalizePolicyText(application.admissionTrackName()).contains("특성화고교졸업자")) {
+            return false;
+        }
+        return schoolInfo != null
+            && !"전문계고교".equals(normalizePolicyText(schoolInfo.applicantHighSchoolCategoryCode()));
+    }
+
+    private GradeVerificationResponse ineligibleVerification(
+        EvaluationRule rule,
+        TransferApplicationRow application,
+        int excludedCourseCount
+    ) {
+        BigDecimal zero = BigDecimal.ZERO;
+        GradeVerificationResponse.CalculationSummary summary =
+            new GradeVerificationResponse.CalculationSummary(
+                "지원자 고교구분코드가 전문계고교가 아니므로 지원자격 미달로 성적을 산출하지 않습니다.",
+                zero, zero, zero, zero, zero, zero, null, zero, rule.getScoreMultiplier(), zero,
+                rule.getIntermediateScale(), rule.getIntermediateRounding(),
+                rule.getFinalScale(), rule.getFinalRounding(), Map.of()
+            );
+        return new GradeVerificationResponse(
+            rule.getId(), rule.getName(), rule.getVersion(),
+            rule.getUniversity() == null ? null : rule.getUniversity().getName(),
+            application.admissionTrackName(), application.recruitmentUnitName(),
+            zero, zero, null, rule.getSelectionStrategy(), rule.getScoreAggregation(),
+            rule.getSourceDocument(), rule.getSourcePages(), 0, excludedCourseCount, summary,
+            List.of(), List.of(
+                "특성화고교졸업자전형 지원자이나 지원자 고교구분코드가 전문계고교가 아니므로 0점 처리했습니다."
+            )
+        );
     }
 
     private GradeVerificationResponse compact(

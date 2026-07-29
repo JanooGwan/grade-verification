@@ -8,7 +8,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,7 +49,6 @@ class TransferExcelParser {
 
     private static final String APPLICATION_SHEET = "vwapplyinfo";
     private static final String COURSE_SHEET = "hsbsubjectscore";
-    private static final String FORMATION_SHEET = "codeformation";
     private static final int MAX_COURSE_ROWS = 500_000;
     private static final int MAX_REPORTED_ERRORS = 1_000;
 
@@ -95,8 +93,6 @@ class TransferExcelParser {
         List<TranscriptImportRowError> skipped = new ArrayList<>();
         Set<String> found = new HashSet<>();
         Map<Integer, CourseSourceMetadata> courseMetadata = new HashMap<>();
-        Map<String, EnumSet<CourseNature>> formationsByCourseCode = new HashMap<>();
-        Map<String, EnumSet<CourseNature>> formationsByCourseName = new HashMap<>();
         int[] invalidRows = {0};
         int[] skippedRows = {0};
         int[] missingAssessmentRows = {0};
@@ -131,9 +127,9 @@ class TransferExcelParser {
                             }
                             try {
                                 TranscriptExcelRow course = parseCourse(rowNumber + 1, values);
-                                courseMetadata.put(course.rowNumber(), new CourseSourceMetadata(
-                                    optional(values, 6), optional(values, 7), course.courseName()
-                                ));
+                                courseMetadata.put(
+                                    course.rowNumber(), new CourseSourceMetadata(optional(values, 6))
+                                );
                                 if (course.grade() == null && course.achievement() == null
                                     && course.rankPosition() == null) {
                                     missingAssessmentRows[0]++;
@@ -142,16 +138,6 @@ class TransferExcelParser {
                             } catch (IllegalArgumentException exception) {
                                 addError(errors, invalidRows, rowNumber + 1, exception.getMessage());
                             }
-                        });
-                    } else if (FORMATION_SHEET.equals(sheetName)) {
-                        readSheet(styles, strings, sheet, (rowNumber, values) -> {
-                            if (rowNumber == 0) return;
-                            String formationName = optional(values, 3);
-                            if (formationName == null) return;
-                            CourseNature nature = isOrdinaryOrganization(formationName)
-                                ? CourseNature.ORDINARY : CourseNature.NON_ORDINARY;
-                            addCourseNature(formationsByCourseCode, optional(values, 6), nature);
-                            addCourseNature(formationsByCourseName, optional(values, 7), nature);
                         });
                     }
                 }
@@ -172,9 +158,7 @@ class TransferExcelParser {
         for (int index = 0; index < courses.size(); index++) {
             TranscriptExcelRow course = courses.get(index);
             CourseSourceMetadata metadata = courseMetadata.get(course.rowNumber());
-            boolean professionalCourse = isNonOrdinaryCourse(
-                metadata, formationsByCourseCode, formationsByCourseName
-            );
+            boolean professionalCourse = isNonOrdinaryCourse(metadata);
             courses.set(index, withProfessionalCourse(course, professionalCourse));
         }
         if (courses.isEmpty()) {
@@ -268,7 +252,7 @@ class TransferExcelParser {
             null,
             schoolYear,
             semester,
-            subjectCategory(organizationName == null ? "" : organizationName, courseName),
+            subjectCategory(organizationName == null ? "" : organizationName),
             courseName,
             grade,
             GradeScale.NINE_LEVEL,
@@ -298,13 +282,14 @@ class TransferExcelParser {
         return List.copyOf(warnings);
     }
 
-    private SubjectCategory subjectCategory(String organizationName, String courseName) {
+    private SubjectCategory subjectCategory(String organizationName) {
+        if (organizationName.isBlank()) return SubjectCategory.OTHER;
         if (!organizationName.isBlank() && !isOrdinaryOrganization(organizationName)) {
             return SubjectCategory.OTHER;
         }
         if (isOtherOrganization(organizationName)) return SubjectCategory.OTHER;
 
-        String value = organizationName + " " + courseName;
+        String value = organizationName;
         if (value.contains("국어")) return SubjectCategory.KOREAN;
         if (value.contains("수학")) return SubjectCategory.MATH;
         if (value.contains("영어")) return SubjectCategory.ENGLISH;
@@ -340,26 +325,10 @@ class TransferExcelParser {
             || normalized.contains("보통교과");
     }
 
-    private void addCourseNature(Map<String, EnumSet<CourseNature>> formations, String key, CourseNature nature) {
-        if (key == null || key.isBlank()) return;
-        formations.computeIfAbsent(key.trim(), ignored -> EnumSet.noneOf(CourseNature.class)).add(nature);
-    }
-
-    private boolean isNonOrdinaryCourse(
-        CourseSourceMetadata metadata,
-        Map<String, EnumSet<CourseNature>> formationsByCourseCode,
-        Map<String, EnumSet<CourseNature>> formationsByCourseName
-    ) {
+    private boolean isNonOrdinaryCourse(CourseSourceMetadata metadata) {
         if (metadata == null) return true;
-        if (metadata.organizationName() != null && !metadata.organizationName().isBlank()) {
-            return isProfessional(metadata.organizationName());
-        }
-        EnumSet<CourseNature> natures = metadata.courseCode() == null
-            ? null : formationsByCourseCode.get(metadata.courseCode());
-        if (natures == null || natures.isEmpty()) {
-            natures = formationsByCourseName.get(metadata.courseName());
-        }
-        return natures == null || natures.isEmpty() || natures.contains(CourseNature.NON_ORDINARY);
+        if (metadata.organizationName() == null || metadata.organizationName().isBlank()) return true;
+        return isProfessional(metadata.organizationName());
     }
 
     private TranscriptExcelRow withProfessionalCourse(TranscriptExcelRow course, boolean professionalCourse) {
@@ -373,12 +342,7 @@ class TransferExcelParser {
         );
     }
 
-    private enum CourseNature {
-        ORDINARY,
-        NON_ORDINARY
-    }
-
-    private record CourseSourceMetadata(String organizationName, String courseCode, String courseName) {}
+    private record CourseSourceMetadata(String organizationName) {}
 
     private AchievementLevel achievement(String value) {
         if (value == null) return null;
