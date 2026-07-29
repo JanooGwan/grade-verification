@@ -460,6 +460,24 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void calculatesAvailableCoursesWhenRuleHasNoMinimumCourseRequirement() {
+        EvaluationRule noMinimumRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(noMinimumRule, "minimumCourseCount", 0);
+        mockRule(noMinimumRule);
+        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.rangeClosed(1, 10)
+            .mapToObj(index -> course(1 + (index - 1) / 4, 1, SubjectCategory.KOREAN,
+                "국어" + index, 3, "3"))
+            .toList();
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false, courses));
+
+        assertThat(response.includedCourseCount()).isEqualTo(10);
+        assertThat(response.excludedCourseCount()).isZero();
+    }
+
+    @Test
     void reproducesHanshinPublishedCalculationExample() {
         EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
