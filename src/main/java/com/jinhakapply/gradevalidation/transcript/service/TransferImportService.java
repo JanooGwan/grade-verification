@@ -23,7 +23,6 @@ import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepos
 import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
-import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
@@ -175,7 +174,7 @@ class TransferImportService {
                     highSchoolName,
                     graduationYear
                 ));
-                applySchoolInfo(created, schoolInfo, admissionYear);
+                applySchoolInfo(created, schoolInfo);
                 students.put(applicantNumber, created);
                 createdStudents++;
             } else if (application != null || schoolInfo != null) {
@@ -185,7 +184,7 @@ class TransferImportService {
                     highSchoolName == null ? existing.getHighSchoolName() : highSchoolName,
                     graduationYear == null ? existing.getGraduationYear() : graduationYear
                 );
-                applySchoolInfo(existing, schoolInfo, admissionYear);
+                applySchoolInfo(existing, schoolInfo);
             }
         }
 
@@ -233,15 +232,12 @@ class TransferImportService {
             .formatted(linked, allCourseTypes, missing);
     }
 
-    private void applySchoolInfo(Student student, ApplicantSchoolInfoRow schoolInfo, int admissionYear) {
+    static void applySchoolInfo(Student student, ApplicantSchoolInfoRow schoolInfo) {
         if (schoolInfo == null) return;
-        Integer graduationYear = schoolInfo.graduationYear();
-        GraduationStatus graduationStatus = graduationYear != null && graduationYear < admissionYear
-            ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
         student.updateCommonEvaluationProfile(
             schoolInfo.educationBackground(),
             schoolInfo.highSchoolType(),
-            graduationStatus,
+            student.getGraduationStatus(),
             student.getGedAverageScore()
         );
     }

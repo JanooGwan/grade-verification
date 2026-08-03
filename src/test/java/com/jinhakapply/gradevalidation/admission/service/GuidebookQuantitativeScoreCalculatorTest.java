@@ -130,6 +130,12 @@ class GuidebookQuantitativeScoreCalculatorTest {
         assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
         assertThat(result.finalScore()).isNull();
         assertThat(result.pendingComponents()).containsExactly("1단계 수상실적 600점", "2단계 면접 200점");
+        assertThat(result.calculationSteps()).filteredOn(step -> step.key().equals("SYU_ATTENDANCE_SCORE"))
+            .singleElement().satisfies(step -> {
+                assertThat(step.operands().get("환산결석일수")).isEqualByComparingTo("8");
+                assertThat(step.operands().get("출결기본점수")).isEqualByComparingTo("96");
+                assertThat(step.result()).isEqualByComparingTo("38.40");
+            });
     }
 
     @Test

@@ -200,9 +200,14 @@ class TranscriptBatchVerificationServiceTest {
             course(3, SubjectCategory.KOREAN, "국어"),
             course(4, SubjectCategory.OTHER, "상업경제")
         );
+        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
+            2, 2027, "A-001", 2027, "S-001", "직업고등학교", "전문학과",
+            "실업고", "특성화고", "전문계고교",
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
+        );
 
         TranscriptBatchVerificationResult result = service.verify(
-            1L, 2027, List.of(application), courses
+            1L, 2027, List.of(application), courses, java.util.Map.of("A-001", schoolInfo)
         );
 
         assertThat(result.successes()).hasSize(1);
@@ -247,6 +252,32 @@ class TranscriptBatchVerificationServiceTest {
             assertThat(success.selectedCourses()).isEmpty();
             assertThat(success.verification().warnings())
                 .anyMatch(warning -> warning.contains("전문계고교가 아니므로 0점 처리"));
+        });
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    void requiresSchoolInformationForSpecializedGraduateTrack() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getAdmissionType()).thenReturn("특성화고교졸업자");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2027, "A-001", "12", "특성화고교졸업자", "21", "컴퓨터공학과", 2027
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            1L, 2027, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).isEmpty();
+        assertThat(result.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.code()).isEqualTo("SCHOOL_INFO_REQUIRED");
+            assertThat(failure.reason()).contains("지원자 추가정보 파일");
         });
         verifyNoInteractions(evaluationService);
     }

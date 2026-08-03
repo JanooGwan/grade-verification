@@ -62,7 +62,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
-@WebMvcTest({
+@WebMvcTest(properties = "app.security.admin-api.enabled=false", controllers = {
     UniversityController.class,
     AdmissionController.class,
     EvaluationController.class,

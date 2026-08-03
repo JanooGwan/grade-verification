@@ -42,7 +42,6 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
-	systemProperty 'app.security.admin-api.enabled', 'false'
 }
 
 tasks.register('verifyAiReadonlyUserScript') {

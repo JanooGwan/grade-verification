@@ -67,6 +67,21 @@ class HanshinQuantitativeScoreCalculatorTest {
         assertThat(result2027.finalScore()).isEqualByComparingTo("991.00");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "2026, 401",
+        "2027, 551",
+        "2027, -1"
+    })
+    void rejectsPhysicalEducationScoresOutsideYearSpecificRange(int admissionYear, String practicalScore) {
+        assertThatThrownBy(() -> calculator.calculate(
+            "한신대학교", admissionYear, "체육실기", new BigDecimal("98"),
+            request(null, practicalScore),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0, 0, 0, 0)
+        )).isInstanceOfSatisfying(CustomException.class, exception ->
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+    }
+
     @Test
     void convertsForeignEssayScoreToSubstituteAcademicScoreAndAddsEssayScore() {
         var result = calculator.calculate("한신대학교", 2027, "논술전형", null,

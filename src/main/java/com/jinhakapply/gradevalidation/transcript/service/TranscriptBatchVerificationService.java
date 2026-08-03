@@ -91,6 +91,12 @@ class TranscriptBatchVerificationService {
                 continue;
             }
             EvaluationRule rule = matchedRules.getFirst();
+            if (isSpecializedGraduateTrack(application) && schoolInfo == null) {
+                failures.add(failure(application, studentName, gradableCourses.size(),
+                    "SCHOOL_INFO_REQUIRED",
+                    "특성화고교졸업자 전형은 지원자격 확인을 위한 지원자 추가정보 파일이 필요합니다."));
+                continue;
+            }
             if (isIneligibleSpecializedGraduateApplicant(application, schoolInfo)) {
                 GradeVerificationResponse verification = ineligibleVerification(
                     rule, application, gradableCourses.size()
@@ -142,11 +148,13 @@ class TranscriptBatchVerificationService {
         TransferApplicationRow application,
         ApplicantSchoolInfoRow schoolInfo
     ) {
-        if (!normalizePolicyText(application.admissionTrackName()).contains("특성화고교졸업자")) {
-            return false;
-        }
+        if (!isSpecializedGraduateTrack(application)) return false;
         return schoolInfo != null
             && !"전문계고교".equals(normalizePolicyText(schoolInfo.applicantHighSchoolCategoryCode()));
+    }
+
+    private boolean isSpecializedGraduateTrack(TransferApplicationRow application) {
+        return normalizePolicyText(application.admissionTrackName()).contains("특성화고교졸업자");
     }
 
     private GradeVerificationResponse ineligibleVerification(

@@ -266,7 +266,7 @@ class TransferExcelParser {
             null,
             credits,
             false,
-            organizationName != null && isProfessional(organizationName)
+            false
         );
     }
 

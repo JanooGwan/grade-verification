@@ -258,16 +258,16 @@ class EvaluationServiceTest {
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
             course(1, 1, SubjectCategory.KOREAN, "국어1", 1, "1"),
-            course(1, 2, SubjectCategory.KOREAN, "국어2", 8, "1"),
-            course(2, 1, SubjectCategory.KOREAN, "국어3", 8, "1"),
-            course(1, 1, SubjectCategory.MATH, "수학1", 5, "1"),
-            course(1, 2, SubjectCategory.MATH, "수학2", 5, "1"),
-            course(2, 1, SubjectCategory.MATH, "수학3", 5, "1")
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 3, "1"),
+            course(2, 1, SubjectCategory.KOREAN, "국어3", 5, "1"),
+            course(1, 1, SubjectCategory.MATH, "수학1", 1, "1"),
+            course(1, 2, SubjectCategory.MATH, "수학2", 1, "1"),
+            course(2, 1, SubjectCategory.MATH, "수학3", 6, "1")
         )));
 
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::subjectCategory)
-            .containsOnly(SubjectCategory.MATH);
+            .containsOnly(SubjectCategory.KOREAN);
     }
 
     @Test

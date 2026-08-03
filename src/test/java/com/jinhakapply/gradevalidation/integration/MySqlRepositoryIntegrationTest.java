@@ -109,7 +109,7 @@ class MySqlRepositoryIntegrationTest {
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29"
+            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
@@ -120,7 +120,7 @@ class MySqlRepositoryIntegrationTest {
     @Test
     void separatesHanshinRulesByAdmissionYearWhenSeedDataExists() {
         List<Map<String, Object>> rules = jdbcTemplate.queryForList("""
-            SELECT rule.admission_year, rule.minimum_course_count, rule.score_multiplier
+            SELECT rule.admission_year, rule.admission_type, rule.minimum_course_count, rule.score_multiplier
             FROM evaluation_rule rule
             JOIN university university ON university.id = rule.university_id
             WHERE university.code = 'HS'
@@ -137,7 +137,14 @@ class MySqlRepositoryIntegrationTest {
             int admissionYear = ((Number) rule.get("admission_year")).intValue();
             int minimumCourseCount = ((Number) rule.get("minimum_course_count")).intValue();
             assertThat(minimumCourseCount).isEqualTo(admissionYear == 2026 ? 0 : 12);
-            assertThat((BigDecimal) rule.get("score_multiplier")).isEqualByComparingTo("10.0000");
+            String admissionType = (String) rule.get("admission_type");
+            String expectedMultiplier = switch (admissionType) {
+                case "참인재" -> "5.4000";
+                case "논술" -> "2.0000";
+                case "체육실기" -> admissionYear == 2026 ? "6.0000" : "4.5000";
+                default -> "10.0000";
+            };
+            assertThat((BigDecimal) rule.get("score_multiplier")).isEqualByComparingTo(expectedMultiplier);
         });
     }
 

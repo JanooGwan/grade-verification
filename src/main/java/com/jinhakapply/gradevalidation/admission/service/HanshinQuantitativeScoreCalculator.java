@@ -95,11 +95,17 @@ public class HanshinQuantitativeScoreCalculator implements QuantitativeScoreCalc
         } else if (physical) {
             String academicMultiplier = admissionYear == 2026 ? "6" : "4.5";
             String practicalMaximum = admissionYear == 2026 ? "400" : "550";
-            academicScore = scale(baseScore, academicMultiplier);
-            additionalScore = score(required(
+            BigDecimal practicalScore = required(
                 request.practicalScore(),
                 "체육실기전형은 " + practicalMaximum + "점 만점 실기점수가 필요합니다."
-            ));
+            );
+            BigDecimal practicalUpperBound = new BigDecimal(practicalMaximum);
+            if (practicalScore.signum() < 0 || practicalScore.compareTo(practicalUpperBound) > 0) {
+                throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                    "체육실기전형 실기점수는 0점 이상 " + practicalMaximum + "점 이하여야 합니다.");
+            }
+            academicScore = scale(baseScore, academicMultiplier);
+            additionalScore = score(practicalScore);
             maximumQuantitativeScore = MAX_TOTAL;
         } else {
             academicScore = scale(baseScore, "10");

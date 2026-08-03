@@ -78,7 +78,12 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         }
         if (university.contains("삼육") && isSyuAthleticTalent(admissionTrack, recruitmentUnit)) {
             equivalentAbsenceDays = equivalentAbsenceDays(commonData);
-            attendanceScore = score(syuAttendanceBase(equivalentAbsenceDays).multiply(new BigDecimal("0.40")));
+            BigDecimal attendanceBase = syuAttendanceBase(equivalentAbsenceDays);
+            attendanceScore = score(attendanceBase.multiply(new BigDecimal("0.40")));
+            steps.add(step("SYU_ATTENDANCE_SCORE", "삼육대 출결 반영점수", "출결 기본점수 × 40%",
+                Map.of("환산결석일수", BigDecimal.valueOf(equivalentAbsenceDays),
+                    "출결기본점수", attendanceBase,
+                    "반영비율", new BigDecimal("0.40")), attendanceScore));
             maximumQuantitative = new BigDecimal("400.00");
             maximumTotal = new BigDecimal("1000.00");
             pending.add("1단계 수상실적 600점");
