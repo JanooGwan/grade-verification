@@ -48,6 +48,8 @@ import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
+import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
@@ -81,9 +83,29 @@ class ApiContractTest {
     @MockitoBean EvaluationService evaluationService;
     @MockitoBean RuleExtractionService ruleExtractionService;
     @MockitoBean TranscriptService transcriptService;
+    @MockitoBean SyuSourceImportService syuSourceImportService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
+
+    @Test
+    void queuesSyuSourceWorkbookAndReturnsAccepted() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "syu-source.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            new byte[] {1, 2, 3}
+        );
+        when(syuSourceImportService.queue(anyInt(), any(MultipartFile.class)))
+            .thenReturn(new SourceImportStartResponse(
+                7L, TranscriptImportStatus.QUEUED, "SYU_SOURCE_WORKBOOK_V1", "queued"
+            ));
+
+        mockMvc.perform(multipart("/api/transcripts/imports/source/syu")
+                .file(file)
+                .param("admissionYear", "2026"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(7))
+            .andExpect(jsonPath("$.status").value("QUEUED"));
+    }
 
     @Test
     void downloadsTranscriptValidationResultAsExcel() throws Exception {

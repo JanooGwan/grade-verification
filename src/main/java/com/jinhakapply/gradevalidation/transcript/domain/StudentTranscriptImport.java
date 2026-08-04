@@ -47,12 +47,21 @@ public class StudentTranscriptImport {
     @Column(name = "failed_rows", nullable = false)
     private int failedRows;
 
+    @Column(name = "source_format", nullable = false, length = 50)
+    private String sourceFormat;
+
+    @Column(name = "error_message", length = 1000)
+    private String errorMessage;
+
     @Enumerated(STRING)
     @Column(nullable = false, length = 30)
     private TranscriptImportStatus status;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
 
     private StudentTranscriptImport(
         int admissionYear,
@@ -73,7 +82,9 @@ public class StudentTranscriptImport {
         this.status = failedRows == 0
             ? TranscriptImportStatus.COMPLETED
             : TranscriptImportStatus.COMPLETED_WITH_ERRORS;
+        this.sourceFormat = "STANDARD_TRANSCRIPT_V1";
         this.createdAt = LocalDateTime.now();
+        this.updatedAt = this.createdAt;
     }
 
     public static StudentTranscriptImport create(
@@ -94,5 +105,40 @@ public class StudentTranscriptImport {
             importedRows,
             failedRows
         );
+    }
+
+    public static StudentTranscriptImport create(
+        int admissionYear,
+        String originalFileName,
+        TranscriptImportMode importMode,
+        String fileSha256,
+        int totalRows,
+        int importedRows,
+        int failedRows,
+        String sourceFormat
+    ) {
+        StudentTranscriptImport transcriptImport = create(
+            admissionYear, originalFileName, importMode, fileSha256, totalRows, importedRows, failedRows
+        );
+        transcriptImport.sourceFormat = sourceFormat;
+        return transcriptImport;
+    }
+
+    public static StudentTranscriptImport queue(
+        int admissionYear,
+        String originalFileName,
+        String fileSha256,
+        String sourceFormat
+    ) {
+        StudentTranscriptImport transcriptImport = new StudentTranscriptImport();
+        transcriptImport.admissionYear = admissionYear;
+        transcriptImport.originalFileName = originalFileName;
+        transcriptImport.importMode = TranscriptImportMode.VALID_ROWS_ONLY;
+        transcriptImport.fileSha256 = fileSha256;
+        transcriptImport.sourceFormat = sourceFormat;
+        transcriptImport.status = TranscriptImportStatus.QUEUED;
+        transcriptImport.createdAt = LocalDateTime.now();
+        transcriptImport.updatedAt = transcriptImport.createdAt;
+        return transcriptImport;
     }
 }

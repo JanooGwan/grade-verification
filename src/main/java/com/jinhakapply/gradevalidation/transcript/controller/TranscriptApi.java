@@ -5,6 +5,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +36,17 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/transcripts")
 @Validated
 public interface TranscriptApi {
+
+    @Operation(
+        summary = "삼육대 대용량 원천 Excel 가져오기",
+        description = "학생부 교과 성적·학생부출결 시트를 스트리밍으로 읽고 백그라운드에서 배치 저장합니다."
+    )
+    @PostMapping(value = "/imports/source/syu", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
+        @RequestParam int admissionYear,
+        @Parameter(description = "삼육대 원천 .xlsx, 최대 200MB")
+        @RequestPart("file") MultipartFile file
+    );
 
     @Operation(
         summary = "학생부 Excel 가져오기",

@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V32`를 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
+이 문서는 Flyway 마이그레이션 `V1`~`V33`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
 
 - 전체 테이블: 21개
 - 관계 표기: 실제 외래 키 제약조건 기준
@@ -172,11 +172,14 @@ erDiagram
         VARCHAR original_file_name "원본 파일명"
         VARCHAR import_mode "처리 방식"
         CHAR file_sha256 "파일 해시, nullable"
+        VARCHAR source_format "원천 파일 형식"
         INT total_rows "전체 행 수"
         INT imported_rows "성공 행 수"
         INT failed_rows "실패 행 수"
         VARCHAR status "처리 상태"
+        VARCHAR error_message "실패 또는 경고 요약, nullable"
         DATETIME created_at "작업 일시"
+        DATETIME updated_at "진행 갱신 일시"
     }
 
     EVALUATION_RULE {

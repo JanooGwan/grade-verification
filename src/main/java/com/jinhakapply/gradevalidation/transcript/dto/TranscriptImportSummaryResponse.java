@@ -16,6 +16,8 @@ public record TranscriptImportSummaryResponse(
     int importedRows,
     int failedRows,
     TranscriptImportStatus status,
+    String sourceFormat,
+    String errorMessage,
     LocalDateTime createdAt
 ) {
     public static TranscriptImportSummaryResponse from(StudentTranscriptImport transcriptImport) {
@@ -29,6 +31,8 @@ public record TranscriptImportSummaryResponse(
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
             transcriptImport.getStatus(),
+            transcriptImport.getSourceFormat(),
+            transcriptImport.getErrorMessage(),
             transcriptImport.getCreatedAt()
         );
     }

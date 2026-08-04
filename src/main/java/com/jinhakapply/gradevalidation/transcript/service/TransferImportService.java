@@ -197,7 +197,8 @@ class TransferImportService {
             fileSha256,
             result.totalRows(),
             result.courses().size(),
-            result.invalidRows()
+            result.invalidRows(),
+            result.sourceFormat()
         ));
         List<String> warnings = new ArrayList<>(result.warnings());
         warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));

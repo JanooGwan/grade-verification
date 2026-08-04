@@ -8,6 +8,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
@@ -17,6 +18,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
+import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +29,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class TranscriptController implements TranscriptApi {
 
     private final TranscriptService transcriptService;
+    private final SyuSourceImportService syuSourceImportService;
+
+    @Override
+    public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(int admissionYear, MultipartFile file) {
+        return ResponseEntity.accepted().body(syuSourceImportService.queue(admissionYear, file));
+    }
 
     @Override
     public ResponseEntity<TranscriptImportResponse> importExcel(
