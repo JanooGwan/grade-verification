@@ -61,6 +61,8 @@ class TranscriptServiceTest {
     @Mock
     private TranscriptValidationExcelWriter validationExcelWriter;
     @Mock
+    private TranscriptImportResultExcelWriter importResultExcelWriter;
+    @Mock
     private TranscriptBatchVerificationService batchVerificationService;
     @Mock
     private StudentRepository studentRepository;
@@ -87,6 +89,7 @@ class TranscriptServiceTest {
             applicantSchoolInfoExcelParser,
             transferImportService,
             validationExcelWriter,
+            importResultExcelWriter,
             batchVerificationService,
             studentRepository,
             courseRepository,

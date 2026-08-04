@@ -103,6 +103,19 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
+    public ResponseEntity<byte[]> downloadImportResult(Long importId) {
+        byte[] result = transcriptService.exportImportResult(importId);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(result.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("가져오기-" + importId + "-처리결과.xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
+    }
+
+    @Override
     public ResponseEntity<StudentPageResponse> findStudents(
         int admissionYear,
         String keyword,

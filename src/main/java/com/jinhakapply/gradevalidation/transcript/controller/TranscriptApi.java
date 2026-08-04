@@ -99,6 +99,13 @@ public interface TranscriptApi {
     @GetMapping("/imports/{importId}")
     ResponseEntity<TranscriptImportSummaryResponse> findImport(@PathVariable Long importId);
 
+    @Operation(summary = "학생부 가져오기 처리 결과 다운로드")
+    @GetMapping(
+        value = "/imports/{importId}/result",
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<byte[]> downloadImportResult(@PathVariable Long importId);
+
     @Operation(summary = "지원자 목록 조회", description = "지원번호, 학생명, 고등학교명으로 검색할 수 있습니다.")
     @GetMapping("/students")
     ResponseEntity<StudentPageResponse> findStudents(

@@ -36,6 +36,7 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentGedSubjectScore;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentLegacyGradeSummary;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentSummaryResponse;
@@ -74,6 +75,7 @@ public class TranscriptService {
     private final ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
     private final TransferImportService transferImportService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final TranscriptImportResultExcelWriter importResultExcelWriter;
     private final TranscriptBatchVerificationService batchVerificationService;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
@@ -365,6 +367,17 @@ public class TranscriptService {
         return importRepository.findById(importId)
             .map(TranscriptImportSummaryResponse::from)
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportImportResult(Long importId) {
+        StudentTranscriptImport transcriptImport = importRepository.findById(importId)
+            .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
+        if (transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED
+            && transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED_WITH_ERRORS) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
+        }
+        return importResultExcelWriter.write(transcriptImport);
     }
 
     @Transactional(readOnly = true)

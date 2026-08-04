@@ -135,6 +135,23 @@ class ApiContractTest {
     }
 
     @Test
+    void downloadsTranscriptImportResultAsExcel() throws Exception {
+        when(transcriptService.exportImportResult(5L)).thenReturn(new byte[] {7, 8, 9});
+
+        mockMvc.perform(get("/api/transcripts/imports/5/result"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {7, 8, 9}));
+    }
+
+    @Test
     void downloadsVerificationResultAsExcel() throws Exception {
         when(admissionService.exportVerificationResult(10L, 20L)).thenReturn(new byte[] {1, 2, 3});
 
