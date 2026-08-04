@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementConversion;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
@@ -20,6 +21,14 @@ import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionReques
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.CourseFilter;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.GroupDimension;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionMetric;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionStage;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionStageType;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SortDirection;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
@@ -31,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -38,7 +48,31 @@ import org.springframework.test.util.ReflectionTestUtils;
 class EvaluationServiceTest {
     @Mock EvaluationRuleRepository ruleRepository;
     @Mock UniversityRepository universityRepository;
+    @Spy DeclarativeSelectionPolicyEngine selectionPolicyEngine = new DeclarativeSelectionPolicyEngine();
     @InjectMocks EvaluationService service;
+
+    @Test
+    void usesDeclarativeSelectionPolicyBeforeLegacySelectionStrategy() {
+        EvaluationRule configuredRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "1"));
+        configuredRule.configureSelectionPolicy(new CourseSelectionPolicy(1,
+            new CourseFilter(Set.of(SubjectCategory.MATH), true, true, false),
+            List.of(new SelectionStage(SelectionStageType.TOP_COURSES, GroupDimension.NONE,
+                GroupDimension.NONE, SelectionMetric.CONVERTED_SCORE, SortDirection.DESC, 1))));
+        mockRule(configuredRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 1, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학A", 3, "3"),
+            course(1, 2, SubjectCategory.MATH, "수학B", 2, "3")
+        )));
+
+        assertThat(response.includedCourseCount()).isEqualTo(1);
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactly("수학B");
+    }
 
     @Test
     void appliesGradeSubjectAndCreditWeights() {

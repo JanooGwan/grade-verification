@@ -8,11 +8,14 @@ import java.time.Instant;
 import java.util.List;
 
 import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy;
+import com.jinhakapply.gradevalidation.evaluation.policy.SelectionPolicyConverter;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -140,6 +143,10 @@ public class EvaluationRule {
 
     @Column(name = "score_multiplier", nullable = false, precision = 9, scale = 4)
     private BigDecimal scoreMultiplier;
+
+    @Convert(converter = SelectionPolicyConverter.class)
+    @Column(name = "selection_policy", columnDefinition = "LONGTEXT")
+    private CourseSelectionPolicy selectionPolicy;
 
     @Column(name = "source_document", length = 255)
     private String sourceDocument;
@@ -309,6 +316,11 @@ public class EvaluationRule {
 
     public void attachExtraction(Long extractionId) {
         this.extractionId = extractionId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void configureSelectionPolicy(CourseSelectionPolicy selectionPolicy) {
+        this.selectionPolicy = selectionPolicy;
         this.updatedAt = Instant.now();
     }
 

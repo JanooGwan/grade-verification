@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V31`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
+이 문서는 Flyway 마이그레이션 `V1`~`V32`를 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
 
 - 전체 테이블: 21개
 - 관계 표기: 실제 외래 키 제약조건 기준
@@ -198,6 +198,7 @@ erDiagram
         DECIMAL science_weight "과학 가중치"
         DECIMAL other_weight "기타 교과 가중치"
         VARCHAR selection_strategy "과목 선택 방식"
+        LONGTEXT selection_policy "선언형 과목 선택 정책 JSON, nullable"
         INT selection_count "일반 과목 선택 수"
         INT achievement_selection_count "성취도 과목 선택 수"
         INT minimum_course_count "최소 반영 과목 수"

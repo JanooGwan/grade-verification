@@ -5,6 +5,7 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.dto.BulkCreateEvaluationRuleRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.CreateEvaluationRuleRequest;
+import com.jinhakapply.gradevalidation.evaluation.dto.ConfigureSelectionPolicyRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
@@ -60,6 +61,14 @@ public class EvaluationController implements EvaluationApi {
         EvaluationRuleActionRequest request
     ) {
         return ResponseEntity.ok(evaluationService.retireRule(ruleId, request));
+    }
+
+    @Override
+    public ResponseEntity<EvaluationRuleResponse> configureSelectionPolicy(
+        Long ruleId,
+        ConfigureSelectionPolicyRequest request
+    ) {
+        return ResponseEntity.ok(evaluationService.configureSelectionPolicy(ruleId, request));
     }
 
     @Override

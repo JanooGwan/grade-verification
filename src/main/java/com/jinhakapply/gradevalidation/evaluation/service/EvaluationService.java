@@ -28,6 +28,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.BulkCreateEvaluationRuleRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.CreateEvaluationRuleRequest;
+import com.jinhakapply.gradevalidation.evaluation.dto.ConfigureSelectionPolicyRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
@@ -35,6 +36,9 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CalculationSummary;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine.CourseCandidate;
+import com.jinhakapply.gradevalidation.evaluation.policy.SelectionPolicyValidator;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -50,6 +54,7 @@ public class EvaluationService {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private final EvaluationRuleRepository ruleRepository;
     private final UniversityRepository universityRepository;
+    private final DeclarativeSelectionPolicyEngine selectionPolicyEngine;
 
     @Transactional
     public EvaluationRuleResponse createRule(CreateEvaluationRuleRequest request) {
@@ -132,6 +137,21 @@ public class EvaluationService {
         return EvaluationRuleResponse.from(rule);
     }
 
+    @Transactional
+    public EvaluationRuleResponse configureSelectionPolicy(Long ruleId, ConfigureSelectionPolicyRequest request) {
+        EvaluationRule rule = findRule(ruleId);
+        if (rule.getStatus() != EvaluationRuleStatus.DRAFT) {
+            throw CustomException.of(INVALID_EVALUATION_RULE_STATUS,
+                "선언형 선택 정책은 초안 상태에서만 변경할 수 있습니다.");
+        }
+        List<String> errors = SelectionPolicyValidator.validate(request.policy());
+        if (!errors.isEmpty()) {
+            throw CustomException.of(INVALID_EVALUATION_RULE, String.join(" ", errors));
+        }
+        rule.configureSelectionPolicy(request.policy());
+        return EvaluationRuleResponse.from(rule);
+    }
+
     public GradeVerificationResponse verify(VerifyGradeRequest request) {
         EvaluationRule rule = findRule(request.ruleId());
         return verify(rule, request);
@@ -144,7 +164,7 @@ public class EvaluationService {
         }
         EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType(), request.graduationYear());
         List<Candidate> candidates = prepareCandidates(
-            rule, request.courses(), request.graduated(), scope.includeProfessionalCourses(),
+            rule, request.courses(), request.graduated(), includesProfessionalCourses(rule, scope),
             scope.includeAllSubjectCategories(), request.highSchoolType()
         );
         validateSyuMinimumSemesters(rule, candidates);
@@ -362,6 +382,17 @@ public class EvaluationService {
     private CourseSelection selectCourses(EvaluationRule rule, SelectionStrategy selectionStrategy,
         List<Candidate> eligible) {
         if (eligible.isEmpty()) return CourseSelection.empty();
+        if (rule.getSelectionPolicy() != null) {
+            Set<Integer> selected = selectionPolicyEngine.select(rule.getSelectionPolicy(), eligible.stream()
+                .map(candidate -> new CourseCandidate(
+                    candidate.index(), candidate.course().schoolYear(), candidate.course().semester(),
+                    candidate.course().subjectCategory(), candidate.course().careerSubject(),
+                    candidate.course().professionalCourse(), candidate.course().credits(),
+                    candidate.effectiveGrade(), candidate.convertedScore()
+                ))
+                .toList());
+            return CourseSelection.of(selected);
+        }
         return switch (selectionStrategy) {
             case ALL_COURSES -> CourseSelection.of(indexesOf(eligible));
             case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
@@ -376,6 +407,12 @@ public class EvaluationService {
                     rule.getSelectionCount(), rule.getSubjectPriorities()));
             case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
+    }
+
+    private boolean includesProfessionalCourses(EvaluationRule rule, EvaluationScope scope) {
+        return scope.includeProfessionalCourses()
+            || (rule.getSelectionPolicy() != null
+                && rule.getSelectionPolicy().filter().includeProfessionalCourses());
     }
 
     private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType,
