@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequiredArgsConstructor
@@ -103,13 +104,12 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<byte[]> downloadImportResult(Long importId) {
-        byte[] result = transcriptService.exportImportResult(importId);
+    public ResponseEntity<StreamingResponseBody> downloadImportResult(Long importId) {
+        StreamingResponseBody result = output -> transcriptService.writeImportResult(importId, output);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-            .contentLength(result.length)
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                .filename("가져오기-" + importId + "-처리결과.xlsx", StandardCharsets.UTF_8)
+                .filename("가져오기-" + importId + "-환산결과.xlsx", StandardCharsets.UTF_8)
                 .build()
                 .toString())
             .body(result);

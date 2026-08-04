@@ -31,6 +31,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @Tag(name = "Student transcripts", description = "학생 및 공통 학생부 교과성적 관리 API")
 @RequestMapping("/api/transcripts")
@@ -104,7 +105,7 @@ public interface TranscriptApi {
         value = "/imports/{importId}/result",
         produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    ResponseEntity<byte[]> downloadImportResult(@PathVariable Long importId);
+    ResponseEntity<StreamingResponseBody> downloadImportResult(@PathVariable Long importId);
 
     @Operation(summary = "지원자 목록 조회", description = "지원번호, 학생명, 고등학교명으로 검색할 수 있습니다.")
     @GetMapping("/students")

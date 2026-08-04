@@ -6,11 +6,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,9 +21,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -62,6 +67,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.multipart.MultipartFile;
 
 @WebMvcTest(properties = "app.security.admin-api.enabled=false", controllers = {
@@ -136,9 +142,17 @@ class ApiContractTest {
 
     @Test
     void downloadsTranscriptImportResultAsExcel() throws Exception {
-        when(transcriptService.exportImportResult(5L)).thenReturn(new byte[] {7, 8, 9});
+        doAnswer(invocation -> {
+            OutputStream output = invocation.getArgument(1);
+            output.write(new byte[] {7, 8, 9});
+            return null;
+        }).when(transcriptService).writeImportResult(eq(5L), any(OutputStream.class));
 
-        mockMvc.perform(get("/api/transcripts/imports/5/result"))
+        MvcResult async = mockMvc.perform(get("/api/transcripts/imports/5/result"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(async))
             .andExpect(status().isOk())
             .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .andExpect(header().string(

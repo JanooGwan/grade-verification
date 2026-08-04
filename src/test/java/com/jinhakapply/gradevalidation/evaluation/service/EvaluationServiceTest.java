@@ -330,6 +330,29 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void syu2026UsesTheSameInquiryDomainAndMinimumSemesterPolicy() {
+        EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 2,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 3, "1"),
+            course(1, 2, SubjectCategory.SOCIAL, "사회", 1, "1"),
+            course(2, 1, SubjectCategory.SCIENCE, "과학", 1, "1"),
+            course(2, 1, SubjectCategory.MATH, "수학", 5, "1"),
+            course(2, 1, SubjectCategory.ENGLISH, "영어", 6, "1")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("국어", "사회", "과학");
+    }
+
+    @Test
     void syuExcludesCoursesWithOnlyOneEnrolledStudent() {
         EvaluationRule syuRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),

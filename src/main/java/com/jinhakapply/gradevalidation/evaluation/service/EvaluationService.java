@@ -280,7 +280,7 @@ public class EvaluationService {
             else if (isMjcTwoYear(rule, highSchoolType)
                 && (course.schoolYear() > 2 || (course.schoolYear() == 2 && course.semester() > 1)))
                 exclusionReason = "2년제 고등학교는 1학년 1·2학기와 2학년 1학기만 반영합니다.";
-            else if (isSyu2027(rule) && Integer.valueOf(1).equals(course.studentCount()))
+            else if (isSyuGuidebookYear(rule) && Integer.valueOf(1).equals(course.studentCount()))
                 exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
@@ -401,7 +401,7 @@ public class EvaluationService {
             case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible);
             case TOP_N_SEMESTERS -> CourseSelection.of(selectTopGroups(rule, eligible,
                 candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(), rule.getSelectionCount(), null));
-            case TOP_N_SUBJECTS -> isSyu2027(rule)
+            case TOP_N_SUBJECTS -> isSyuGuidebookYear(rule)
                 ? selectSyuTopDomains(rule, eligible)
                 : CourseSelection.of(selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
                     rule.getSelectionCount(), rule.getSubjectPriorities()));
@@ -435,8 +435,8 @@ public class EvaluationService {
             && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
     }
 
-    private boolean isSyu2027(EvaluationRule rule) {
-        return rule.getAdmissionYear() == 2027
+    private boolean isSyuGuidebookYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("삼육");
     }
 
@@ -471,7 +471,7 @@ public class EvaluationService {
     }
 
     private void validateSyuMinimumSemesters(EvaluationRule rule, List<Candidate> candidates) {
-        if (!isSyu2027(rule)) return;
+        if (!isSyuGuidebookYear(rule)) return;
         String admissionType = normalizePolicyText(rule.getAdmissionType());
         int requiredSemesters = admissionType.contains("특성화고교")
             || admissionType.contains("특성화고졸재직자") ? 1 : 3;

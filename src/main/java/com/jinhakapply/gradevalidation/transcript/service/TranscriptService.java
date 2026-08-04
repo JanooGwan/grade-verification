@@ -9,6 +9,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.security.MessageDigest;
@@ -76,6 +77,7 @@ public class TranscriptService {
     private final TransferImportService transferImportService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
     private final TranscriptImportResultExcelWriter importResultExcelWriter;
+    private final SyuImportScoreExcelWriter syuImportScoreExcelWriter;
     private final TranscriptBatchVerificationService batchVerificationService;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
@@ -378,6 +380,26 @@ public class TranscriptService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
         }
         return importResultExcelWriter.write(transcriptImport);
+    }
+
+    @Transactional(readOnly = true)
+    public void writeImportResult(Long importId, OutputStream output) {
+        StudentTranscriptImport transcriptImport = importRepository.findById(importId)
+            .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
+        if (transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED
+            && transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED_WITH_ERRORS) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
+        }
+        if ("SYU_SOURCE_WORKBOOK_V1".equals(transcriptImport.getSourceFormat())
+            && transcriptImport.getAdmissionYear() == 2026) {
+            syuImportScoreExcelWriter.write(transcriptImport, output);
+            return;
+        }
+        try {
+            output.write(importResultExcelWriter.write(transcriptImport));
+        } catch (IOException exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "가져오기 처리 결과를 전송하지 못했습니다.");
+        }
     }
 
     @Transactional(readOnly = true)
