@@ -13,6 +13,7 @@ import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.SourceCourseRow;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.SourceScanResult;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.StreamResult;
+import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.WorkbookStreamResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,41 +24,70 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 @Slf4j
 class SyuSourceImportProcessor {
-    private static final int BATCH_SIZE = 1_000;
+    private static final int BATCH_SIZE = 5_000;
+    private static final int STUDENT_QUERY_BATCH_SIZE = 5_000;
+    private static final int PROGRESS_UPDATE_INTERVAL = 10_000;
 
     private final SyuSourceExcelStreamer streamer;
     private final JdbcTemplate jdbcTemplate;
 
     @Async("sourceImportExecutor")
     public void process(Long importId, int admissionYear, Path path, String sourceFileName) {
+        long processStarted = System.nanoTime();
         try {
             updateStatus(importId, "PROCESSING", null);
+            long scanStarted = System.nanoTime();
             SourceScanResult scan = streamer.scan(path);
+            log.info("SYU source scan completed: importId={}, courseRows={}, applicants={}, elapsedMs={}",
+                importId, scan.courseRows(), scan.applicantNumbers().size(), elapsedMillis(scanStarted));
             if (!scan.admissionYears().equals(java.util.Set.of(admissionYear))) {
                 throw new IllegalArgumentException(
                     "화면의 모집연도 %d와 파일의 입학연도 %s가 일치하지 않습니다."
                         .formatted(admissionYear, scan.admissionYears())
                 );
             }
-            upsertStudents(admissionYear, scan.applicantNumbers().stream().toList());
-            Map<String, Long> studentIds = loadStudentIds(admissionYear);
+            List<String> applicantNumbers = scan.applicantNumbers().stream().sorted().toList();
+            long studentsStarted = System.nanoTime();
+            upsertStudents(admissionYear, applicantNumbers);
+            Map<String, Long> studentIds = loadStudentIds(admissionYear, applicantNumbers);
+            log.info("SYU source student preparation completed: importId={}, applicants={}, elapsedMs={}",
+                importId, applicantNumbers.size(), elapsedMillis(studentsStarted));
             if (!studentIds.keySet().containsAll(scan.applicantNumbers())) {
                 throw new IllegalStateException("일부 지원자 기본정보를 생성하지 못했습니다.");
             }
 
             int[] processed = {0};
-            StreamResult courses = streamer.streamCourses(path, BATCH_SIZE, batch -> {
-                upsertCourses(batch, studentIds, sourceFileName);
-                processed[0] += batch.size();
-                updateProgress(importId, scan.courseRows(), processed[0], 0);
-            });
-            StreamResult attendance = streamer.streamAttendance(path, BATCH_SIZE,
-                batch -> upsertAttendance(batch, studentIds));
+            int[] nextProgressUpdate = {PROGRESS_UPDATE_INTERVAL};
+            long streamStarted = System.nanoTime();
+            WorkbookStreamResult streamResult = streamer.streamWorkbook(
+                path,
+                BATCH_SIZE,
+                batch -> {
+                    upsertCourses(batch, studentIds, sourceFileName);
+                    processed[0] += batch.size();
+                    if (processed[0] >= nextProgressUpdate[0]) {
+                        updateProgress(importId, scan.courseRows(), processed[0], 0);
+                        while (nextProgressUpdate[0] <= processed[0]) {
+                            nextProgressUpdate[0] += PROGRESS_UPDATE_INTERVAL;
+                        }
+                    }
+                },
+                batch -> upsertAttendance(batch, studentIds)
+            );
+            StreamResult courses = streamResult.courses();
+            StreamResult attendance = streamResult.attendance();
+            log.info("SYU source data stream completed: importId={}, courseImported={}, attendanceImported={}, "
+                    + "failedRows={}, elapsedMs={}",
+                importId, courses.importedRows(), attendance.importedRows(),
+                courses.failedRows() + attendance.failedRows(), elapsedMillis(streamStarted));
             int failed = courses.failedRows() + attendance.failedRows();
             int total = scan.courseRows() + attendance.importedRows() + attendance.failedRows();
             int imported = courses.importedRows() + attendance.importedRows();
             String warning = failed == 0 ? null : summarizeErrors(courses.errors(), attendance.errors());
             complete(importId, total, imported, failed, warning);
+            log.info("SYU source workbook import completed: importId={}, totalRows={}, importedRows={}, "
+                    + "failedRows={}, elapsedMs={}",
+                importId, total, imported, failed, elapsedMillis(processStarted));
         } catch (Exception exception) {
             log.error("SYU source workbook import failed: importId={}", importId, exception);
             fail(importId, safeMessage(exception));
@@ -85,14 +115,25 @@ class SyuSourceImportProcessor {
         });
     }
 
-    private Map<String, Long> loadStudentIds(int admissionYear) {
+    private Map<String, Long> loadStudentIds(int admissionYear, List<String> applicantNumbers) {
         Map<String, Long> ids = new HashMap<>();
-        jdbcTemplate.query(
-            "SELECT id, applicant_number FROM student WHERE admission_year = ?",
-            (org.springframework.jdbc.core.RowCallbackHandler) resultSet ->
-                ids.put(resultSet.getString("applicant_number"), resultSet.getLong("id")),
-            admissionYear
-        );
+        for (int start = 0; start < applicantNumbers.size(); start += STUDENT_QUERY_BATCH_SIZE) {
+            List<String> batch = applicantNumbers.subList(
+                start, Math.min(start + STUDENT_QUERY_BATCH_SIZE, applicantNumbers.size())
+            );
+            String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
+            String sql = "SELECT id, applicant_number FROM student WHERE admission_year = ? "
+                + "AND applicant_number IN (" + placeholders + ")";
+            jdbcTemplate.query(connection -> {
+                PreparedStatement statement = connection.prepareStatement(sql);
+                statement.setInt(1, admissionYear);
+                for (int index = 0; index < batch.size(); index++) {
+                    statement.setString(index + 2, batch.get(index));
+                }
+                return statement;
+            }, (org.springframework.jdbc.core.RowCallbackHandler) resultSet ->
+                ids.put(resultSet.getString("applicant_number"), resultSet.getLong("id")));
+        }
         return ids;
     }
 
@@ -201,6 +242,10 @@ class SyuSourceImportProcessor {
         String message = exception.getMessage();
         if (message == null || message.isBlank()) message = "원천 파일 처리 중 오류가 발생했습니다.";
         return message.length() <= 1000 ? message : message.substring(0, 1000);
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private void setInteger(PreparedStatement statement, int index, Integer value) throws java.sql.SQLException {

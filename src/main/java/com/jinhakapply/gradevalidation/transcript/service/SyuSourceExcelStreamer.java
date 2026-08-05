@@ -42,83 +42,94 @@ class SyuSourceExcelStreamer {
         Set<String> applicants = new HashSet<>();
         Set<Integer> admissionYears = new HashSet<>();
         int[] rows = {0};
-        readSheet(path, COURSE_SHEET, (rowNumber, values) -> {
-            if (rowNumber == 0) {
-                requireHeaders(values, Map.of(
-                    0, "입학연도", 2, "수험번호", 3, "학년", 4, "학기",
-                    10, "과목명", 11, "이수단위"
-                ));
-                return;
+        readSheets(path, Map.of(
+            COURSE_SHEET, (rowNumber, values) -> {
+                if (rowNumber == 0) {
+                    requireHeaders(values, Map.of(
+                        0, "입학연도", 2, "수험번호", 3, "학년", 4, "학기",
+                        10, "과목명", 11, "이수단위"
+                    ));
+                    return;
+                }
+                if (++rows[0] > MAX_ROWS) throw tooManyRows();
+                collectApplicant(values, admissionYears, applicants);
+            },
+            ATTENDANCE_SHEET, (rowNumber, values) -> {
+                if (rowNumber == 0) {
+                    requireHeaders(values, Map.of(0, "입학연도", 2, "수험번호", 3, "학년"));
+                    return;
+                }
+                collectApplicant(values, admissionYears, applicants);
             }
-            if (++rows[0] > MAX_ROWS) throw tooManyRows();
-            Integer year = integer(values.get(0));
-            String applicantNumber = clean(values.get(2));
-            if (year != null) admissionYears.add(year);
-            if (applicantNumber != null) applicants.add(applicantNumber);
-        });
-        readSheet(path, ATTENDANCE_SHEET, (rowNumber, values) -> {
-            if (rowNumber == 0) return;
-            Integer year = integer(values.get(0));
-            String applicantNumber = clean(values.get(2));
-            if (year != null) admissionYears.add(year);
-            if (applicantNumber != null) applicants.add(applicantNumber);
-        });
+        ));
         if (rows[0] == 0 || applicants.isEmpty()) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "학생부 교과 성적 시트에 데이터가 없습니다.");
         }
         return new SourceScanResult(Set.copyOf(applicants), Set.copyOf(admissionYears), rows[0]);
     }
 
-    StreamResult streamCourses(Path path, int batchSize, Consumer<List<SourceCourseRow>> consumer) {
-        List<SourceCourseRow> batch = new ArrayList<>(batchSize);
-        List<String> errors = new ArrayList<>();
-        int[] imported = {0};
-        int[] failed = {0};
-        readSheet(path, COURSE_SHEET, (rowNumber, values) -> {
-            if (rowNumber == 0) return;
-            try {
-                SourceCourseRow row = parseCourse(rowNumber + 1, values);
-                if (row == null) return;
-                batch.add(row);
-                imported[0]++;
-                if (batch.size() >= batchSize) {
-                    consumer.accept(List.copyOf(batch));
-                    batch.clear();
+    WorkbookStreamResult streamWorkbook(Path path, int batchSize,
+        Consumer<List<SourceCourseRow>> courseConsumer,
+        Consumer<List<SourceAttendanceRow>> attendanceConsumer) {
+        List<SourceCourseRow> courseBatch = new ArrayList<>(batchSize);
+        List<SourceAttendanceRow> attendanceBatch = new ArrayList<>(batchSize);
+        List<String> courseErrors = new ArrayList<>();
+        List<String> attendanceErrors = new ArrayList<>();
+        int[] courseImported = {0};
+        int[] courseFailed = {0};
+        int[] attendanceImported = {0};
+        int[] attendanceFailed = {0};
+        readSheets(path, Map.of(
+            COURSE_SHEET, (rowNumber, values) -> {
+                if (rowNumber == 0) return;
+                try {
+                    SourceCourseRow row = parseCourse(rowNumber + 1, values);
+                    if (row == null) return;
+                    courseBatch.add(row);
+                    courseImported[0]++;
+                    if (courseBatch.size() >= batchSize) {
+                        courseConsumer.accept(List.copyOf(courseBatch));
+                        courseBatch.clear();
+                    }
+                } catch (IllegalArgumentException exception) {
+                    courseFailed[0]++;
+                    if (courseErrors.size() < MAX_ERRORS) {
+                        courseErrors.add("%d행: %s".formatted(rowNumber + 1, exception.getMessage()));
+                    }
                 }
-            } catch (IllegalArgumentException exception) {
-                failed[0]++;
-                if (errors.size() < MAX_ERRORS) errors.add("%d행: %s".formatted(rowNumber + 1, exception.getMessage()));
+            },
+            ATTENDANCE_SHEET, (rowNumber, values) -> {
+                if (rowNumber == 0) return;
+                try {
+                    SourceAttendanceRow row = parseAttendance(rowNumber + 1, values);
+                    attendanceBatch.add(row);
+                    attendanceImported[0]++;
+                    if (attendanceBatch.size() >= batchSize) {
+                        attendanceConsumer.accept(List.copyOf(attendanceBatch));
+                        attendanceBatch.clear();
+                    }
+                } catch (IllegalArgumentException exception) {
+                    attendanceFailed[0]++;
+                    if (attendanceErrors.size() < MAX_ERRORS) {
+                        attendanceErrors.add("출결 %d행: %s".formatted(rowNumber + 1, exception.getMessage()));
+                    }
+                }
             }
-        });
-        if (!batch.isEmpty()) consumer.accept(List.copyOf(batch));
-        return new StreamResult(imported[0], failed[0], List.copyOf(errors));
+        ));
+        if (!courseBatch.isEmpty()) courseConsumer.accept(List.copyOf(courseBatch));
+        if (!attendanceBatch.isEmpty()) attendanceConsumer.accept(List.copyOf(attendanceBatch));
+        return new WorkbookStreamResult(
+            new StreamResult(courseImported[0], courseFailed[0], List.copyOf(courseErrors)),
+            new StreamResult(attendanceImported[0], attendanceFailed[0], List.copyOf(attendanceErrors))
+        );
     }
 
-    StreamResult streamAttendance(Path path, int batchSize, Consumer<List<SourceAttendanceRow>> consumer) {
-        List<SourceAttendanceRow> batch = new ArrayList<>(batchSize);
-        List<String> errors = new ArrayList<>();
-        int[] imported = {0};
-        int[] failed = {0};
-        readSheet(path, ATTENDANCE_SHEET, (rowNumber, values) -> {
-            if (rowNumber == 0) {
-                requireHeaders(values, Map.of(0, "입학연도", 2, "수험번호", 3, "학년"));
-                return;
-            }
-            try {
-                SourceAttendanceRow row = parseAttendance(rowNumber + 1, values);
-                batch.add(row);
-                imported[0]++;
-                if (batch.size() >= batchSize) {
-                    consumer.accept(List.copyOf(batch));
-                    batch.clear();
-                }
-            } catch (IllegalArgumentException exception) {
-                failed[0]++;
-                if (errors.size() < MAX_ERRORS) errors.add("출결 %d행: %s".formatted(rowNumber + 1, exception.getMessage()));
-            }
-        });
-        if (!batch.isEmpty()) consumer.accept(List.copyOf(batch));
-        return new StreamResult(imported[0], failed[0], List.copyOf(errors));
+    private void collectApplicant(Map<Integer, String> values, Set<Integer> admissionYears,
+        Set<String> applicants) {
+        Integer year = integer(values.get(0));
+        String applicantNumber = clean(values.get(2));
+        if (year != null) admissionYears.add(year);
+        if (applicantNumber != null) applicants.add(applicantNumber);
     }
 
     private SourceCourseRow parseCourse(int rowNumber, Map<Integer, String> values) {
@@ -155,8 +166,8 @@ class SyuSourceExcelStreamer {
         );
     }
 
-    private void readSheet(Path path, String targetSheet, RowConsumer consumer) {
-        boolean found = false;
+    private void readSheets(Path path, Map<String, RowConsumer> consumers) {
+        Set<String> found = new HashSet<>();
         try (OPCPackage pkg = OPCPackage.open(path.toFile(), PackageAccess.READ)) {
             XSSFReader reader = new XSSFReader(pkg);
             StylesTable styles = reader.getStylesTable();
@@ -164,23 +175,28 @@ class SyuSourceExcelStreamer {
             XSSFReader.SheetIterator iterator = (XSSFReader.SheetIterator) reader.getSheetsData();
             while (iterator.hasNext()) {
                 try (InputStream sheet = iterator.next()) {
-                    if (!targetSheet.equals(iterator.getSheetName())) continue;
-                    found = true;
+                    String sheetName = iterator.getSheetName();
+                    RowConsumer consumer = consumers.get(sheetName);
+                    if (consumer == null) continue;
+                    found.add(sheetName);
                     XMLReader xmlReader = XMLHelper.newXMLReader();
                     xmlReader.setContentHandler(new XSSFSheetXMLHandler(
                         styles, null, strings, new RowHandler(consumer), new DataFormatter(Locale.KOREA), false
                     ));
                     xmlReader.parse(new InputSource(sheet));
-                    break;
                 }
             }
         } catch (CustomException exception) {
             throw exception;
         } catch (Exception exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
-                targetSheet + " 시트를 읽지 못했습니다: " + exception.getMessage());
+                "원천 시트를 읽지 못했습니다: " + exception.getMessage());
         }
-        if (!found) throw CustomException.of(INVALID_TRANSCRIPT_FILE, targetSheet + " 시트가 없습니다.");
+        Set<String> missing = new HashSet<>(consumers.keySet());
+        missing.removeAll(found);
+        if (!missing.isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, String.join(", ", missing) + " 시트가 없습니다.");
+        }
     }
 
     private void requireHeaders(Map<Integer, String> values, Map<Integer, String> expected) {
@@ -286,6 +302,7 @@ class SyuSourceExcelStreamer {
 
     record SourceScanResult(Set<String> applicantNumbers, Set<Integer> admissionYears, int courseRows) {}
     record StreamResult(int importedRows, int failedRows, List<String> errors) {}
+    record WorkbookStreamResult(StreamResult courses, StreamResult attendance) {}
     record SourceCourseRow(
         int rowNumber, String applicantNumber, int schoolYear, int semester, SubjectCategory subjectCategory,
         String courseName, BigDecimal credits, Integer rankPosition, Integer studentCount, Integer tiedRankCount,

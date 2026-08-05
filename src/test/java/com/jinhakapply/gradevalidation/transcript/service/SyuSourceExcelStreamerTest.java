@@ -27,12 +27,11 @@ class SyuSourceExcelStreamerTest {
             List<SourceCourseRow> courses = new ArrayList<>();
             List<SourceAttendanceRow> attendance = new ArrayList<>();
 
-            SyuSourceExcelStreamer.StreamResult courseResult = streamer.streamCourses(
-                workbook, 10, courses::addAll
+            SyuSourceExcelStreamer.WorkbookStreamResult streamResult = streamer.streamWorkbook(
+                workbook, 10, courses::addAll, attendance::addAll
             );
-            SyuSourceExcelStreamer.StreamResult attendanceResult = streamer.streamAttendance(
-                workbook, 10, attendance::addAll
-            );
+            SyuSourceExcelStreamer.StreamResult courseResult = streamResult.courses();
+            SyuSourceExcelStreamer.StreamResult attendanceResult = streamResult.attendance();
 
             assertThat(scan.admissionYears()).containsExactly(2026);
             assertThat(scan.applicantNumbers()).containsExactly("1001");
