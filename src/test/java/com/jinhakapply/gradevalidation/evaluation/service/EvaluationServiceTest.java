@@ -489,6 +489,95 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void kbuGeneralTrackSelectsRecentSemestersWhenGradeAndCreditsTie() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 2, "3"),
+            course(1, 2, SubjectCategory.KOREAN, "1-2 국어", 2, "3"),
+            course(2, 1, SubjectCategory.KOREAN, "2-1 국어", 2, "3"),
+            course(2, 2, SubjectCategory.KOREAN, "2-2 국어", 2, "3"),
+            course(3, 1, SubjectCategory.KOREAN, "3-1 국어", 2, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("2-2 국어", "3-1 국어");
+    }
+
+    @Test
+    void kbuHealthTrackUsesCreditsThenPublishedSubjectPriorityForTies() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SUBJECTS, 3);
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.ENGLISH, "영어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3"),
+            course(1, 1, SubjectCategory.SOCIAL, "사회", 2, "4"),
+            course(1, 1, SubjectCategory.SCIENCE, "과학", 2, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("사회", "과학", "수학");
+    }
+
+    @Test
+    void kbuTruncatesAverageGradeToOneDecimalBeforeInterpolatingScore() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(2, 2, SubjectCategory.KOREAN, "국어", 2, "7"),
+            course(3, 1, SubjectCategory.MATH, "수학", 3, "2")
+        )));
+
+        assertThat(response.averageGrade()).isEqualByComparingTo("2.2");
+        assertThat(response.baseScore()).isEqualByComparingTo("85.00");
+        assertThat(response.finalScore()).isEqualByComparingTo("85.00");
+    }
+
+    @Test
+    void kbuExcludesThirdYearProfessionalCoursesFromGeneralHighSchoolRecords() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+        VerifyGradeRequest.CourseGrade professionalCourse = new VerifyGradeRequest.CourseGrade(
+            3, 1, SubjectCategory.OTHER, "직업과정 실무", 1, GradeScale.NINE_LEVEL,
+            null, null, null, null, null, null, null, null,
+            false, true, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false,
+            HighSchoolType.GENERAL, 2026, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "국어", 3, "3"),
+                course(2, 1, SubjectCategory.MATH, "수학", 3, "3"),
+                professionalCourse
+            )));
+
+        assertThat(response.calculations()).filteredOn(calculation -> !calculation.included())
+            .singleElement().satisfies(calculation -> {
+                assertThat(calculation.courseName()).isEqualTo("직업과정 실무");
+                assertThat(calculation.exclusionReason()).contains("3학년 직업과정");
+            });
+    }
+
+    @Test
+    void kbuRejectsGeneralTrackWithFewerThanTwoGradableSemesters() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3")
+        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
+            assertThat(exception.getDetail()).contains("2개 학기");
+        });
+    }
+
+    @Test
     void rejectsApplicantsWithFewerThanTwelveGradableCoursesAfterUnscoredCoursesAreExcluded() {
         EvaluationRule minimumTwelveRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
@@ -740,6 +829,29 @@ class EvaluationServiceTest {
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);
         rule.markVerified("tester", null);
         rule.publish("tester", null);
+        return rule;
+    }
+
+    private EvaluationRule kbuRule(SelectionStrategy selection, int selectionCount) {
+        EvaluationRule rule = rule(selection, selectionCount, ScoreAggregation.AVERAGE_GRADE_THEN_SCORE,
+            decimals("1", "1", "1"), decimals("1", "1", "1", "1", "1", "1"),
+            AchievementConversion.Z_SCORE);
+        ReflectionTestUtils.setField(rule.getUniversity(), "name", "경복대학교");
+        ReflectionTestUtils.setField(rule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(rule, "applyGradeWeights", false);
+        ReflectionTestUtils.setField(rule, "includeProfessionalCourses", true);
+        ReflectionTestUtils.setField(rule, "intermediateScale", 1);
+        ReflectionTestUtils.setField(rule, "intermediateRounding", RoundingMode.DOWN);
+        ReflectionTestUtils.setField(rule, "finalScale", 2);
+        rule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "87.5", "75", "62.5", "50", "37.5", "25", "12.5", "0");
+        for (int grade = 1; grade <= 9; grade++) rule.getGradeScores().put(grade, scores.get(grade - 1));
+        rule.getSubjectPriorities().put(SubjectCategory.SCIENCE, 1);
+        rule.getSubjectPriorities().put(SubjectCategory.MATH, 2);
+        rule.getSubjectPriorities().put(SubjectCategory.KOREAN, 3);
+        rule.getSubjectPriorities().put(SubjectCategory.ENGLISH, 4);
+        rule.getSubjectPriorities().put(SubjectCategory.SOCIAL, 5);
+        rule.getSubjectPriorities().put(SubjectCategory.OTHER, 6);
         return rule;
     }
 
