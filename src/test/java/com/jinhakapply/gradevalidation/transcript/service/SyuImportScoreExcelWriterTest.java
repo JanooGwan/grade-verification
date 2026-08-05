@@ -2,21 +2,37 @@ package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 import org.junit.jupiter.api.Test;
 
 class SyuImportScoreExcelWriterTest {
 
     @Test
-    void convertsEquivalentAbsenceDaysAtEveryGuidebookBoundary() {
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(3)).isEqualByComparingTo("100");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(4)).isEqualByComparingTo("98");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(7)).isEqualByComparingTo("98");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(8)).isEqualByComparingTo("96");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(12)).isEqualByComparingTo("96");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(13)).isEqualByComparingTo("94");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(20)).isEqualByComparingTo("94");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(21)).isEqualByComparingTo("90");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(40)).isEqualByComparingTo("90");
-        assertThat(SyuImportScoreExcelWriter.attendanceScore(41)).isEqualByComparingTo("0");
+    void exportsOnlyApplicantSummaryColumnsWithoutAdmissionOrRecruitmentScenarios() {
+        assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("지원자별 환산 결과");
+        assertThat(SyuImportScoreExcelWriter.resultHeaders()).containsExactly(
+            "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
+            "환산점수×이수단위 합", "반영 이수단위 합", "중간값(100점 기준)",
+            "1-1 중간값", "1-2 중간값", "2-1 중간값", "2-2 중간값", "3-1 중간값", "3-2 중간값",
+            "최종 환산값(1,000점 기준)", "검증 상태/안내"
+        );
+        assertThat(SyuImportScoreExcelWriter.resultHeaders())
+            .noneMatch(header -> header.contains("전형") || header.contains("모집단위"));
+    }
+
+    @Test
+    void calculatesSemesterIntermediateAsWeightedAverage() {
+        assertThat(SyuImportScoreExcelWriter.semesterIntermediate(
+            new BigDecimal("585.5"), new BigDecimal("6"), 10, RoundingMode.DOWN
+        )).isEqualByComparingTo("97.5833333333");
+    }
+
+    @Test
+    void leavesSemesterIntermediateBlankWhenThereAreNoIncludedCourses() {
+        assertThat(SyuImportScoreExcelWriter.semesterIntermediate(
+            BigDecimal.ZERO, BigDecimal.ZERO, 10, RoundingMode.DOWN
+        )).isNull();
     }
 }
