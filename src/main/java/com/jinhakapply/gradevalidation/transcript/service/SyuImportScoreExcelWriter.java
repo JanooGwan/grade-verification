@@ -47,9 +47,9 @@ class SyuImportScoreExcelWriter {
     private static final String RESULT_SHEET_NAME = "지원자별 환산 결과";
     private static final String[] RESULT_HEADERS = {
         "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
-        "환산점수×이수단위 합", "반영 이수단위 합", "중간값(100점 기준)",
-        "1-1 중간값", "1-2 중간값", "2-1 중간값", "2-2 중간값", "3-1 중간값", "3-2 중간값",
-        "최종 환산값(1,000점 기준)", "검증 상태/안내"
+        "환산점수×이수단위 합", "반영 이수단위 합",
+        "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+        "최종 환산값(1,000점 기준)"
     };
 
     private final JdbcTemplate jdbcTemplate;
@@ -180,12 +180,9 @@ class SyuImportScoreExcelWriter {
                 rule.getId(), false, HighSchoolType.GENERAL, null,
                 courses.stream().map(Course::toRequest).toList()
             ));
-            String status = score.warnings().isEmpty()
-                ? "계산 완료"
-                : "계산 완료 / 안내: " + String.join(" / ", score.warnings());
-            return new ApplicantResult(courses, score, status);
+            return new ApplicantResult(courses, score);
         } catch (CustomException exception) {
-            return new ApplicantResult(courses, null, "계산 실패: " + exception.getFullMessage());
+            return new ApplicantResult(courses, null);
         }
     }
 
@@ -198,19 +195,16 @@ class SyuImportScoreExcelWriter {
             score == null ? null : score.includedCourseCount(),
             score == null ? null : score.calculationSummary().convertedScoreTimesCreditsSum(),
             score == null ? null : score.calculationSummary().totalIncludedCredits(),
-            score == null ? null : score.baseScore(),
             semesterIntermediate(score, 1, 1),
             semesterIntermediate(score, 1, 2),
             semesterIntermediate(score, 2, 1),
             semesterIntermediate(score, 2, 2),
             semesterIntermediate(score, 3, 1),
             semesterIntermediate(score, 3, 2),
-            score == null ? null : score.finalScore(),
-            result.status()
+            score == null ? null : score.finalScore()
         };
         writeRow(row, values, styles);
-        row.setHeightInPoints(result.status().equals("계산 완료") ? 24 : 48);
-        row.getCell(RESULT_HEADERS.length - 1).setCellStyle(styles.note);
+        row.setHeightInPoints(24);
     }
 
     private BigDecimal semesterIntermediate(GradeVerificationResponse score, int schoolYear, int semester) {
@@ -264,7 +258,6 @@ class SyuImportScoreExcelWriter {
             set(header.createCell(index), RESULT_HEADERS[index], styles.header);
             sheet.setColumnWidth(index, Math.min(36, Math.max(14, RESULT_HEADERS[index].length() + 5)) * 256);
         }
-        sheet.setColumnWidth(RESULT_HEADERS.length - 1, 42 * 256);
         sheet.createFreezePane(1, 3);
         return sheet;
     }
@@ -308,7 +301,7 @@ class SyuImportScoreExcelWriter {
     }
 
     private record ApplicantResult(
-        List<Course> courses, GradeVerificationResponse score, String status
+        List<Course> courses, GradeVerificationResponse score
     ) {}
 
     @FunctionalInterface
@@ -321,7 +314,6 @@ class SyuImportScoreExcelWriter {
         private final CellStyle header;
         private final CellStyle value;
         private final CellStyle number;
-        private final CellStyle note;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true, false);
@@ -329,7 +321,6 @@ class SyuImportScoreExcelWriter {
             value = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number.setDataFormat(workbook.createDataFormat().getFormat("#,##0.####"));
-            note = style(workbook, IndexedColors.LIGHT_YELLOW, IndexedColors.DARK_RED, false, true);
         }
 
         private static CellStyle style(

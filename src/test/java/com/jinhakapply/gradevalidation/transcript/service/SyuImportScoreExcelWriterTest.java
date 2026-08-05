@@ -14,12 +14,13 @@ class SyuImportScoreExcelWriterTest {
         assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("지원자별 환산 결과");
         assertThat(SyuImportScoreExcelWriter.resultHeaders()).containsExactly(
             "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
-            "환산점수×이수단위 합", "반영 이수단위 합", "중간값(100점 기준)",
-            "1-1 중간값", "1-2 중간값", "2-1 중간값", "2-2 중간값", "3-1 중간값", "3-2 중간값",
-            "최종 환산값(1,000점 기준)", "검증 상태/안내"
+            "환산점수×이수단위 합", "반영 이수단위 합",
+            "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+            "최종 환산값(1,000점 기준)"
         );
         assertThat(SyuImportScoreExcelWriter.resultHeaders())
-            .noneMatch(header -> header.contains("전형") || header.contains("모집단위"));
+            .noneMatch(header -> header.contains("전형") || header.contains("모집단위")
+                || header.contains("중간값") || header.contains("검증 상태"));
     }
 
     @Test
