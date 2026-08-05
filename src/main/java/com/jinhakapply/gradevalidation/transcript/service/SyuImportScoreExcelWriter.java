@@ -49,7 +49,7 @@ class SyuImportScoreExcelWriter {
         "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
         "환산점수×이수단위 합", "반영 이수단위 합",
         "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
-        "최종 환산값(1,000점 기준)"
+        "최종 교과 성적"
     };
 
     private final JdbcTemplate jdbcTemplate;
@@ -201,7 +201,7 @@ class SyuImportScoreExcelWriter {
             semesterIntermediate(score, 2, 2),
             semesterIntermediate(score, 3, 1),
             semesterIntermediate(score, 3, 2),
-            score == null ? null : score.finalScore()
+            score == null ? null : score.baseScore()
         };
         writeRow(row, values, styles);
         row.setHeightInPoints(24);
