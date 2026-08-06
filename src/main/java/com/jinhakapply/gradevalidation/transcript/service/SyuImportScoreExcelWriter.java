@@ -67,7 +67,7 @@ class SyuImportScoreExcelWriter {
     }
 
     void write(StudentTranscriptImport transcriptImport, OutputStream output) {
-        EvaluationRule rule = loadCommonRule(transcriptImport.getAdmissionYear());
+        EvaluationRule rule = loadCommonRule(transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
         SXSSFWorkbook workbook = new SXSSFWorkbook(200);
         workbook.setCompressTempFiles(true);
         try (workbook) {
@@ -89,10 +89,7 @@ class SyuImportScoreExcelWriter {
         }
     }
 
-    private EvaluationRule loadCommonRule(int admissionYear) {
-        Long universityId = jdbcTemplate.queryForObject(
-            "SELECT id FROM university WHERE code = 'SY'", Long.class
-        );
+    private EvaluationRule loadCommonRule(Long universityId, int admissionYear) {
         EvaluationRule rule = ruleRepository
             .findAllByUniversityIdAndAdmissionYearAndStatus(universityId, admissionYear, PUBLISHED)
             .stream()

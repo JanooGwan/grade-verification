@@ -4,7 +4,6 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.text.Normalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -23,6 +22,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.apache.poi.openxml4j.opc.OPCPackage;
@@ -215,9 +215,7 @@ class TransferExcelParser {
     }
 
     private String normalizeCourseName(String value) {
-        return Normalizer.normalize(value, Normalizer.Form.NFKC)
-            .replaceAll("[\\s·ㆍ・･]+", "")
-            .toLowerCase(Locale.ROOT);
+        return TextNormalizer.normalizeCourseName(value);
     }
 
     private void deleteTemporaryFile(Path path) {

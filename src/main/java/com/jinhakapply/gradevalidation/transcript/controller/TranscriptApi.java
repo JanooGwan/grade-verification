@@ -13,6 +13,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +47,7 @@ public interface TranscriptApi {
     @PostMapping(value = "/imports/source/syu", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
         @RequestParam int admissionYear,
+        @RequestParam @NotNull @Positive Long universityId,
         @Parameter(description = "삼육대 원천 .xlsx, 최대 200MB")
         @RequestPart("file") MultipartFile file
     );
@@ -59,7 +62,7 @@ public interface TranscriptApi {
     ResponseEntity<TranscriptImportResponse> importExcel(
         @RequestParam int admissionYear,
         @RequestParam(defaultValue = "VALID_ROWS_ONLY") TranscriptImportMode mode,
-        @RequestParam(required = false) Long universityId,
+        @RequestParam @NotNull @Positive Long universityId,
         @Parameter(description = ".xlsx 또는 .xls, 최대 40MB")
         @RequestPart("file") MultipartFile file,
         @Parameter(description = "선택: 수험번호별 출신고교 추가정보 Excel")
@@ -70,7 +73,7 @@ public interface TranscriptApi {
     @PostMapping(value = "/imports/excel/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<TranscriptPreviewResponse> previewExcel(
         @RequestParam int admissionYear,
-        @RequestParam(required = false) Long universityId,
+        @RequestParam @NotNull @Positive Long universityId,
         @RequestPart("file") MultipartFile file,
         @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
@@ -83,7 +86,7 @@ public interface TranscriptApi {
     )
     ResponseEntity<byte[]> exportExcelValidation(
         @RequestParam int admissionYear,
-        @RequestParam(required = false) Long universityId,
+        @RequestParam @NotNull @Positive Long universityId,
         @RequestPart("file") MultipartFile file,
         @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
@@ -94,7 +97,9 @@ public interface TranscriptApi {
 
     @Operation(summary = "최근 학생부 가져오기 이력 조회")
     @GetMapping("/imports")
-    ResponseEntity<List<TranscriptImportSummaryResponse>> findImports();
+    ResponseEntity<List<TranscriptImportSummaryResponse>> findImports(
+        @RequestParam @NotNull @Positive Long universityId
+    );
 
     @Operation(summary = "학생부 가져오기 이력 조회")
     @GetMapping("/imports/{importId}")
@@ -110,6 +115,7 @@ public interface TranscriptApi {
     @Operation(summary = "지원자 목록 조회", description = "지원번호, 학생명, 고등학교명으로 검색할 수 있습니다.")
     @GetMapping("/students")
     ResponseEntity<StudentPageResponse> findStudents(
+        @RequestParam("universityId") @NotNull @Positive Long universityId,
         @RequestParam("admissionYear") @Min(2000) @Max(2100) int admissionYear,
         @RequestParam(value = "keyword", required = false) @Size(max = 100) String keyword,
         @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
@@ -120,6 +126,7 @@ public interface TranscriptApi {
     @GetMapping("/students/{applicantNumber}")
     ResponseEntity<StudentTranscriptResponse> findStudentTranscript(
         @PathVariable("applicantNumber") String applicantNumber,
+        @RequestParam("universityId") @NotNull @Positive Long universityId,
         @RequestParam("admissionYear") int admissionYear
     );
 

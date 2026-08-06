@@ -10,12 +10,16 @@ import java.nio.file.StandardCopyOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
+import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
@@ -28,9 +32,15 @@ public class SyuSourceImportService {
 
     private final StudentTranscriptImportRepository importRepository;
     private final SyuSourceImportProcessor processor;
+    private final UniversityRepository universityRepository;
 
-    public SourceImportStartResponse queue(int admissionYear, MultipartFile file) {
+    public SourceImportStartResponse queue(int admissionYear, Long universityId, MultipartFile file) {
         validate(admissionYear, file);
+        University university = universityRepository.findById(universityId)
+            .orElseThrow(() -> CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND));
+        if (!"SY".equals(university.getCode())) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "삼육대 원천양식은 삼육대학교를 선택했을 때만 업로드할 수 있습니다.");
+        }
         Path temporaryFile = null;
         try {
             temporaryFile = Files.createTempFile("syu-source-import-", ".xlsx");
@@ -39,12 +49,21 @@ public class SyuSourceImportService {
                 Files.copy(input, temporaryFile, StandardCopyOption.REPLACE_EXISTING);
             }
             String fileName = safeFileName(file.getOriginalFilename());
+            Long previousImportId = importRepository
+                .findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
+                    university.getId(), admissionYear, SyuSourceExcelStreamer.SOURCE_FORMAT,
+                    List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
+                )
+                .map(StudentTranscriptImport::getId)
+                .orElse(null);
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
-                admissionYear, fileName, HexFormat.of().formatHex(digest.digest()),
+                university, admissionYear, fileName, HexFormat.of().formatHex(digest.digest()),
                 SyuSourceExcelStreamer.SOURCE_FORMAT, temporaryFile.toAbsolutePath().toString()
             ));
             try {
-                processor.process(queued.getId(), admissionYear, temporaryFile, fileName);
+                processor.process(
+                    queued.getId(), university.getId(), admissionYear, temporaryFile, fileName, previousImportId
+                );
             } catch (TaskRejectedException exception) {
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
                 importRepository.saveAndFlush(queued);

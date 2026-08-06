@@ -6,6 +6,7 @@ import static lombok.AccessLevel.PROTECTED;
 import java.time.LocalDateTime;
 
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -32,6 +33,10 @@ public class StudentApplication {
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
+    @ManyToOne(fetch = LAZY)
+    @JoinColumn(name = "source_import_id")
+    private StudentTranscriptImport sourceImport;
+
     @ManyToOne(fetch = LAZY, optional = false)
     @JoinColumn(name = "recruitment_unit_id", nullable = false)
     private RecruitmentUnit recruitmentUnit;
@@ -43,9 +48,16 @@ public class StudentApplication {
     private LocalDateTime updatedAt;
 
     public static StudentApplication create(Student student, RecruitmentUnit recruitmentUnit) {
+        return create(student, recruitmentUnit, null);
+    }
+
+    public static StudentApplication create(
+        Student student, RecruitmentUnit recruitmentUnit, StudentTranscriptImport sourceImport
+    ) {
         StudentApplication application = new StudentApplication();
         application.student = student;
         application.recruitmentUnit = recruitmentUnit;
+        application.sourceImport = sourceImport;
         application.createdAt = LocalDateTime.now();
         application.updatedAt = application.createdAt;
         return application;

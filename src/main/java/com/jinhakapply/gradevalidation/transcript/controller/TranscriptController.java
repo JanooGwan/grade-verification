@@ -33,8 +33,10 @@ public class TranscriptController implements TranscriptApi {
     private final SyuSourceImportService syuSourceImportService;
 
     @Override
-    public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(int admissionYear, MultipartFile file) {
-        return ResponseEntity.accepted().body(syuSourceImportService.queue(admissionYear, file));
+    public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
+        int admissionYear, Long universityId, MultipartFile file
+    ) {
+        return ResponseEntity.accepted().body(syuSourceImportService.queue(admissionYear, universityId, file));
     }
 
     @Override
@@ -94,8 +96,8 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<List<TranscriptImportSummaryResponse>> findImports() {
-        return ResponseEntity.ok(transcriptService.findImports());
+    public ResponseEntity<List<TranscriptImportSummaryResponse>> findImports(Long universityId) {
+        return ResponseEntity.ok(transcriptService.findImports(universityId));
     }
 
     @Override
@@ -117,20 +119,22 @@ public class TranscriptController implements TranscriptApi {
 
     @Override
     public ResponseEntity<StudentPageResponse> findStudents(
+        Long universityId,
         int admissionYear,
         String keyword,
         int page,
         int size
     ) {
-        return ResponseEntity.ok(transcriptService.findStudents(admissionYear, keyword, page, size));
+        return ResponseEntity.ok(transcriptService.findStudents(universityId, admissionYear, keyword, page, size));
     }
 
     @Override
     public ResponseEntity<StudentTranscriptResponse> findStudentTranscript(
         String applicantNumber,
+        Long universityId,
         int admissionYear
     ) {
-        return ResponseEntity.ok(transcriptService.findStudentTranscript(admissionYear, applicantNumber));
+        return ResponseEntity.ok(transcriptService.findStudentTranscript(universityId, admissionYear, applicantNumber));
     }
 
     @Override

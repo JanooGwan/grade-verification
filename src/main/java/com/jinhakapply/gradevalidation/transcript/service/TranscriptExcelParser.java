@@ -5,7 +5,6 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -19,6 +18,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,9 +122,7 @@ class TranscriptExcelParser {
     }
 
     private String normalizeCourseName(String value) {
-        return Normalizer.normalize(value, Normalizer.Form.NFKC)
-            .replaceAll("[\\s·ㆍ・･]+", "")
-            .toLowerCase(Locale.ROOT);
+        return TextNormalizer.normalizeCourseName(value);
     }
 
     private record CourseIdentity(

@@ -100,14 +100,15 @@ class ApiContractTest {
             "file", "syu-source.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[] {1, 2, 3}
         );
-        when(syuSourceImportService.queue(anyInt(), any(MultipartFile.class)))
+        when(syuSourceImportService.queue(anyInt(), anyLong(), any(MultipartFile.class)))
             .thenReturn(new SourceImportStartResponse(
                 7L, TranscriptImportStatus.QUEUED, "SYU_SOURCE_WORKBOOK_V1", "queued"
             ));
 
         mockMvc.perform(multipart("/api/transcripts/imports/source/syu")
                 .file(file)
-                .param("admissionYear", "2026"))
+                .param("admissionYear", "2026")
+                .param("universityId", "1"))
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.importId").value(7))
             .andExpect(jsonPath("$.status").value("QUEUED"));
@@ -372,7 +373,7 @@ class ApiContractTest {
             new byte[]{1, 2, 3}
         );
         when(transcriptService.importExcel(
-            anyInt(), any(), isNull(), any(), isNull()
+            anyInt(), any(), anyLong(), any(), isNull()
         )).thenReturn(new TranscriptImportResponse(
             41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
             1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of()
@@ -380,6 +381,7 @@ class ApiContractTest {
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel")
                 .file(file)
+                .param("universityId", "1")
                 .param("admissionYear", "2027"))
             .andExpect(status().isCreated())
             .andExpect(header().string(HttpHeaders.LOCATION, "/api/transcripts/imports/41"))
@@ -405,28 +407,31 @@ class ApiContractTest {
 
     @Test
     void appliesStudentPagingDefaults() throws Exception {
-        when(transcriptService.findStudents(2027, null, 0, 20)).thenReturn(
+        when(transcriptService.findStudents(1L, 2027, null, 0, 20)).thenReturn(
             new StudentPageResponse(List.of(), 0, 20, 0, 0, true, true)
         );
 
-        mockMvc.perform(get("/api/transcripts/students").param("admissionYear", "2027"))
+        mockMvc.perform(get("/api/transcripts/students")
+                .param("universityId", "1")
+                .param("admissionYear", "2027"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.page").value(0))
             .andExpect(jsonPath("$.size").value(20))
             .andExpect(jsonPath("$.content").isArray());
 
-        verify(transcriptService).findStudents(2027, null, 0, 20);
+        verify(transcriptService).findStudents(1L, 2027, null, 0, 20);
     }
 
     @Test
     void rejectsOversizedStudentPage() throws Exception {
         mockMvc.perform(get("/api/transcripts/students")
+                .param("universityId", "1")
                 .param("admissionYear", "2027")
                 .param("size", "101"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"));
 
-        verify(transcriptService, never()).findStudents(anyInt(), any(), anyInt(), anyInt());
+        verify(transcriptService, never()).findStudents(anyLong(), anyInt(), any(), anyInt(), anyInt());
     }
 
     @Test

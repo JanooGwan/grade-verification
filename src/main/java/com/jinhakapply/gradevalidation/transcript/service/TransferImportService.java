@@ -22,9 +22,11 @@ import com.jinhakapply.gradevalidation.admission.repository.AdmissionTrackReposi
 import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepository;
 import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
@@ -144,6 +146,15 @@ class TransferImportService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
         }
+        StudentTranscriptImport previousImport = importRepository
+            .findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
+                university.getId(), admissionYear, result.sourceFormat(),
+                List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
+            ).orElse(null);
+        if (previousImport != null && result.invalidRows() > 0) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "기존 저장본을 지우지 않도록 오류가 있는 파일은 재업로드할 수 없습니다. 오류를 모두 수정한 뒤 다시 저장해 주세요.");
+        }
 
         Set<String> applicantNumbers = result.courses().stream()
             .map(TranscriptExcelRow::applicantNumber)
@@ -154,8 +165,8 @@ class TransferImportService {
             .collect(Collectors.toMap(TransferApplicationRow::applicantNumber, Function.identity(), (first, ignored) -> first));
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant = schoolInfoResult.byApplicantNumber();
 
-        Map<String, Student> students = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
-            admissionYear, applicantNumbers
+        Map<String, Student> students = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            university.getId(), admissionYear, applicantNumbers
         ).stream().collect(Collectors.toMap(Student::getApplicantNumber, Function.identity()));
         int updatedStudents = students.size();
         int createdStudents = 0;
@@ -169,6 +180,7 @@ class TransferImportService {
             String highSchoolName = schoolInfo == null ? null : schoolInfo.highSchoolName();
             if (existing == null) {
                 Student created = studentRepository.save(Student.create(
+                    university,
                     admissionYear,
                     applicantNumber,
                     "미등록",
@@ -191,17 +203,8 @@ class TransferImportService {
         }
 
         String sourceFileName = safeFileName(file.getOriginalFilename());
-        Set<Long> replacementStudentIds = new HashSet<>(courseRepository.findStudentIdsByImportSource(
-            admissionYear, sourceFileName
-        ));
-        replacementStudentIds.addAll(students.values().stream().map(Student::getId).toList());
-        CatalogResult catalog = importApplications(
-            university, admissionYear, result.applications(), students, replacementStudentIds
-        );
-        CourseResult courses = replaceCourses(
-            result.courses(), students, sourceFileName, replacementStudentIds
-        );
         StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
+            university,
             admissionYear,
             sourceFileName,
             mode,
@@ -211,6 +214,12 @@ class TransferImportService {
             result.invalidRows(),
             result.sourceFormat()
         ));
+        CatalogResult catalog = importApplications(
+            university, admissionYear, result.applications(), students, transcriptImport, previousImport
+        );
+        CourseResult courses = replaceCourses(
+            result.courses(), students, sourceFileName, transcriptImport, previousImport
+        );
         List<String> warnings = new ArrayList<>(result.warnings());
         warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
         return new TranscriptImportResponse(
@@ -259,7 +268,8 @@ class TransferImportService {
         int admissionYear,
         List<TransferApplicationRow> rows,
         Map<String, Student> students,
-        Set<Long> replacementStudentIds
+        StudentTranscriptImport transcriptImport,
+        StudentTranscriptImport previousImport
     ) {
         Map<String, AdmissionTrack> tracks = admissionTrackRepository
             .findAllByUniversityIdAndAdmissionYearOrderByNameAsc(university.getId(), admissionYear)
@@ -301,69 +311,63 @@ class TransferImportService {
             applicationCandidates.add(new ApplicationCandidate(students.get(row.applicantNumber()), unit));
         }
 
-        List<Long> studentIds = replacementStudentIds.stream().toList();
-        List<StudentApplication> existingApplications = studentIds.isEmpty() ? List.of()
-            : studentApplicationRepository.findAllForImportScope(studentIds, university.getId(), admissionYear);
-        Set<String> desired = applicationCandidates.stream()
-            .map(candidate -> applicationKey(candidate.student().getId(), candidate.unit().getId()))
-            .collect(Collectors.toSet());
-        List<StudentApplication> deleted = existingApplications.stream()
-            .filter(item -> !desired.contains(applicationKey(
-                item.getStudent().getId(), item.getRecruitmentUnit().getId()
-            )))
-            .toList();
-        studentApplicationRepository.deleteAllInBatch(deleted);
+        List<StudentApplication> existingApplications = previousImport == null ? List.of()
+            : studentApplicationRepository.findAllBySourceImport_Id(previousImport.getId());
+        // 지원관계도 새 파일이 소유하도록 전부 다시 만든다. 그래야 다음 재업로드에서
+        // 이번 파일에서 빠진 지원관계를 정확히 제거할 수 있다.
+        studentApplicationRepository.deleteAllInBatch(existingApplications);
 
-        Set<String> existing = existingApplications.stream()
-            .map(item -> applicationKey(item.getStudent().getId(), item.getRecruitmentUnit().getId()))
-            .filter(desired::contains)
-            .collect(Collectors.toCollection(HashSet::new));
+        Set<String> seen = new HashSet<>();
         List<StudentApplication> created = new ArrayList<>();
         applicationCandidates.forEach(candidate -> {
             String key = applicationKey(candidate.student().getId(), candidate.unit().getId());
-            if (existing.add(key)) created.add(StudentApplication.create(candidate.student(), candidate.unit()));
+            if (seen.add(key)) {
+                created.add(StudentApplication.create(candidate.student(), candidate.unit(), transcriptImport));
+            }
         });
         studentApplicationRepository.saveAll(created);
-        return new CatalogResult(createdTracks, createdUnits, created.size(), deleted.size());
+        return new CatalogResult(createdTracks, createdUnits, created.size(), existingApplications.size());
     }
 
     CourseResult replaceCourses(
         List<TranscriptExcelRow> rows,
         Map<String, Student> students,
         String sourceFileName,
-        Set<Long> replacementStudentIds
+        StudentTranscriptImport transcriptImport,
+        StudentTranscriptImport previousImport
     ) {
-        List<Long> studentIds = replacementStudentIds.stream().toList();
-        int deleted = studentIds.isEmpty() ? 0 : courseRepository.deleteAllByStudentIds(studentIds);
+        int deleted = previousImport == null ? 0 : courseRepository.deleteAllBySourceImportId(previousImport.getId());
         String sql = """
             INSERT INTO student_transcript_course (
-                student_id, school_year, semester, subject_category, course_name,
+                student_id, source_import_id, school_year, semester, subject_category, course_name, course_name_normalized,
                 grade_value, grade_scale, achievement, raw_score, mean_score, standard_deviation,
                 student_count, rank_position, tied_rank_count, legacy_achievement, credits,
                 career_subject, professional_course, source_file_name, source_row_number, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             """;
         int[][] results = jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
             statement.setLong(1, students.get(row.applicantNumber()).getId());
-            statement.setInt(2, row.schoolYear());
-            statement.setInt(3, row.semester());
-            statement.setString(4, row.subjectCategory().name());
-            statement.setString(5, row.courseName());
-            setInteger(statement, 6, row.grade());
-            statement.setString(7, row.gradeScale().name());
-            setString(statement, 8, row.achievement() == null ? null : row.achievement().name());
-            setDecimal(statement, 9, row.rawScore());
-            setDecimal(statement, 10, row.meanScore());
-            setDecimal(statement, 11, row.standardDeviation());
-            setInteger(statement, 12, row.studentCount());
-            setInteger(statement, 13, row.rankPosition());
-            setInteger(statement, 14, row.tiedRankCount());
-            setString(statement, 15, row.legacyAchievement() == null ? null : row.legacyAchievement().name());
-            statement.setBigDecimal(16, row.credits());
-            statement.setBoolean(17, row.careerSubject());
-            statement.setBoolean(18, row.professionalCourse());
-            statement.setString(19, sourceFileName);
-            statement.setInt(20, row.rowNumber());
+            statement.setLong(2, transcriptImport.getId());
+            statement.setInt(3, row.schoolYear());
+            statement.setInt(4, row.semester());
+            statement.setString(5, row.subjectCategory().name());
+            statement.setString(6, row.courseName());
+            statement.setString(7, TextNormalizer.normalizeCourseName(row.courseName()));
+            setInteger(statement, 8, row.grade());
+            statement.setString(9, row.gradeScale().name());
+            setString(statement, 10, row.achievement() == null ? null : row.achievement().name());
+            setDecimal(statement, 11, row.rawScore());
+            setDecimal(statement, 12, row.meanScore());
+            setDecimal(statement, 13, row.standardDeviation());
+            setInteger(statement, 14, row.studentCount());
+            setInteger(statement, 15, row.rankPosition());
+            setInteger(statement, 16, row.tiedRankCount());
+            setString(statement, 17, row.legacyAchievement() == null ? null : row.legacyAchievement().name());
+            statement.setBigDecimal(18, row.credits());
+            statement.setBoolean(19, row.careerSubject());
+            statement.setBoolean(20, row.professionalCourse());
+            statement.setString(21, sourceFileName);
+            statement.setInt(22, row.rowNumber());
         });
         CourseResult result = classifyBatchResults(results);
         if (result.unknown() > 0) {

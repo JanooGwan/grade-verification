@@ -8,6 +8,8 @@ import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 
 public record TranscriptImportSummaryResponse(
     Long importId,
+    Long universityId,
+    String universityName,
     int admissionYear,
     String originalFileName,
     TranscriptImportMode importMode,
@@ -23,6 +25,8 @@ public record TranscriptImportSummaryResponse(
     public static TranscriptImportSummaryResponse from(StudentTranscriptImport transcriptImport) {
         return new TranscriptImportSummaryResponse(
             transcriptImport.getId(),
+            transcriptImport.getUniversity().getId(),
+            transcriptImport.getUniversity().getName(),
             transcriptImport.getAdmissionYear(),
             transcriptImport.getOriginalFileName(),
             transcriptImport.getImportMode(),

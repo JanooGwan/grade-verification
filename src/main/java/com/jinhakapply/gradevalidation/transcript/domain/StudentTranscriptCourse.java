@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Enumerated;
@@ -27,8 +28,8 @@ import lombok.NoArgsConstructor;
 @Table(
     name = "student_transcript_course",
     uniqueConstraints = @UniqueConstraint(
-        name = "uk_transcript_course_natural",
-        columnNames = {"student_id", "school_year", "semester", "subject_category", "course_name"}
+        name = "uk_transcript_course_normalized",
+        columnNames = {"student_id", "school_year", "semester", "course_name_normalized"}
     )
 )
 @NoArgsConstructor(access = PROTECTED)
@@ -42,6 +43,10 @@ public class StudentTranscriptCourse {
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
+    @ManyToOne(fetch = LAZY)
+    @JoinColumn(name = "source_import_id")
+    private StudentTranscriptImport sourceImport;
+
     @Column(name = "school_year", nullable = false)
     private int schoolYear;
 
@@ -54,6 +59,9 @@ public class StudentTranscriptCourse {
 
     @Column(name = "course_name", nullable = false, length = 100)
     private String courseName;
+
+    @Column(name = "course_name_normalized", nullable = false, length = 100)
+    private String courseNameNormalized;
 
     @Column(name = "grade_value")
     private Integer grade;
@@ -120,7 +128,8 @@ public class StudentTranscriptCourse {
         this.schoolYear = schoolYear;
         this.semester = semester;
         this.subjectCategory = subjectCategory;
-        this.courseName = courseName;
+        this.courseName = courseName.trim();
+        this.courseNameNormalized = TextNormalizer.normalizeCourseName(courseName);
         this.gradeScale = GradeScale.NINE_LEVEL;
         this.createdAt = LocalDateTime.now();
     }
@@ -133,6 +142,10 @@ public class StudentTranscriptCourse {
         String courseName
     ) {
         return new StudentTranscriptCourse(student, schoolYear, semester, subjectCategory, courseName);
+    }
+
+    public void attachSourceImport(StudentTranscriptImport sourceImport) {
+        this.sourceImport = sourceImport;
     }
 
     public void updateScore(
@@ -235,6 +248,7 @@ public class StudentTranscriptCourse {
         this.semester = semester;
         this.subjectCategory = subjectCategory;
         this.courseName = courseName.trim();
+        this.courseNameNormalized = TextNormalizer.normalizeCourseName(courseName);
         updateScore(grade, gradeScale, achievement, rawScore, meanScore, standardDeviation, studentCount,
             rankPosition, tiedRankCount, legacyAchievement, credits, careerSubject, professionalCourse,
             sourceFileName, sourceRowNumber);

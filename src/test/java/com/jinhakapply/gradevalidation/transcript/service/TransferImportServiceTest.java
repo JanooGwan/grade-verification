@@ -27,6 +27,8 @@ import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import org.junit.jupiter.api.Test;
@@ -80,18 +82,27 @@ class TransferImportServiceTest {
             null, null, null, null, 100, 1, null, null,
             new BigDecimal("4"), false, false
         ));
-        when(courseRepository.deleteAllByStudentIds(any())).thenReturn(7);
+        University university = University.create("HS", "한신대학교");
+        StudentTranscriptImport currentImport = StudentTranscriptImport.create(
+            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "current", 1, 1, 0, "HANSHIN_MULTI_SHEET_V1"
+        );
+        StudentTranscriptImport previousImport = StudentTranscriptImport.create(
+            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "previous", 2, 2, 0, "HANSHIN_MULTI_SHEET_V1"
+        );
+        ReflectionTestUtils.setField(currentImport, "id", 31L);
+        ReflectionTestUtils.setField(previousImport, "id", 30L);
+        when(courseRepository.deleteAllBySourceImportId(30L)).thenReturn(7);
         when(jdbcTemplate.batchUpdate(
             anyString(), same(rows), anyInt(), any(ParameterizedPreparedStatementSetter.class)
         )).thenReturn(new int[][] {{1}});
 
         TransferImportService.CourseResult result = service.replaceCourses(
-            rows, Map.of("A-001", first), "reupload.xlsx", Set.of(11L, 22L)
+            rows, Map.of("A-001", first), "reupload.xlsx", currentImport, previousImport
         );
 
-        ArgumentCaptor<List<Long>> ids = ArgumentCaptor.forClass(List.class);
-        verify(courseRepository).deleteAllByStudentIds(ids.capture());
-        assertThat(ids.getValue()).containsExactlyInAnyOrder(11L, 22L);
+        verify(courseRepository).deleteAllBySourceImportId(30L);
         assertThat(result.created()).isEqualTo(1);
         assertThat(result.deleted()).isEqualTo(7);
     }
@@ -114,10 +125,10 @@ class TransferImportServiceTest {
         ReflectionTestUtils.setField(desiredUnit, "id", 201L);
         RecruitmentUnit staleUnit = RecruitmentUnit.create(track, "22", "문예창작");
         ReflectionTestUtils.setField(staleUnit, "id", 202L);
-        Student student = Student.create(2027, "A-001", "학생", null, null, 2027);
+        Student student = Student.create(university, 2027, "A-001", "학생", null, null, 2027);
         ReflectionTestUtils.setField(student, "id", 11L);
         StudentApplication staleApplication = StudentApplication.create(student, staleUnit);
-        Student removedStudent = Student.create(2027, "A-002", "삭제학생", null, null, 2027);
+        Student removedStudent = Student.create(university, 2027, "A-002", "삭제학생", null, null, 2027);
         ReflectionTestUtils.setField(removedStudent, "id", 12L);
         StudentApplication removedApplication = StudentApplication.create(removedStudent, desiredUnit);
 
@@ -125,7 +136,17 @@ class TransferImportServiceTest {
             .thenReturn(List.of(track));
         when(unitRepository.findAllByAdmissionTrackIdInOrderByNameAsc(List.of(101L)))
             .thenReturn(List.of(desiredUnit, staleUnit));
-        when(applicationRepository.findAllForImportScope(any(), any(), anyInt()))
+        StudentTranscriptImport currentImport = StudentTranscriptImport.create(
+            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "current", 1, 1, 0, "HANSHIN_MULTI_SHEET_V1"
+        );
+        StudentTranscriptImport previousImport = StudentTranscriptImport.create(
+            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "previous", 2, 2, 0, "HANSHIN_MULTI_SHEET_V1"
+        );
+        ReflectionTestUtils.setField(currentImport, "id", 31L);
+        ReflectionTestUtils.setField(previousImport, "id", 30L);
+        when(applicationRepository.findAllBySourceImport_Id(30L))
             .thenReturn(List.of(staleApplication, removedApplication));
 
         TransferImportService.CatalogResult result = service.importApplications(
@@ -135,7 +156,8 @@ class TransferImportServiceTest {
                 2, 2027, "A-001", "06", "참인재", "21", "한국어문학", 2027
             )),
             Map.of("A-001", student),
-            Set.of(11L, 12L)
+            currentImport,
+            previousImport
         );
 
         ArgumentCaptor<List<StudentApplication>> deleted = ArgumentCaptor.forClass(List.class);

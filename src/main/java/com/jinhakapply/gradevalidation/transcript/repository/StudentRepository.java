@@ -13,14 +13,19 @@ import org.springframework.data.repository.query.Param;
 
 public interface StudentRepository extends JpaRepository<Student, Long> {
 
-    Optional<Student> findByAdmissionYearAndApplicantNumber(int admissionYear, String applicantNumber);
+    Optional<Student> findByUniversity_IdAndAdmissionYearAndApplicantNumber(
+        Long universityId, int admissionYear, String applicantNumber
+    );
 
-    List<Student> findAllByAdmissionYearAndApplicantNumberIn(int admissionYear, Collection<String> applicantNumbers);
+    List<Student> findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+        Long universityId, int admissionYear, Collection<String> applicantNumbers
+    );
 
     @Query("""
         SELECT s
         FROM Student s
-        WHERE s.admissionYear = :admissionYear
+        WHERE s.university.id = :universityId
+          AND s.admissionYear = :admissionYear
           AND (
             :keyword IS NULL
             OR LOWER(s.applicantNumber) LIKE LOWER(CONCAT('%', :keyword, '%'))
@@ -29,6 +34,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
           )
         """)
     Page<Student> search(
+        @Param("universityId") Long universityId,
         @Param("admissionYear") int admissionYear,
         @Param("keyword") String keyword,
         Pageable pageable

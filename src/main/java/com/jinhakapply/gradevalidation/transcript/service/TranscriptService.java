@@ -26,6 +26,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
@@ -55,6 +56,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCo
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
+import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -86,6 +89,7 @@ public class TranscriptService {
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
     private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
     private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
+    private final UniversityRepository universityRepository;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
@@ -116,6 +120,7 @@ public class TranscriptService {
         MultipartFile schoolInfoFile
     ) {
         validateFile(admissionYear, file);
+        University university = requireUniversity(universityId);
         if (transferExcelParser.supports(file)) {
             ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
             return transferImportService.importExcel(
@@ -123,6 +128,7 @@ public class TranscriptService {
             );
         }
         String originalFileName = safeFileName(file.getOriginalFilename());
+        String sourceFormat = "STANDARD_TRANSCRIPT_V1";
         TranscriptExcelParseResult parseResult = excelParser.parse(file);
         if (parseResult.totalRows() == 0) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "업로드할 성적 행이 없습니다.");
@@ -133,13 +139,35 @@ public class TranscriptService {
                     .formatted(parseResult.errors().size()));
         }
 
+        StudentTranscriptImport previousImport = importRepository
+            .findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
+                university.getId(), admissionYear, sourceFormat, completedImportStatuses()
+            ).orElse(null);
+        if (previousImport != null && !parseResult.errors().isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "기존 저장본을 지우지 않도록 오류가 있는 파일은 재업로드할 수 없습니다. 오류를 모두 수정한 뒤 다시 저장해 주세요.");
+        }
+        StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
+            university,
+            admissionYear,
+            originalFileName,
+            mode,
+            sha256(file),
+            parseResult.totalRows(),
+            parseResult.rows().size(),
+            parseResult.errors().size(),
+            sourceFormat
+        ));
+        int deletedCourses = previousImport == null ? 0
+            : courseRepository.deleteAllBySourceImportId(previousImport.getId());
+
         Map<String, TranscriptExcelRow> firstRowByApplicant = parseResult.rows().stream().collect(Collectors.toMap(
             TranscriptExcelRow::applicantNumber,
             Function.identity(),
             (first, ignored) -> first
         ));
-        Map<String, Student> studentCache = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
-            admissionYear,
+        Map<String, Student> studentCache = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            university.getId(), admissionYear,
             firstRowByApplicant.keySet()
         ).stream().collect(Collectors.toMap(Student::getApplicantNumber, Function.identity()));
         Set<String> createdApplicants = new HashSet<>();
@@ -147,6 +175,7 @@ public class TranscriptService {
         firstRowByApplicant.forEach((applicantNumber, row) -> {
             if (!studentCache.containsKey(applicantNumber)) {
                 Student created = studentRepository.save(Student.create(
+                    university,
                     admissionYear,
                     applicantNumber,
                     row.studentName(),
@@ -158,12 +187,6 @@ public class TranscriptService {
                 createdApplicants.add(applicantNumber);
             }
         });
-        Set<Long> replacementStudentIds = new HashSet<>(courseRepository.findStudentIdsByImportSource(
-            admissionYear, originalFileName
-        ));
-        replacementStudentIds.addAll(studentCache.values().stream().map(Student::getId).toList());
-        List<Long> studentIds = replacementStudentIds.stream().toList();
-        int deletedCourses = studentIds.isEmpty() ? 0 : courseRepository.deleteAllByStudentIds(studentIds);
         int createdCourses = 0;
 
         for (TranscriptExcelRow row : parseResult.rows()) {
@@ -182,6 +205,7 @@ public class TranscriptService {
                 row.subjectCategory(),
                 row.courseName()
             );
+            course.attachSourceImport(transcriptImport);
 
             course.updateScore(
                 row.grade(),
@@ -204,20 +228,10 @@ public class TranscriptService {
             createdCourses++;
         }
 
-        StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
-            admissionYear,
-            originalFileName,
-            mode,
-            sha256(file),
-            parseResult.totalRows(),
-            parseResult.rows().size(),
-            parseResult.errors().size()
-        ));
-
         return new TranscriptImportResponse(
             transcriptImport.getId(),
             transcriptImport.getStatus(),
-            "STANDARD_TRANSCRIPT_V1",
+            sourceFormat,
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
@@ -326,10 +340,14 @@ public class TranscriptService {
     }
 
     @Transactional(readOnly = true)
-    public List<TranscriptImportSummaryResponse> findImports() {
-        return importRepository.findTop50ByOrderByCreatedAtDesc().stream()
+    public List<TranscriptImportSummaryResponse> findImports(Long universityId) {
+        return importRepository.findTop50ByUniversity_IdOrderByCreatedAtDesc(requireUniversity(universityId).getId()).stream()
             .map(TranscriptImportSummaryResponse::from)
             .toList();
+    }
+
+    private List<TranscriptImportStatus> completedImportStatuses() {
+        return List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS);
     }
 
     public byte[] createExcelTemplate() {
@@ -393,6 +411,7 @@ public class TranscriptService {
 
     @Transactional(readOnly = true)
     public StudentPageResponse findStudents(
+        Long universityId,
         int admissionYear,
         String keyword,
         int page,
@@ -400,7 +419,7 @@ public class TranscriptService {
     ) {
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         Page<Student> students = studentRepository.search(
-            admissionYear,
+            requireUniversity(universityId).getId(), admissionYear,
             normalizedKeyword,
             PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "applicantNumber"))
         );
@@ -428,8 +447,12 @@ public class TranscriptService {
     }
 
     @Transactional(readOnly = true)
-    public StudentTranscriptResponse findStudentTranscript(int admissionYear, String applicantNumber) {
-        Student student = studentRepository.findByAdmissionYearAndApplicantNumber(admissionYear, applicantNumber)
+    public StudentTranscriptResponse findStudentTranscript(
+        Long universityId, int admissionYear, String applicantNumber
+    ) {
+        Student student = studentRepository.findByUniversity_IdAndAdmissionYearAndApplicantNumber(
+            requireUniversity(universityId).getId(), admissionYear, applicantNumber
+        )
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
         return StudentTranscriptResponse.of(
             student,
@@ -616,8 +639,8 @@ public class TranscriptService {
     }
 
     private void requireUniqueCourse(Long studentId, Long currentCourseId, UpsertTranscriptCourseRequest request) {
-        courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
-            studentId, request.schoolYear(), request.semester(), request.subjectCategory(), request.courseName().trim()
+        courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndCourseNameNormalized(
+            studentId, request.schoolYear(), request.semester(), TextNormalizer.normalizeCourseName(request.courseName())
         ).filter(existing -> !existing.getId().equals(currentCourseId))
             .ifPresent(existing -> { throw CustomException.of(DUPLICATE_TRANSCRIPT_COURSE); });
     }
@@ -625,6 +648,14 @@ public class TranscriptService {
     private Student findStudent(Long studentId) {
         return studentRepository.findById(studentId)
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
+    }
+
+    private University requireUniversity(Long universityId) {
+        if (universityId == null || universityId <= 0) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "대학을 선택해 주세요.");
+        }
+        return universityRepository.findById(universityId)
+            .orElseThrow(() -> CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND));
     }
 
     private StudentTranscriptCourse findCourse(Long studentId, Long courseId) {

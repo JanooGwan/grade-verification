@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayInputStream;
 
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,7 @@ class TranscriptImportResultExcelWriterTest {
     @Test
     void writesCompletedSourceImportSummaryAsExcel() throws Exception {
         StudentTranscriptImport transcriptImport = StudentTranscriptImport.create(
+            University.create("TEST", "테스트대학교"),
             2027,
             "삼육대_2026학년도_데이터전달.xlsx",
             TranscriptImportMode.VALID_ROWS_ONLY,

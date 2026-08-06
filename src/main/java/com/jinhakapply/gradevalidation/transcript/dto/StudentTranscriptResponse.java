@@ -22,6 +22,8 @@ import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 
 public record StudentTranscriptResponse(
     Long studentId,
+    Long universityId,
+    String universityName,
     int admissionYear,
     String applicantNumber,
     String name,
@@ -49,6 +51,8 @@ public record StudentTranscriptResponse(
     ) {
         return new StudentTranscriptResponse(
             student.getId(),
+            student.getUniversity().getId(),
+            student.getUniversity().getName(),
             student.getAdmissionYear(),
             student.getApplicantNumber(),
             student.getName(),
