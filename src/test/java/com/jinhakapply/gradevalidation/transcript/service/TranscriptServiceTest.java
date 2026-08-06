@@ -264,7 +264,7 @@ class TranscriptServiceTest {
         when(excelParser.parse(file)).thenReturn(new TranscriptExcelParseResult(1, List.of(row), List.of()));
         when(studentRepository.findAllByAdmissionYearAndApplicantNumberIn(2027, java.util.Set.of("A-001")))
             .thenReturn(List.of(student));
-        when(courseRepository.findAllByStudent_IdIn(List.of(1L))).thenReturn(List.of());
+        when(courseRepository.deleteAllByStudentIds(List.of(1L))).thenReturn(2);
         org.mockito.Mockito.lenient().when(studentRepository.findByAdmissionYearAndApplicantNumber(2027, "A-001"))
             .thenReturn(Optional.of(student));
         org.mockito.Mockito.lenient().when(courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
@@ -284,7 +284,9 @@ class TranscriptServiceTest {
         assertThat(response.status()).isEqualTo(TranscriptImportStatus.COMPLETED);
         assertThat(response.updatedStudents()).isEqualTo(1);
         assertThat(response.createdCourses()).isEqualTo(1);
+        assertThat(response.deletedCourses()).isEqualTo(2);
         assertThat(student.getName()).isEqualTo("학생");
+        verify(courseRepository).deleteAllByStudentIds(List.of(1L));
         verify(courseRepository).save(any(StudentTranscriptCourse.class));
     }
 

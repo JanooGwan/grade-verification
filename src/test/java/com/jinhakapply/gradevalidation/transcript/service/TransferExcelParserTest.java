@@ -92,6 +92,23 @@ class TransferExcelParserTest {
         });
     }
 
+    @Test
+    void mergesCourseNamesThatDifferOnlyByWhitespaceOrMiddleDots() throws Exception {
+        MockMultipartFile file = duplicateCourseNameWorkbook();
+
+        TransferExcelParseResult result = parser.parse(file);
+
+        assertThat(result.courses()).singleElement().satisfies(course -> {
+            assertThat(course.courseName()).isEqualTo("사회문화");
+            assertThat(course.grade()).isEqualTo(2);
+            assertThat(course.credits()).isEqualByComparingTo("4");
+        });
+        assertThat(result.skippedRows()).isEqualTo(1);
+        assertThat(result.skipped()).singleElement().satisfies(skipped ->
+            assertThat(skipped.reason()).contains("동일 과목 중복"));
+        assertThat(result.warnings()).anyMatch(warning -> warning.contains("마지막 행으로 통합"));
+    }
+
     private MockMultipartFile hanshinWorkbook() throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet applications = workbook.createSheet("vwapplyinfo");
@@ -217,6 +234,33 @@ class TransferExcelParserTest {
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "한신대-편제누락-검증.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
+            );
+        }
+    }
+
+    private MockMultipartFile duplicateCourseNameWorkbook() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet applications = workbook.createSheet("vwapplyinfo");
+            writeRow(applications.createRow(0), new Object[] {"header"});
+            writeRow(applications.createRow(1), new Object[] {
+                2027, 1, "수시", "DUP-001", 0, 1, "인문", "06", "참인재", "21", "한국어문학", 2027, 1, "동의"
+            });
+
+            Sheet courses = workbook.createSheet("hsbsubjectscore");
+            writeRow(courses.createRow(0), new Object[] {"header"});
+            writeRow(courses.createRow(1), new Object[] {
+                2027, 1, "DUP-001", 1, 1, "000", "사회", "001", "사회 · 문화",
+                3, 1, 100, 0, 80, 70, 10, 3, null
+            });
+            writeRow(courses.createRow(2), new Object[] {
+                2027, 1, "DUP-001", 1, 1, "000", "사회", "002", "사회문화",
+                4, 1, 100, 0, 90, 75, 10, 2, null
+            });
+            workbook.createSheet("CodeFormation");
+            workbook.write(output);
+            return new MockMultipartFile(
+                "file", "중복-과목명.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
             );
         }

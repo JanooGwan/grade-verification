@@ -158,15 +158,13 @@ public class TranscriptService {
                 createdApplicants.add(applicantNumber);
             }
         });
-        List<Long> studentIds = studentCache.values().stream().map(Student::getId).toList();
-        Map<CourseKey, StudentTranscriptCourse> courseCache = studentIds.isEmpty()
-            ? new HashMap<>()
-            : courseRepository.findAllByStudent_IdIn(studentIds).stream().collect(Collectors.toMap(
-                CourseKey::from,
-                Function.identity()
-            ));
+        Set<Long> replacementStudentIds = new HashSet<>(courseRepository.findStudentIdsByImportSource(
+            admissionYear, originalFileName
+        ));
+        replacementStudentIds.addAll(studentCache.values().stream().map(Student::getId).toList());
+        List<Long> studentIds = replacementStudentIds.stream().toList();
+        int deletedCourses = studentIds.isEmpty() ? 0 : courseRepository.deleteAllByStudentIds(studentIds);
         int createdCourses = 0;
-        int updatedCourses = 0;
 
         for (TranscriptExcelRow row : parseResult.rows()) {
             Student student = studentCache.get(row.applicantNumber());
@@ -177,20 +175,13 @@ public class TranscriptService {
                 row.graduationYear()
             );
 
-            CourseKey courseKey = CourseKey.from(row);
-            StudentTranscriptCourse course = courseCache.get(courseKey);
-            boolean created = false;
-            if (course == null) {
-                course = StudentTranscriptCourse.create(
-                    student,
-                    row.schoolYear(),
-                    row.semester(),
-                    row.subjectCategory(),
-                    row.courseName()
-                );
-                created = true;
-                courseCache.put(courseKey, course);
-            }
+            StudentTranscriptCourse course = StudentTranscriptCourse.create(
+                student,
+                row.schoolYear(),
+                row.semester(),
+                row.subjectCategory(),
+                row.courseName()
+            );
 
             course.updateScore(
                 row.grade(),
@@ -209,12 +200,8 @@ public class TranscriptService {
                 originalFileName,
                 row.rowNumber()
             );
-            if (created) {
-                courseRepository.save(course);
-                createdCourses++;
-            } else {
-                updatedCourses++;
-            }
+            courseRepository.save(course);
+            createdCourses++;
         }
 
         StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
@@ -234,11 +221,13 @@ public class TranscriptService {
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
-            0,
+            parseResult.skipped().size(),
             createdApplicants.size(),
             updatedApplicants.size(),
             createdCourses,
-            updatedCourses,
+            0,
+            deletedCourses,
+            0,
             0,
             0,
             0,
@@ -288,7 +277,7 @@ public class TranscriptService {
             result.totalRows(),
             result.rows().size(),
             result.errors().size(),
-            0,
+            result.skipped().size(),
             result.rows().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
@@ -330,7 +319,7 @@ public class TranscriptService {
         }
         TranscriptExcelParseResult result = excelParser.parse(file);
         return validationExcelWriter.write(
-            fileName, "STANDARD_TRANSCRIPT_V1", 0, result.totalRows(), List.of(),
+            fileName, "STANDARD_TRANSCRIPT_V1", 0, result.totalRows(), result.skipped(),
             result.rows(), result.errors(), List.of(),
             new TranscriptBatchVerificationResult(List.of(), List.of())
         );
@@ -756,34 +745,6 @@ public class TranscriptService {
             throw new IllegalStateException("SHA-256 is not available", exception);
         } catch (IOException exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 해시를 계산하지 못했습니다.");
-        }
-    }
-
-    private record CourseKey(
-        String applicantNumber,
-        int schoolYear,
-        int semester,
-        String subjectCategory,
-        String courseName
-    ) {
-        private static CourseKey from(TranscriptExcelRow row) {
-            return new CourseKey(
-                row.applicantNumber(),
-                row.schoolYear(),
-                row.semester(),
-                row.subjectCategory().name(),
-                row.courseName()
-            );
-        }
-
-        private static CourseKey from(StudentTranscriptCourse course) {
-            return new CourseKey(
-                course.getStudent().getApplicantNumber(),
-                course.getSchoolYear(),
-                course.getSemester(),
-                course.getSubjectCategory().name(),
-                course.getCourseName()
-            );
         }
     }
 
