@@ -1,6 +1,6 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V33`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
+이 문서는 Flyway 마이그레이션 `V1`~`V36`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
 
 - 전체 테이블: 21개
 - 관계 표기: 실제 외래 키 제약조건 기준

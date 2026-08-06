@@ -106,14 +106,26 @@ class MySqlRepositoryIntegrationTest {
               AND INDEX_NAME = 'uk_student_legacy_grade_summary'
             ORDER BY SEQ_IN_INDEX
             """, String.class);
+        List<String> syuSourceQueryIndexColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_transcript_course'
+              AND INDEX_NAME = 'idx_transcript_course_source_student_row'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31"
+            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
+            "32", "33", "34", "35", "36"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
             "student_id", "summary_type", "school_year", "semester_key"
+        );
+        assertThat(syuSourceQueryIndexColumns).containsExactly(
+            "source_file_name", "student_id", "source_row_number"
         );
     }
 
