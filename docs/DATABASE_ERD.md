@@ -1,8 +1,8 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V36`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
+이 문서는 Flyway 마이그레이션 `V1`~`V37`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
 
-- 전체 테이블: 21개
+- 전체 테이블: 22개
 - 관계 표기: 실제 외래 키 제약조건 기준
 - `PK`: 기본 키, `FK`: 외래 키, `UK`: 유일 키
 - 컬럼 설명의 `nullable`은 `NULL` 허용 컬럼을 뜻한다.
@@ -23,6 +23,7 @@
 | 구교육과정 | `student_legacy_grade_summary` | 학기·학년별 석차 요약 |
 | 검정고시 | `student_ged_subject_score` | 검정고시 과목별 원점수 |
 | 가져오기 | `student_transcript_import` | 학생부 파일 가져오기 작업 이력 |
+| 가져오기 | `student_transcript_import_course` | 가져오기 작업별 과목 성적 불변 스냅샷 |
 | 평가 규칙 | `evaluation_rule` | 대학별 성적 반영 규칙과 버전·생명주기 |
 | 평가 규칙 | `evaluation_rule_grade_score` | 석차등급별 환산점수 |
 | 평가 규칙 | `evaluation_rule_achievement_grade` | 성취도별 환산등급 |
@@ -170,6 +171,7 @@ erDiagram
         BIGINT id PK "가져오기 작업 식별자"
         INT admission_year "입학연도"
         VARCHAR original_file_name "원본 파일명"
+        VARCHAR temporary_file_path "처리 중 임시 파일 경로, nullable"
         VARCHAR import_mode "처리 방식"
         CHAR file_sha256 "파일 해시, nullable"
         VARCHAR source_format "원천 파일 형식"
@@ -180,6 +182,21 @@ erDiagram
         VARCHAR error_message "실패 또는 경고 요약, nullable"
         DATETIME created_at "작업 일시"
         DATETIME updated_at "진행 갱신 일시"
+    }
+
+    STUDENT_TRANSCRIPT_IMPORT_COURSE {
+        BIGINT import_id PK, FK "가져오기 작업 식별자"
+        INT source_row_number PK "원본 행 번호"
+        VARCHAR applicant_number "수험번호"
+        INT school_year "학년"
+        INT semester "학기"
+        VARCHAR subject_category "교과군"
+        VARCHAR course_name "과목명"
+        INT grade_value "석차등급, nullable"
+        VARCHAR grade_scale "등급 체계"
+        VARCHAR achievement "성취도, nullable"
+        DECIMAL credits "이수단위"
+        DATETIME created_at "스냅샷 일시"
     }
 
     EVALUATION_RULE {
@@ -347,6 +364,7 @@ erDiagram
     STUDENT ||--o{ STUDENT_SCHOOL_VIOLENCE_ACTION : "조치 내역 보유"
     STUDENT ||--o{ STUDENT_GED_SUBJECT_SCORE : "검정고시 점수 보유"
     STUDENT ||--o{ STUDENT_LEGACY_GRADE_SUMMARY : "구교육과정 석차 보유"
+    STUDENT_TRANSCRIPT_IMPORT ||--o{ STUDENT_TRANSCRIPT_IMPORT_COURSE : "작업별 과목 스냅샷 보유"
 
     UNIVERSITY ||--o{ EVALUATION_RULE : "평가 규칙 정의"
     EVALUATION_RULE ||--o{ EVALUATION_RULE_GRADE_SCORE : "등급 환산"
@@ -379,6 +397,7 @@ erDiagram
 | `student_application` | `student_id`, `recruitment_unit_id` |
 | `student` | `admission_year`, `applicant_number` |
 | `student_transcript_course` | `student_id`, `school_year`, `semester`, `subject_category`, `course_name` |
+| `student_transcript_import_course` | `import_id`, `source_row_number` |
 | `student_attendance` | `student_id`, `school_year` |
 | `student_ged_subject_score` | `student_id`, `subject_name` |
 | `student_legacy_grade_summary` | `student_id`, `summary_type`, `school_year`, `semester_key` |
@@ -393,10 +412,10 @@ erDiagram
 - 평가 규칙 삭제 시 등급·성취도·평어 환산표와 교과 우선순위가 함께 삭제된다.
 - 규칙 추출 결과 삭제 시 추출 근거가 함께 삭제된다.
 - 지원 정보 삭제 시 `verification_run.application_id`는 `NULL`이 되고, `application_score_run`은 함께 삭제된다.
-- `student_transcript_import`는 다른 테이블과 외래 키로 연결되지 않은 독립적인 작업 이력이다.
+- `student_transcript_import`는 지원자 원장과 독립된 작업 이력이며, 작업별 결과 재현을 위해 `student_transcript_import_course` 스냅샷만 소유한다.
 
 ## 스키마 근거
 
-- DDL: `src/main/resources/db/migration/V1__create_university.sql`부터 `V31__align_catalog_with_published_rules.sql`까지
+- DDL: `src/main/resources/db/migration/V1__create_university.sql`부터 `V37__harden_syu_source_imports.sql`까지
 - JPA 매핑: `src/main/java/com/jinhakapply/gradevalidation/**/domain`
 - 구교육과정 상세 모델: [LEGACY_ACADEMIC_DATA_MODEL.md](LEGACY_ACADEMIC_DATA_MODEL.md)

@@ -42,26 +42,33 @@ class SyuSourceExcelStreamer {
         Set<String> applicants = new HashSet<>();
         Set<Integer> admissionYears = new HashSet<>();
         int[] rows = {0};
+        boolean[] courseHeaderRead = {false};
+        boolean[] attendanceHeaderRead = {false};
         readSheets(path, Map.of(
             COURSE_SHEET, (rowNumber, values) -> {
-                if (rowNumber == 0) {
+                if (!courseHeaderRead[0]) {
                     requireHeaders(values, Map.of(
                         0, "입학연도", 2, "수험번호", 3, "학년", 4, "학기",
                         10, "과목명", 11, "이수단위"
                     ));
+                    courseHeaderRead[0] = true;
                     return;
                 }
                 if (++rows[0] > MAX_ROWS) throw tooManyRows();
-                collectApplicant(values, admissionYears, applicants);
+                collectApplicant(rowNumber + 1, values, admissionYears, applicants);
             },
             ATTENDANCE_SHEET, (rowNumber, values) -> {
-                if (rowNumber == 0) {
+                if (!attendanceHeaderRead[0]) {
                     requireHeaders(values, Map.of(0, "입학연도", 2, "수험번호", 3, "학년"));
+                    attendanceHeaderRead[0] = true;
                     return;
                 }
-                collectApplicant(values, admissionYears, applicants);
+                collectApplicant(rowNumber + 1, values, admissionYears, applicants);
             }
         ));
+        if (!courseHeaderRead[0] || !attendanceHeaderRead[0]) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "원천 시트에 헤더 행이 없습니다.");
+        }
         if (rows[0] == 0 || applicants.isEmpty()) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "학생부 교과 성적 시트에 데이터가 없습니다.");
         }
@@ -79,9 +86,18 @@ class SyuSourceExcelStreamer {
         int[] courseFailed = {0};
         int[] attendanceImported = {0};
         int[] attendanceFailed = {0};
+        boolean[] courseHeaderRead = {false};
+        boolean[] attendanceHeaderRead = {false};
         readSheets(path, Map.of(
             COURSE_SHEET, (rowNumber, values) -> {
-                if (rowNumber == 0) return;
+                if (!courseHeaderRead[0]) {
+                    requireHeaders(values, Map.of(
+                        0, "입학연도", 2, "수험번호", 3, "학년", 4, "학기",
+                        10, "과목명", 11, "이수단위"
+                    ));
+                    courseHeaderRead[0] = true;
+                    return;
+                }
                 try {
                     SourceCourseRow row = parseCourse(rowNumber + 1, values);
                     if (row == null) return;
@@ -99,7 +115,11 @@ class SyuSourceExcelStreamer {
                 }
             },
             ATTENDANCE_SHEET, (rowNumber, values) -> {
-                if (rowNumber == 0) return;
+                if (!attendanceHeaderRead[0]) {
+                    requireHeaders(values, Map.of(0, "입학연도", 2, "수험번호", 3, "학년"));
+                    attendanceHeaderRead[0] = true;
+                    return;
+                }
                 try {
                     SourceAttendanceRow row = parseAttendance(rowNumber + 1, values);
                     attendanceBatch.add(row);
@@ -116,6 +136,9 @@ class SyuSourceExcelStreamer {
                 }
             }
         ));
+        if (!courseHeaderRead[0] || !attendanceHeaderRead[0]) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "원천 시트에 헤더 행이 없습니다.");
+        }
         if (!courseBatch.isEmpty()) courseConsumer.accept(List.copyOf(courseBatch));
         if (!attendanceBatch.isEmpty()) attendanceConsumer.accept(List.copyOf(attendanceBatch));
         return new WorkbookStreamResult(
@@ -124,11 +147,15 @@ class SyuSourceExcelStreamer {
         );
     }
 
-    private void collectApplicant(Map<Integer, String> values, Set<Integer> admissionYears,
+    private void collectApplicant(int rowNumber, Map<Integer, String> values, Set<Integer> admissionYears,
         Set<String> applicants) {
         Integer year = integer(values.get(0));
         String applicantNumber = clean(values.get(2));
-        if (year != null) admissionYears.add(year);
+        if (year == null || year < 2000 || year > 2100) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "%d행의 입학연도는 2000~2100 사이의 정수여야 합니다.".formatted(rowNumber));
+        }
+        admissionYears.add(year);
         if (applicantNumber != null) applicants.add(applicantNumber);
     }
 

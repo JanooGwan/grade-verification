@@ -114,11 +114,19 @@ class MySqlRepositoryIntegrationTest {
               AND INDEX_NAME = 'idx_transcript_course_source_student_row'
             ORDER BY SEQ_IN_INDEX
             """, String.class);
+        List<String> syuImportSnapshotIndexColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_transcript_import_course'
+              AND INDEX_NAME = 'idx_transcript_import_course_applicant'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
             "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
-            "32", "33", "34", "35", "36"
+            "32", "33", "34", "35", "36", "37"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
@@ -127,10 +135,16 @@ class MySqlRepositoryIntegrationTest {
         assertThat(syuSourceQueryIndexColumns).containsExactly(
             "source_file_name", "student_id", "source_row_number"
         );
+        assertThat(syuImportSnapshotIndexColumns).containsExactly(
+            "import_id", "applicant_number", "source_row_number"
+        );
     }
 
     @Test
     void separatesHanshinRulesByAdmissionYearWhenSeedDataExists() {
+        Integer hanshinUniversityCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM university WHERE code = 'HS'", Integer.class
+        );
         List<Map<String, Object>> rules = jdbcTemplate.queryForList("""
             SELECT rule.admission_year, rule.admission_type, rule.minimum_course_count, rule.score_multiplier
             FROM evaluation_rule rule
@@ -144,7 +158,21 @@ class MySqlRepositoryIntegrationTest {
               )
             """);
 
-        assertThat(rules.size()).isIn(0, 20);
+        if (hanshinUniversityCount == null || hanshinUniversityCount == 0) {
+            assertThat(rules).isEmpty();
+            return;
+        }
+
+        assertThat(rules).hasSize(20);
+        assertThat(rules).extracting(rule -> rule.get("admission_year") + "|" + rule.get("admission_type"))
+            .containsExactlyInAnyOrder(
+                "2026|학생부우수자", "2026|학교장추천", "2026|사회배려자", "2026|고른기회",
+                "2026|기회균형선발", "2026|농어촌학생", "2026|특성화고교졸업자", "2026|참인재",
+                "2026|논술", "2026|체육실기",
+                "2027|학생부우수자", "2027|학교장추천", "2027|사회배려자", "2027|고른기회",
+                "2027|기회균형선발", "2027|농어촌학생", "2027|특성화고교졸업자", "2027|참인재",
+                "2027|논술", "2027|체육실기"
+            );
         assertThat(rules).allSatisfy(rule -> {
             int admissionYear = ((Number) rule.get("admission_year")).intValue();
             int minimumCourseCount = ((Number) rule.get("minimum_course_count")).intValue();

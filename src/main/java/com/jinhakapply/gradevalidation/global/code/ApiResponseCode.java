@@ -6,6 +6,9 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum ApiResponseCode {
 
+    UPLOAD_TOO_LARGE(HttpStatus.valueOf(413), "업로드 가능한 파일 크기를 초과했습니다."),
+    SOURCE_IMPORT_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "원천 파일 처리 대기열이 가득 찼습니다."),
+
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "예상하지 못한 오류가 발생했습니다."),
 
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "요청값이 올바르지 않습니다."),

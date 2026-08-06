@@ -119,20 +119,18 @@ class SyuImportScoreExcelWriter {
     private void streamCourses(StudentTranscriptImport transcriptImport, CourseGroupConsumer consumer) {
         jdbcTemplate.query(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
-                SELECT student.applicant_number, course.source_row_number, course.school_year, course.semester,
+                SELECT course.applicant_number, course.source_row_number, course.school_year, course.semester,
                        course.subject_category, course.course_name, course.grade_value, course.grade_scale,
                        course.achievement, course.raw_score, course.mean_score, course.standard_deviation,
                        course.student_count, course.rank_position, course.tied_rank_count,
                        course.legacy_achievement, course.credits, course.career_subject,
                        course.professional_course
-                FROM student_transcript_course course
-                JOIN student ON student.id = course.student_id
-                WHERE student.admission_year = ? AND course.source_file_name = ?
-                ORDER BY student.applicant_number, course.source_row_number, course.id
+                FROM student_transcript_import_course course
+                WHERE course.import_id = ?
+                ORDER BY course.applicant_number, course.source_row_number
                 """, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
             statement.setFetchSize(Integer.MIN_VALUE);
-            statement.setInt(1, transcriptImport.getAdmissionYear());
-            statement.setString(2, transcriptImport.getOriginalFileName());
+            statement.setLong(1, transcriptImport.getId());
             return statement;
         }, rs -> {
             List<Course> group = new ArrayList<>();

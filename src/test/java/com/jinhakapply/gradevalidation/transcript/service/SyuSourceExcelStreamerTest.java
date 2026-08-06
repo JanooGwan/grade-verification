@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -10,6 +11,8 @@ import java.util.List;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
+import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.SourceAttendanceRow;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.SourceCourseRow;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -57,6 +60,37 @@ class SyuSourceExcelStreamerTest {
     }
 
     @Test
+    void acceptsTheFirstPopulatedRowAsTheHeader() throws Exception {
+        Path workbook = createWorkbook(1, "2026");
+        try {
+            SyuSourceExcelStreamer.SourceScanResult scan = streamer.scan(workbook);
+            List<SourceCourseRow> courses = new ArrayList<>();
+
+            streamer.streamWorkbook(workbook, 10, courses::addAll, ignored -> { });
+
+            assertThat(scan.courseRows()).isEqualTo(1);
+            assertThat(courses).singleElement()
+                .extracting(SourceCourseRow::applicantNumber).isEqualTo("1001");
+        } finally {
+            Files.deleteIfExists(workbook);
+        }
+    }
+
+    @Test
+    void rejectsRowsWithMissingAdmissionYearDuringScan() throws Exception {
+        Path workbook = createWorkbook(0, "");
+        try {
+            assertThatThrownBy(() -> streamer.scan(workbook))
+                .isInstanceOfSatisfying(CustomException.class, exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_TRANSCRIPT_FILE);
+                    assertThat(exception.getDetail()).contains("입학연도");
+                });
+        } finally {
+            Files.deleteIfExists(workbook);
+        }
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "SYU_SOURCE_TEST_FILE", matches = ".+")
     void scansConfiguredRealSourceWorkbook() {
         Path workbook = Path.of(System.getenv("SYU_SOURCE_TEST_FILE"));
@@ -69,26 +103,30 @@ class SyuSourceExcelStreamerTest {
     }
 
     private Path createWorkbook() throws Exception {
+        return createWorkbook(0, "2026");
+    }
+
+    private Path createWorkbook(int headerRow, String admissionYear) throws Exception {
         Path path = Files.createTempFile("syu-source-test-", ".xlsx");
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             var courses = workbook.createSheet("학생부 교과 성적");
-            writeRow(courses.createRow(0), List.of(
+            writeRow(courses.createRow(headerRow), List.of(
                 "입학연도", "모집시기", "수험번호", "학년", "학기", "편제코드", "편제명", "교과코드",
                 "교과명", "과목코드", "과목명", "이수단위", "석차", "재적수", "동석차", "원점수",
                 "평균", "표준편차", "석차등급", "성취도"
             ));
-            writeRow(courses.createRow(1), List.of(
-                "2026", "1", "1001", "1", "1", "01", "보통교과", "01", "국어", "101", "국어",
+            writeRow(courses.createRow(headerRow + 1), List.of(
+                admissionYear, "1", "1001", "1", "1", "01", "보통교과", "01", "국어", "101", "국어",
                 "3", "2", "100", "1", "95", "80", "5", "2", "A"
             ));
             var attendance = workbook.createSheet("학생부출결");
-            writeRow(attendance.createRow(0), List.of(
+            writeRow(attendance.createRow(headerRow), List.of(
                 "입학연도", "모집시기", "수험번호", "학년", "수업일수", "결석(질병)", "결석(사고)",
                 "결석(기타)", "지각(질병)", "지각(사고)", "지각(기타)", "조퇴(질병)", "조퇴(사고)",
                 "조퇴(기타)", "결과(질병)", "결과(사고)", "결과(기타)"
             ));
-            writeRow(attendance.createRow(1), List.of(
-                "2026", "1", "1001", "1", "190", "0", "2", "0", "0", "3", "0", "0", "4", "0", "0", "5", "0"
+            writeRow(attendance.createRow(headerRow + 1), List.of(
+                admissionYear, "1", "1001", "1", "190", "0", "2", "0", "0", "3", "0", "0", "4", "0", "0", "5", "0"
             ));
             try (OutputStream output = Files.newOutputStream(path)) {
                 workbook.write(output);

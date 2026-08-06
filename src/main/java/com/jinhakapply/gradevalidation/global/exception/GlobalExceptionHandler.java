@@ -66,8 +66,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiErrorResponse> handleMaxUploadSize() {
-        return ResponseEntity.status(413)
-            .body(ApiErrorResponse.of("UPLOAD_TOO_LARGE", "업로드 가능한 파일 크기를 초과했습니다."));
+        return handleCustomException(CustomException.of(ApiResponseCode.UPLOAD_TOO_LARGE));
     }
 
     @ExceptionHandler(Exception.class)

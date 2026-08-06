@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_TRANSCRIPT_FILE;
+import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.SOURCE_IMPORT_QUEUE_FULL;
 
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -16,6 +17,7 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,9 +40,16 @@ public class SyuSourceImportService {
             }
             String fileName = safeFileName(file.getOriginalFilename());
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
-                admissionYear, fileName, HexFormat.of().formatHex(digest.digest()), SyuSourceExcelStreamer.SOURCE_FORMAT
+                admissionYear, fileName, HexFormat.of().formatHex(digest.digest()),
+                SyuSourceExcelStreamer.SOURCE_FORMAT, temporaryFile.toAbsolutePath().toString()
             ));
-            processor.process(queued.getId(), admissionYear, temporaryFile, fileName);
+            try {
+                processor.process(queued.getId(), admissionYear, temporaryFile, fileName);
+            } catch (TaskRejectedException exception) {
+                queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
+                importRepository.saveAndFlush(queued);
+                throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            }
             temporaryFile = null;
             return new SourceImportStartResponse(
                 queued.getId(), queued.getStatus(), SyuSourceExcelStreamer.SOURCE_FORMAT,

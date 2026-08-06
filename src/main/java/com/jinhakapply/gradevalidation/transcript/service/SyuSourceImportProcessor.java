@@ -36,6 +36,7 @@ class SyuSourceImportProcessor {
         long processStarted = System.nanoTime();
         try {
             updateStatus(importId, "PROCESSING", null);
+            deleteSnapshots(importId);
             long scanStarted = System.nanoTime();
             SourceScanResult scan = streamer.scan(path);
             log.info("SYU source scan completed: importId={}, courseRows={}, applicants={}, elapsedMs={}",
@@ -64,6 +65,7 @@ class SyuSourceImportProcessor {
                 BATCH_SIZE,
                 batch -> {
                     upsertCourses(batch, studentIds, sourceFileName);
+                    insertCourseSnapshots(batch, importId);
                     processed[0] += batch.size();
                     if (processed[0] >= nextProgressUpdate[0]) {
                         updateProgress(importId, scan.courseRows(), processed[0], 0);
@@ -90,6 +92,7 @@ class SyuSourceImportProcessor {
                 importId, total, imported, failed, elapsedMillis(processStarted));
         } catch (Exception exception) {
             log.error("SYU source workbook import failed: importId={}", importId, exception);
+            deleteSnapshotsSafely(importId);
             fail(importId, safeMessage(exception));
         } finally {
             try {
@@ -182,6 +185,51 @@ class SyuSourceImportProcessor {
         statement.setInt(18, row.rowNumber());
     }
 
+    private void insertCourseSnapshots(List<SourceCourseRow> rows, Long importId) {
+        String sql = """
+            INSERT INTO student_transcript_import_course (
+                import_id, source_row_number, applicant_number, school_year, semester,
+                subject_category, course_name, grade_value, grade_scale, achievement,
+                raw_score, mean_score, standard_deviation, student_count, rank_position,
+                tied_rank_count, legacy_achievement, credits, career_subject,
+                professional_course, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?,
+                CURRENT_TIMESTAMP(6))
+            """;
+        jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
+            statement.setLong(1, importId);
+            statement.setInt(2, row.rowNumber());
+            statement.setString(3, row.applicantNumber());
+            statement.setInt(4, row.schoolYear());
+            statement.setInt(5, row.semester());
+            statement.setString(6, row.subjectCategory().name());
+            statement.setString(7, row.courseName());
+            setInteger(statement, 8, row.grade());
+            setString(statement, 9, row.achievement() == null ? null : row.achievement().name());
+            setDecimal(statement, 10, row.rawScore());
+            setDecimal(statement, 11, row.meanScore());
+            setDecimal(statement, 12, row.standardDeviation());
+            setInteger(statement, 13, row.studentCount());
+            setInteger(statement, 14, row.rankPosition());
+            setInteger(statement, 15, row.tiedRankCount());
+            statement.setBigDecimal(16, row.credits());
+            statement.setBoolean(17, row.careerSubject());
+            statement.setBoolean(18, row.professionalCourse());
+        });
+    }
+
+    private void deleteSnapshots(Long importId) {
+        jdbcTemplate.update("DELETE FROM student_transcript_import_course WHERE import_id=?", importId);
+    }
+
+    private void deleteSnapshotsSafely(Long importId) {
+        try {
+            deleteSnapshots(importId);
+        } catch (Exception cleanupException) {
+            log.warn("Could not remove partial source import snapshots: importId={}", importId, cleanupException);
+        }
+    }
+
     private void upsertAttendance(List<SourceAttendanceRow> rows, Map<String, Long> studentIds) {
         String sql = """
             INSERT INTO student_attendance (
@@ -224,13 +272,16 @@ class SyuSourceImportProcessor {
     private void complete(Long importId, int totalRows, int importedRows, int failedRows, String warning) {
         String status = failedRows == 0 ? "COMPLETED" : "COMPLETED_WITH_ERRORS";
         jdbcTemplate.update(
-            "UPDATE student_transcript_import SET total_rows=?, imported_rows=?, failed_rows=?, status=?, error_message=?, updated_at=CURRENT_TIMESTAMP(6) WHERE id=?",
+            "UPDATE student_transcript_import SET total_rows=?, imported_rows=?, failed_rows=?, status=?, error_message=?, temporary_file_path=NULL, updated_at=CURRENT_TIMESTAMP(6) WHERE id=?",
             totalRows, importedRows, failedRows, status, warning, importId
         );
     }
 
     private void fail(Long importId, String message) {
-        updateStatus(importId, "FAILED", message);
+        jdbcTemplate.update(
+            "UPDATE student_transcript_import SET status='FAILED', error_message=?, temporary_file_path=NULL, updated_at=CURRENT_TIMESTAMP(6) WHERE id=?",
+            message, importId
+        );
     }
 
     private String summarizeErrors(List<String> courseErrors, List<String> attendanceErrors) {

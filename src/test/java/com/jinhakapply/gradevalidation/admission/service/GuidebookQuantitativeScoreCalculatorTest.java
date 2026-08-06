@@ -89,12 +89,12 @@ class GuidebookQuantitativeScoreCalculatorTest {
     @Test
     void appliesKbuBonusLimitAndViolenceDeduction() {
         EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1", scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
-        var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("8"),
+        var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("5"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 5));
 
-        assertThat(result.additionalScore()).isEqualByComparingTo("8.00");
+        assertThat(result.additionalScore()).isEqualByComparingTo("5.00");
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("5.00");
-        assertThat(result.finalScore()).isEqualByComparingTo("90.50");
+        assertThat(result.finalScore()).isEqualByComparingTo("87.50");
 
         var healthBoundary = calculator.calculate(rule, "간호학과", verification("87.5"), request("5"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
@@ -108,6 +108,14 @@ class GuidebookQuantitativeScoreCalculatorTest {
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
         assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("-1"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("8"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("1"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
@@ -171,7 +179,7 @@ class GuidebookQuantitativeScoreCalculatorTest {
         EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "0.4",
             scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
 
-        var result = calculator.calculate(rule, "수시 일반 항공서비스과", verification("87.5"), request("8"),
+        var result = calculator.calculate(rule, "수시 일반 항공서비스과", verification("87.5"), request("10"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
 
         assertThat(result.academicScore()).isEqualByComparingTo("35.00");

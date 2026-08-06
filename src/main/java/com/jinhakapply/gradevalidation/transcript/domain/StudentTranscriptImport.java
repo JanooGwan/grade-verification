@@ -31,6 +31,9 @@ public class StudentTranscriptImport {
     @Column(name = "original_file_name", nullable = false, length = 255)
     private String originalFileName;
 
+    @Column(name = "temporary_file_path", length = 1024)
+    private String temporaryFilePath;
+
     @Enumerated(STRING)
     @Column(name = "import_mode", nullable = false, length = 30)
     private TranscriptImportMode importMode;
@@ -128,7 +131,8 @@ public class StudentTranscriptImport {
         int admissionYear,
         String originalFileName,
         String fileSha256,
-        String sourceFormat
+        String sourceFormat,
+        String temporaryFilePath
     ) {
         StudentTranscriptImport transcriptImport = new StudentTranscriptImport();
         transcriptImport.admissionYear = admissionYear;
@@ -136,9 +140,17 @@ public class StudentTranscriptImport {
         transcriptImport.importMode = TranscriptImportMode.VALID_ROWS_ONLY;
         transcriptImport.fileSha256 = fileSha256;
         transcriptImport.sourceFormat = sourceFormat;
+        transcriptImport.temporaryFilePath = temporaryFilePath;
         transcriptImport.status = TranscriptImportStatus.QUEUED;
         transcriptImport.createdAt = LocalDateTime.now();
         transcriptImport.updatedAt = transcriptImport.createdAt;
         return transcriptImport;
+    }
+
+    public void fail(String message) {
+        this.status = TranscriptImportStatus.FAILED;
+        this.errorMessage = message == null || message.length() <= 1000 ? message : message.substring(0, 1000);
+        this.temporaryFilePath = null;
+        this.updatedAt = LocalDateTime.now();
     }
 }

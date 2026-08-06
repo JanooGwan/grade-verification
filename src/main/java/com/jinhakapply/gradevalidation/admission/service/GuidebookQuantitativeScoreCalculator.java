@@ -69,9 +69,11 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             BigDecimal academicMaximum = maximumTotal;
             BigDecimal allowedBonus = kbuAllowedBonus(track);
             BigDecimal requestedBonus = request.bonusScore() == null ? BigDecimal.ZERO : request.bonusScore();
-            if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0) {
+            if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0
+                || requestedBonus.remainder(new BigDecimal("5")).signum() != 0) {
                 throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
-                    "경복대학교 해당 모집단위의 KBU입시드림포인트는 0점 이상 " + allowedBonus + "점 이하여야 합니다.");
+                    "경복대학교 해당 모집단위의 KBU입시드림포인트는 0점 이상 " + allowedBonus
+                        + "점 이하에서 5점 단위로 입력해야 합니다.");
             }
             additionalScore = score(requestedBonus);
             maximumTotal = score(new BigDecimal("100").add(allowedBonus));

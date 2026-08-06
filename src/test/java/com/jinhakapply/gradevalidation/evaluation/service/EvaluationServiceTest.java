@@ -350,6 +350,14 @@ class EvaluationServiceTest {
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::courseName)
             .containsExactlyInAnyOrder("국어", "사회", "과학");
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 3, "1"),
+            course(1, 2, SubjectCategory.SOCIAL, "1-2 사회", 1, "1")
+        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
+            assertThat(exception.getDetail()).contains("3개 학기");
+        });
     }
 
     @Test
@@ -509,6 +517,7 @@ class EvaluationServiceTest {
     @Test
     void kbuHealthTrackUsesCreditsThenPublishedSubjectPriorityForTies() {
         EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SUBJECTS, 3);
+        ReflectionTestUtils.setField(kbuRule, "recruitmentUnit", "간호학과");
         mockRule(kbuRule);
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
