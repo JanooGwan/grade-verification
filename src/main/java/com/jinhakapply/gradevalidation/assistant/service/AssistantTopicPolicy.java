@@ -11,7 +11,9 @@ public class AssistantTopicPolicy {
     private static final List<String> ADMISSION_CONTEXT_TERMS = List.of(
         "입학", "입시", "대학", "전형", "모집", "지원자", "수험", "학생부", "내신", "석차", "이수단위",
         "졸업", "검정고시", "외국고", "출결", "결석", "지각", "조퇴", "학교폭력", "학폭",
-        "환산", "모집요강", "합격", "모집단위", "admission", "transcript", "evaluation_rule",
+        "환산", "모집요강", "합격", "모집단위", "학년도", "수시", "정시", "지원한", "지원 현황",
+        "지원 통계", "수강", "과목 수", "과목별", "업로드", "가져오기", "입학 데이터", "성적 데이터",
+        "admission", "transcript", "evaluation_rule",
         "student_application", "university"
     );
 

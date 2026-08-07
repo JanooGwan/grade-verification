@@ -16,5 +16,9 @@ GRANT SELECT ON grade_validation.evaluation_rule_achievement_score TO 'grade_ai_
 GRANT SELECT ON grade_validation.evaluation_rule_subject_priority TO 'grade_ai_reader'@'localhost';
 GRANT SELECT ON grade_validation.evaluation_rule_extraction TO 'grade_ai_reader'@'localhost';
 GRANT SELECT ON grade_validation.evaluation_rule_extraction_evidence TO 'grade_ai_reader'@'localhost';
+GRANT SELECT ON grade_validation.ai_applicant_statistics TO 'grade_ai_reader'@'localhost';
+GRANT SELECT ON grade_validation.ai_applicant_course_count_statistics TO 'grade_ai_reader'@'localhost';
+GRANT SELECT ON grade_validation.ai_application_statistics TO 'grade_ai_reader'@'localhost';
+GRANT SELECT ON grade_validation.ai_course_enrollment_statistics TO 'grade_ai_reader'@'localhost';
 
 SHOW GRANTS FOR 'grade_ai_reader'@'localhost';

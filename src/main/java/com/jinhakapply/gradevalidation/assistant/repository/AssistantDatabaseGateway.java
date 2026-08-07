@@ -35,7 +35,7 @@ public class AssistantDatabaseGateway {
             SELECT TABLE_NAME, COALESCE(NULLIF(TABLE_COMMENT, ''), '설명 미등록')
             FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
               AND TABLE_NAME <> 'flyway_schema_history'
             ORDER BY TABLE_NAME
             """;

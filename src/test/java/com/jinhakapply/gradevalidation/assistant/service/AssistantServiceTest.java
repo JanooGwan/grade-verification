@@ -110,6 +110,38 @@ class AssistantServiceTest {
     }
 
     @Test
+    void answersApplicantAggregateQuestionWithoutExposingStudentTables() {
+        AssistantService service = service(enabledProperties());
+        String statisticsView = "ai_applicant_course_count_statistics";
+        when(databaseGateway.findTableDescriptions()).thenReturn(List.of(
+            new TableDescription(statisticsView, "VIEW"),
+            new TableDescription("student", "지원자 원본")
+        ));
+        when(claudeClient.selectTables(anyString())).thenReturn(new TableSelection(
+            List.of(statisticsView, "student"), false, "과목 수별 지원자 집계"
+        ));
+        when(databaseGateway.findColumnDescriptions(java.util.Set.of(statisticsView))).thenReturn(List.of(
+            new ColumnDescription(statisticsView, "course_count", "bigint", false, ""),
+            new ColumnDescription(statisticsView, "applicant_count", "bigint", false, "")
+        ));
+        String sql = "SELECT SUM(t_stats.applicant_count) AS applicant_count "
+            + "FROM ai_applicant_course_count_statistics t_stats WHERE t_stats.course_count <= 10";
+        when(claudeClient.planSql(anyString())).thenReturn(new SqlPlan(
+            sql, List.of(statisticsView), "10과목 이하 지원자 수 합계"
+        ));
+        LinkedHashMap<String, Object> row = new LinkedHashMap<>();
+        row.put("applicant_count", 17L);
+        when(databaseGateway.execute(sql)).thenReturn(new QueryResult(List.of(row)));
+        when(claudeClient.answer(anyString())).thenReturn("수강 과목이 10개 이하인 학생은 17명입니다.");
+
+        var response = service.ask(new AssistantMessageRequest("수강한 과목이 10개 이하인 학생 수는?", null));
+
+        assertThat(response.answer()).contains("17명");
+        assertThat(response.sourceTables()).containsExactly(statisticsView);
+        verify(databaseGateway).findColumnDescriptions(java.util.Set.of(statisticsView));
+    }
+
+    @Test
     void rejectsUnsafeModelSqlBeforeDatabaseExecution() {
         AssistantService service = service(enabledProperties());
         when(databaseGateway.findTableDescriptions()).thenReturn(List.of(

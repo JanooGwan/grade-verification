@@ -13,6 +13,9 @@ class AssistantTopicPolicyTest {
         assertThat(policy.isInScope("한신대 학생부 반영 규칙을 알려줘")).isTrue();
         assertThat(policy.isInScope("지원자별 학교폭력 감점 결과를 보여줘")).isTrue();
         assertThat(policy.isInScope("evaluation_rule 테이블은 어떤 역할이야?")).isTrue();
+        assertThat(policy.isInScope("2026학년도 수시 때 한신대에 지원한 학생 수는?")).isTrue();
+        assertThat(policy.isInScope("수강한 과목이 10개 이하인 학생 수는?")).isTrue();
+        assertThat(policy.isInScope("과목별 지원 통계를 알려줘")).isTrue();
     }
 
     @Test
