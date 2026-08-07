@@ -5,11 +5,37 @@ INSERT INTO university (code, name, active, created_at, updated_at)
 SELECT 'LEGACY', '대학 미확정 기존 데이터', FALSE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6)
 WHERE NOT EXISTS (SELECT 1 FROM university WHERE code = 'LEGACY');
 
-ALTER TABLE student
-    ADD COLUMN university_id BIGINT NULL AFTER id;
+-- MySQL auto-commits DDL.  If a previous V38 attempt stopped after adding one
+-- of these columns, allow the repaired migration to resume safely.
+SET @student_university_column_ddl = IF(
+    EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'student'
+          AND column_name = 'university_id'
+    ),
+    'DO 0',
+    'ALTER TABLE student ADD COLUMN university_id BIGINT NULL AFTER id'
+);
+PREPARE student_university_column_statement FROM @student_university_column_ddl;
+EXECUTE student_university_column_statement;
+DEALLOCATE PREPARE student_university_column_statement;
 
-ALTER TABLE student_transcript_import
-    ADD COLUMN university_id BIGINT NULL AFTER id;
+SET @import_university_column_ddl = IF(
+    EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'student_transcript_import'
+          AND column_name = 'university_id'
+    ),
+    'DO 0',
+    'ALTER TABLE student_transcript_import ADD COLUMN university_id BIGINT NULL AFTER id'
+);
+PREPARE import_university_column_statement FROM @import_university_column_ddl;
+EXECUTE import_university_column_statement;
+DEALLOCATE PREPARE import_university_column_statement;
 
 -- The source format itself identifies historical Hanshin and Sahmyook uploads.
 UPDATE student_transcript_import import_history
@@ -37,25 +63,37 @@ CREATE TEMPORARY TABLE tmp_student_university_context (
     PRIMARY KEY (student_id, university_id)
 );
 
-INSERT IGNORE INTO tmp_student_university_context (student_id, university_id)
-SELECT application.student_id, track.university_id
+-- UNION removes the many repeated student/university pairs produced by course
+-- rows, avoiding one duplicate-key warning per historical subject row.
+INSERT INTO tmp_student_university_context (student_id, university_id)
+SELECT DISTINCT application.student_id, track.university_id
 FROM student_application application
 JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
-JOIN admission_track track ON track.id = unit.admission_track_id;
-
-INSERT IGNORE INTO tmp_student_university_context (student_id, university_id)
-SELECT course.student_id, import_history.university_id
+JOIN admission_track track ON track.id = unit.admission_track_id
+UNION
+SELECT DISTINCT course.student_id, import_history.university_id
 FROM student_transcript_course course
 JOIN student student ON student.id = course.student_id
 JOIN student_transcript_import import_history
   ON import_history.admission_year = student.admission_year
  AND import_history.original_file_name = course.source_file_name;
 
-INSERT IGNORE INTO tmp_student_university_context (student_id, university_id)
+-- MySQL cannot read a temporary table while inserting into that same table.
+-- Materialize only the known student ids first, then add LEGACY contexts for
+-- students that have no trustworthy university evidence.
+CREATE TEMPORARY TABLE tmp_students_with_university_context (
+    student_id BIGINT NOT NULL PRIMARY KEY
+);
+
+INSERT INTO tmp_students_with_university_context (student_id)
+SELECT DISTINCT student_id
+FROM tmp_student_university_context;
+
+INSERT INTO tmp_student_university_context (student_id, university_id)
 SELECT student.id, university.id
 FROM student student
 JOIN university university ON university.code = 'LEGACY'
-LEFT JOIN tmp_student_university_context context ON context.student_id = student.id
+LEFT JOIN tmp_students_with_university_context context ON context.student_id = student.id
 WHERE context.student_id IS NULL;
 
 CREATE TEMPORARY TABLE tmp_student_primary_university AS
