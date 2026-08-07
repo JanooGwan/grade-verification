@@ -21,6 +21,8 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         Long universityId, int admissionYear, Collection<String> applicantNumbers
     );
 
+    List<Student> findAllByUniversity_IdAndAdmissionYear(Long universityId, int admissionYear);
+
     @Query("""
         SELECT s
         FROM Student s

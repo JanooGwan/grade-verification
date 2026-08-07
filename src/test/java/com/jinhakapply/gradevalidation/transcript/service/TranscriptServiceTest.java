@@ -61,13 +61,9 @@ class TranscriptServiceTest {
     @Mock
     private TransferImportService transferImportService;
     @Mock
-    private TranscriptValidationExcelWriter validationExcelWriter;
-    @Mock
     private TranscriptImportResultExcelWriter importResultExcelWriter;
     @Mock
     private SyuImportScoreExcelWriter syuImportScoreExcelWriter;
-    @Mock
-    private TranscriptBatchVerificationService batchVerificationService;
     @Mock
     private StudentRepository studentRepository;
     @Mock
@@ -84,6 +80,8 @@ class TranscriptServiceTest {
     private StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
     @Mock
     private UniversityRepository universityRepository;
+    @Mock
+    private TranscriptSnapshotReplacementService snapshotReplacementService;
 
     private TranscriptService transcriptService;
     private University university;
@@ -94,15 +92,19 @@ class TranscriptServiceTest {
         ReflectionTestUtils.setField(university, "id", 1L);
         org.mockito.Mockito.lenient().when(universityRepository.findById(1L))
             .thenReturn(Optional.of(university));
+        org.mockito.Mockito.lenient().when(snapshotReplacementService.clear(
+            org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.eq(false)
+        )).thenReturn(new TranscriptSnapshotReplacementService.SnapshotScope(
+            List.of(), 0, 0, 0, 0
+        ));
         transcriptService = new TranscriptService(
             excelParser,
             transferExcelParser,
             applicantSchoolInfoExcelParser,
             transferImportService,
-            validationExcelWriter,
             importResultExcelWriter,
             syuImportScoreExcelWriter,
-            batchVerificationService,
             studentRepository,
             courseRepository,
             importRepository,
@@ -110,7 +112,8 @@ class TranscriptServiceTest {
             schoolViolenceRepository,
             gedSubjectScoreRepository,
             legacyGradeSummaryRepository,
-            universityRepository
+            universityRepository,
+            snapshotReplacementService
         );
     }
 
@@ -191,55 +194,6 @@ class TranscriptServiceTest {
     }
 
     @Test
-    void formatsLinkedSchoolInformationWarningForHistoricalApplicantData() {
-        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
-            2, 2026, "A-001", 2026, "S001", "직업고등학교", "D001",
-            "특성화고", "특성화고", "전문계고교",
-            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
-        );
-        ApplicantSchoolInfoParseResult schoolInfoResult = new ApplicantSchoolInfoParseResult(
-            List.of(schoolInfo), Map.of("A-001", schoolInfo)
-        );
-        TransferApplicationRow application = new TransferApplicationRow(
-            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
-        );
-        MockMultipartFile schoolInfoFile = new MockMultipartFile(
-            "schoolInfoFile", "지원자 추가정보.xlsx", null, new byte[] {1}
-        );
-
-        List<String> warnings = ReflectionTestUtils.invokeMethod(
-            transcriptService,
-            "schoolInfoWarnings",
-            schoolInfoResult,
-            schoolInfoFile,
-            List.of(application)
-        );
-
-        assertThat(warnings).containsExactly(
-            "지원자 추가정보 1건을 연결했습니다. 전 과목 반영 고교유형 1건, "
-                + "검정고시·외국고 0건, 추가정보 미연결 지원자 0건입니다. 추가정보 입학연도: 2026"
-        );
-    }
-
-    @Test
-    void rejectsEmptyExportWhenEveryApplicationHasNoMatchingRule() {
-        TransferApplicationRow application = new TransferApplicationRow(
-            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
-        );
-        TranscriptBatchVerificationResult verification = new TranscriptBatchVerificationResult(
-            List.of(),
-            List.of(new TranscriptBatchVerificationResult.Failure(
-                application, "학생", 12, "RULE_NOT_FOUND", "게시 규칙 없음"
-            ))
-        );
-
-        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
-            transcriptService, "requireMatchedVerificationRule", verification
-        )).isInstanceOfSatisfying(CustomException.class, exception ->
-            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_TRANSCRIPT_FILE));
-    }
-
-    @Test
     void updatesExistingStudentAndCreatesCourse() {
         MockMultipartFile file = new MockMultipartFile(
             "file",
@@ -295,11 +249,13 @@ class TranscriptServiceTest {
             "previous", 2, 2, 0, "STANDARD_TRANSCRIPT_V1"
         );
         ReflectionTestUtils.setField(previousImport, "id", 9L);
-        when(importRepository.findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
-            1L, 2027, "STANDARD_TRANSCRIPT_V1",
+        when(importRepository.findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+            1L, 2027,
             List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
         )).thenReturn(Optional.of(previousImport));
-        when(courseRepository.deleteAllBySourceImportId(9L)).thenReturn(2);
+        when(snapshotReplacementService.clear(1L, 2027, false)).thenReturn(
+            new TranscriptSnapshotReplacementService.SnapshotScope(List.of(student), 0, 2, 0, 0)
+        );
 
         TranscriptImportResponse response = transcriptService.importExcel(2027, TranscriptImportMode.VALID_ROWS_ONLY, 1L, file);
 
@@ -309,7 +265,6 @@ class TranscriptServiceTest {
         assertThat(response.createdCourses()).isEqualTo(1);
         assertThat(response.deletedCourses()).isEqualTo(2);
         assertThat(student.getName()).isEqualTo("학생");
-        verify(courseRepository).deleteAllBySourceImportId(9L);
         verify(courseRepository).save(any(StudentTranscriptCourse.class));
     }
 

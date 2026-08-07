@@ -19,6 +19,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataReq
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +32,7 @@ public class TranscriptController implements TranscriptApi {
 
     private final TranscriptService transcriptService;
     private final SyuSourceImportService syuSourceImportService;
+    private final StoredTranscriptVerificationService storedTranscriptVerificationService;
 
     @Override
     public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
@@ -56,32 +58,20 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<TranscriptPreviewResponse> previewExcel(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
+    public ResponseEntity<TranscriptPreviewResponse> verifyStoredTranscript(
+        Long universityId, int admissionYear
     ) {
-        return ResponseEntity.ok(
-            transcriptService.previewExcel(admissionYear, universityId, file, schoolInfoFile)
-        );
+        return ResponseEntity.ok(storedTranscriptVerificationService.verify(universityId, admissionYear));
     }
 
     @Override
-    public ResponseEntity<byte[]> exportExcelValidation(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
-    ) {
-        byte[] result = transcriptService.exportExcelValidation(
-            admissionYear, universityId, file, schoolInfoFile
-        );
+    public ResponseEntity<byte[]> exportStoredTranscriptVerification(Long universityId, int admissionYear) {
+        byte[] result = storedTranscriptVerificationService.export(universityId, admissionYear);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .contentLength(result.length)
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                .filename("가져오기-검증결과.xlsx", StandardCharsets.UTF_8)
+                .filename("DB-성적검증결과.xlsx", StandardCharsets.UTF_8)
                 .build()
                 .toString())
             .body(result);

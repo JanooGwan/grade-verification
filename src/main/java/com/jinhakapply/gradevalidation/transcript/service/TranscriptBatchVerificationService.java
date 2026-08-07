@@ -91,7 +91,9 @@ class TranscriptBatchVerificationService {
                 continue;
             }
             EvaluationRule rule = matchedRules.getFirst();
-            if (isSpecializedGraduateTrack(application) && schoolInfo == null) {
+            if (isSpecializedGraduateTrack(application)
+                && (schoolInfo == null || schoolInfo.applicantHighSchoolCategoryCode() == null
+                    || schoolInfo.applicantHighSchoolCategoryCode().isBlank())) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
                     "SCHOOL_INFO_REQUIRED",
                     "특성화고교졸업자 전형은 지원자격 확인을 위한 지원자 추가정보 파일이 필요합니다."));

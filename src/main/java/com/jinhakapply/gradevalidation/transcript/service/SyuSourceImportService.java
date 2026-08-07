@@ -10,12 +10,10 @@ import java.nio.file.StandardCopyOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Locale;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
-import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -49,20 +47,13 @@ public class SyuSourceImportService {
                 Files.copy(input, temporaryFile, StandardCopyOption.REPLACE_EXISTING);
             }
             String fileName = safeFileName(file.getOriginalFilename());
-            Long previousImportId = importRepository
-                .findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
-                    university.getId(), admissionYear, SyuSourceExcelStreamer.SOURCE_FORMAT,
-                    List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
-                )
-                .map(StudentTranscriptImport::getId)
-                .orElse(null);
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
                 university, admissionYear, fileName, HexFormat.of().formatHex(digest.digest()),
                 SyuSourceExcelStreamer.SOURCE_FORMAT, temporaryFile.toAbsolutePath().toString()
             ));
             try {
                 processor.process(
-                    queued.getId(), university.getId(), admissionYear, temporaryFile, fileName, previousImportId
+                    queued.getId(), university.getId(), admissionYear, temporaryFile, fileName
                 );
             } catch (TaskRejectedException exception) {
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");

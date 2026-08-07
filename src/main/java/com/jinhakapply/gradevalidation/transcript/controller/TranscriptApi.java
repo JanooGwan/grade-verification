@@ -69,26 +69,21 @@ public interface TranscriptApi {
         @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
-    @Operation(summary = "학생부 Excel 저장 전 미리보기")
-    @PostMapping(value = "/imports/excel/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ResponseEntity<TranscriptPreviewResponse> previewExcel(
-        @RequestParam int admissionYear,
+    @Operation(summary = "DB 저장 학생부 성적검증", description = "최신 완료 가져오기의 DB 데이터만 사용합니다.")
+    @GetMapping("/verifications")
+    ResponseEntity<TranscriptPreviewResponse> verifyStoredTranscript(
         @RequestParam @NotNull @Positive Long universityId,
-        @RequestPart("file") MultipartFile file,
-        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
     );
 
-    @Operation(summary = "학생부 Excel 가져오기 검증 결과 다운로드")
-    @PostMapping(
-        value = "/imports/excel/preview/export",
-        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+    @Operation(summary = "DB 저장 학생부 성적검증 결과 다운로드")
+    @GetMapping(
+        value = "/verifications/export",
         produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    ResponseEntity<byte[]> exportExcelValidation(
-        @RequestParam int admissionYear,
+    ResponseEntity<byte[]> exportStoredTranscriptVerification(
         @RequestParam @NotNull @Positive Long universityId,
-        @RequestPart("file") MultipartFile file,
-        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
     );
 
     @Operation(summary = "학생부 Excel 업로드 양식 다운로드")

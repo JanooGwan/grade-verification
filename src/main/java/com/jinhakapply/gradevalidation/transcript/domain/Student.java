@@ -66,6 +66,9 @@ public class Student {
     @Column(name = "high_school_type", nullable = false, length = 40)
     private HighSchoolType highSchoolType;
 
+    @Column(name = "applicant_high_school_category_code", length = 50)
+    private String applicantHighSchoolCategoryCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "graduation_status", nullable = false, length = 30)
     private GraduationStatus graduationStatus;
@@ -164,6 +167,13 @@ public class Student {
         this.highSchoolType = highSchoolType;
         this.graduationStatus = graduationStatus;
         this.gedAverageScore = gedAverageScore;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateApplicantHighSchoolCategoryCode(String applicantHighSchoolCategoryCode) {
+        this.applicantHighSchoolCategoryCode = applicantHighSchoolCategoryCode == null
+            || applicantHighSchoolCategoryCode.isBlank()
+            ? null : applicantHighSchoolCategoryCode.trim();
         this.updatedAt = LocalDateTime.now();
     }
 

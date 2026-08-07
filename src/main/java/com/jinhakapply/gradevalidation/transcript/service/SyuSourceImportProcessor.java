@@ -35,14 +35,15 @@ class SyuSourceImportProcessor {
     private final SyuSourceExcelStreamer streamer;
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
+    private final TranscriptSnapshotReplacementService snapshotReplacementService;
 
     @Async("sourceImportExecutor")
     public void process(
-        Long importId, Long universityId, int admissionYear, Path path, String sourceFileName, Long previousImportId
+        Long importId, Long universityId, int admissionYear, Path path, String sourceFileName
     ) {
         try {
             transactionTemplate.executeWithoutResult(status -> importWorkbook(
-                importId, universityId, admissionYear, path, sourceFileName, previousImportId
+                importId, universityId, admissionYear, path, sourceFileName
             ));
         } catch (Exception exception) {
             log.error("SYU source workbook import failed: importId={}", importId, exception);
@@ -178,13 +179,6 @@ class SyuSourceImportProcessor {
         jdbcTemplate.update("DELETE FROM student_transcript_import_course WHERE import_id=?", importId);
     }
 
-    private void deletePreviousImportData(Long previousImportId) {
-        if (previousImportId == null) return;
-        jdbcTemplate.update("DELETE FROM student_transcript_course WHERE source_import_id=?", previousImportId);
-        jdbcTemplate.update("DELETE FROM student_application WHERE source_import_id=?", previousImportId);
-        jdbcTemplate.update("DELETE FROM student_attendance WHERE source_import_id=?", previousImportId);
-    }
-
     private void deleteSnapshotsSafely(Long importId) {
         try {
             deleteSnapshots(importId);
@@ -194,7 +188,7 @@ class SyuSourceImportProcessor {
     }
 
     private void importWorkbook(
-        Long importId, Long universityId, int admissionYear, Path path, String sourceFileName, Long previousImportId
+        Long importId, Long universityId, int admissionYear, Path path, String sourceFileName
     ) {
         long processStarted = System.nanoTime();
         long scanStarted = System.nanoTime();
@@ -210,7 +204,9 @@ class SyuSourceImportProcessor {
 
         updateStatus(importId, "PROCESSING", null);
         deleteSnapshots(importId);
-        deletePreviousImportData(previousImportId);
+        TranscriptSnapshotReplacementService.SnapshotScope snapshot = snapshotReplacementService.clear(
+            universityId, admissionYear, true
+        );
         List<String> applicantNumbers = scan.applicantNumbers().stream().sorted().toList();
         long studentsStarted = System.nanoTime();
         upsertStudents(universityId, admissionYear, applicantNumbers);
@@ -255,6 +251,7 @@ class SyuSourceImportProcessor {
                 failed, summarizeErrors(courses.errors(), attendance.errors())
             ));
         }
+        snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), scan.applicantNumbers());
         int total = scan.courseRows() + attendance.importedRows();
         int imported = courses.importedRows() + attendance.importedRows();
         complete(importId, total, imported, 0, null);

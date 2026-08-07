@@ -24,6 +24,7 @@ public enum ApiResponseCode {
     INVALID_RULE_EXTRACTION_STATUS(HttpStatus.CONFLICT, "현재 상태에서는 추출 결과로 초안을 만들 수 없습니다."),
     INVALID_TRANSCRIPT_FILE(HttpStatus.BAD_REQUEST, "학생부 Excel 파일이 올바르지 않습니다."),
     TRANSCRIPT_IMPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부 가져오기 이력을 찾을 수 없습니다."),
+    STORED_TRANSCRIPT_DATA_NOT_FOUND(HttpStatus.NOT_FOUND, "DB에 저장된 성적검증 데이터가 없습니다."),
     TRANSCRIPT_STUDENT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부가 등록된 학생을 찾을 수 없습니다."),
     ADMISSION_TRACK_NOT_FOUND(HttpStatus.NOT_FOUND, "전형을 찾을 수 없습니다."),
     RECRUITMENT_UNIT_NOT_FOUND(HttpStatus.NOT_FOUND, "모집단위를 찾을 수 없습니다."),

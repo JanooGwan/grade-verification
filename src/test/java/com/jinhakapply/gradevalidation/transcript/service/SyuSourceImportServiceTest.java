@@ -37,7 +37,7 @@ class SyuSourceImportServiceTest {
         when(universityRepository.findById(1L)).thenReturn(java.util.Optional.of(university));
         when(repository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         doThrow(new TaskRejectedException("full"))
-            .when(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), any(Path.class), any(String.class), any());
+            .when(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), any(Path.class), any(String.class));
         SyuSourceImportService service = new SyuSourceImportService(repository, processor, universityRepository);
         MockMultipartFile file = new MockMultipartFile(
             "file", "source.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -54,7 +54,7 @@ class SyuSourceImportServiceTest {
         assertThat(failed.getStatus()).isEqualTo(TranscriptImportStatus.FAILED);
         assertThat(failed.getTemporaryFilePath()).isNull();
         ArgumentCaptor<Path> pathCaptor = ArgumentCaptor.forClass(Path.class);
-        verify(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), pathCaptor.capture(), any(String.class), any());
+        verify(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), pathCaptor.capture(), any(String.class));
         assertThat(pathCaptor.getValue()).doesNotExist();
     }
 

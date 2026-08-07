@@ -23,12 +23,13 @@ import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepos
 import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
-import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
@@ -57,50 +58,7 @@ class TransferImportService {
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
     private final JdbcTemplate jdbcTemplate;
-
-    TranscriptPreviewResponse preview(
-        MultipartFile file,
-        String fileSha256,
-        TransferExcelParseResult result,
-        TranscriptBatchVerificationResult verification,
-        List<String> additionalWarnings
-    ) {
-        List<String> warnings = new ArrayList<>(result.warnings());
-        if (additionalWarnings != null) warnings.addAll(additionalWarnings);
-        return new TranscriptPreviewResponse(
-            file.getOriginalFilename(),
-            fileSha256,
-            result.sourceFormat(),
-            result.applications().size(),
-            result.totalRows(),
-            result.courses().size(),
-            result.invalidRows(),
-            result.skippedRows(),
-            result.courses().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
-                row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
-                row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
-            )).toList(),
-            new TranscriptPreviewResponse.VerificationSummary(
-                result.applications().size(),
-                verification.successes().size(),
-                verification.failures().size(),
-                verification.successes().stream().limit(20).map(success ->
-                    new TranscriptPreviewResponse.VerificationResultRow(
-                        success.application().rowNumber(),
-                        success.application().applicantNumber(),
-                        success.studentName(),
-                        success.application().admissionTrackName(),
-                        success.application().recruitmentUnitName(),
-                        success.verification().finalScore(),
-                        success.verification().averageGrade(),
-                        success.verification().includedCourseCount()
-                    )
-                ).toList()
-            ),
-            result.errors(),
-            List.copyOf(warnings)
-        );
-    }
+    private final TranscriptSnapshotReplacementService snapshotReplacementService;
 
     @Transactional
     TranscriptImportResponse importExcel(
@@ -147,14 +105,18 @@ class TransferImportService {
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
         }
         StudentTranscriptImport previousImport = importRepository
-            .findTopByUniversity_IdAndAdmissionYearAndSourceFormatAndStatusInOrderByCreatedAtDesc(
-                university.getId(), admissionYear, result.sourceFormat(),
+            .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+                university.getId(), admissionYear,
                 List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
             ).orElse(null);
         if (previousImport != null && result.invalidRows() > 0) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "기존 저장본을 지우지 않도록 오류가 있는 파일은 재업로드할 수 없습니다. 오류를 모두 수정한 뒤 다시 저장해 주세요.");
         }
+
+        TranscriptSnapshotReplacementService.SnapshotScope snapshot = snapshotReplacementService.clear(
+            university.getId(), admissionYear, false
+        );
 
         Set<String> applicantNumbers = result.courses().stream()
             .map(TranscriptExcelRow::applicantNumber)
@@ -191,12 +153,12 @@ class TransferImportService {
                 applySchoolInfo(created, schoolInfo);
                 students.put(applicantNumber, created);
                 createdStudents++;
-            } else if (application != null || schoolInfo != null) {
+            } else {
                 existing.updateProfile(
                     existing.getName(),
-                    highSchoolCode == null ? existing.getHighSchoolCode() : highSchoolCode,
-                    highSchoolName == null ? existing.getHighSchoolName() : highSchoolName,
-                    graduationYear == null ? existing.getGraduationYear() : graduationYear
+                    highSchoolCode,
+                    highSchoolName,
+                    graduationYear
                 );
                 applySchoolInfo(existing, schoolInfo);
             }
@@ -215,11 +177,17 @@ class TransferImportService {
             result.sourceFormat()
         ));
         CatalogResult catalog = importApplications(
-            university, admissionYear, result.applications(), students, transcriptImport, previousImport
+            university,
+            admissionYear,
+            result.applications(),
+            students,
+            transcriptImport,
+            snapshot.deletedApplications()
         );
         CourseResult courses = replaceCourses(
-            result.courses(), students, sourceFileName, transcriptImport, previousImport
+            result.courses(), students, sourceFileName, transcriptImport, snapshot.deletedCourses()
         );
+        snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantNumbers);
         List<String> warnings = new ArrayList<>(result.warnings());
         warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
         return new TranscriptImportResponse(
@@ -254,13 +222,23 @@ class TransferImportService {
     }
 
     static void applySchoolInfo(Student student, ApplicantSchoolInfoRow schoolInfo) {
-        if (schoolInfo == null) return;
+        if (schoolInfo == null) {
+            student.updateCommonEvaluationProfile(
+                EducationBackground.DOMESTIC_HIGH_SCHOOL,
+                HighSchoolType.GENERAL,
+                student.getGraduationStatus(),
+                null
+            );
+            student.updateApplicantHighSchoolCategoryCode(null);
+            return;
+        }
         student.updateCommonEvaluationProfile(
             schoolInfo.educationBackground(),
             schoolInfo.highSchoolType(),
             student.getGraduationStatus(),
             student.getGedAverageScore()
         );
+        student.updateApplicantHighSchoolCategoryCode(schoolInfo.applicantHighSchoolCategoryCode());
     }
 
     CatalogResult importApplications(
@@ -269,7 +247,7 @@ class TransferImportService {
         List<TransferApplicationRow> rows,
         Map<String, Student> students,
         StudentTranscriptImport transcriptImport,
-        StudentTranscriptImport previousImport
+        int deletedApplications
     ) {
         Map<String, AdmissionTrack> tracks = admissionTrackRepository
             .findAllByUniversityIdAndAdmissionYearOrderByNameAsc(university.getId(), admissionYear)
@@ -311,12 +289,6 @@ class TransferImportService {
             applicationCandidates.add(new ApplicationCandidate(students.get(row.applicantNumber()), unit));
         }
 
-        List<StudentApplication> existingApplications = previousImport == null ? List.of()
-            : studentApplicationRepository.findAllBySourceImport_Id(previousImport.getId());
-        // 지원관계도 새 파일이 소유하도록 전부 다시 만든다. 그래야 다음 재업로드에서
-        // 이번 파일에서 빠진 지원관계를 정확히 제거할 수 있다.
-        studentApplicationRepository.deleteAllInBatch(existingApplications);
-
         Set<String> seen = new HashSet<>();
         List<StudentApplication> created = new ArrayList<>();
         applicationCandidates.forEach(candidate -> {
@@ -326,7 +298,7 @@ class TransferImportService {
             }
         });
         studentApplicationRepository.saveAll(created);
-        return new CatalogResult(createdTracks, createdUnits, created.size(), existingApplications.size());
+        return new CatalogResult(createdTracks, createdUnits, created.size(), deletedApplications);
     }
 
     CourseResult replaceCourses(
@@ -334,9 +306,8 @@ class TransferImportService {
         Map<String, Student> students,
         String sourceFileName,
         StudentTranscriptImport transcriptImport,
-        StudentTranscriptImport previousImport
+        int deletedCourses
     ) {
-        int deleted = previousImport == null ? 0 : courseRepository.deleteAllBySourceImportId(previousImport.getId());
         String sql = """
             INSERT INTO student_transcript_course (
                 student_id, source_import_id, school_year, semester, subject_category, course_name, course_name_normalized,
@@ -373,7 +344,7 @@ class TransferImportService {
         if (result.unknown() > 0) {
             log.warn("Could not classify {} transcript course batch results", result.unknown());
         }
-        return result.withDeleted(deleted);
+        return result.withDeleted(deletedCourses);
     }
 
     static CourseResult classifyBatchResults(int[][] results) {

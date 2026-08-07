@@ -54,7 +54,9 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
@@ -90,6 +92,7 @@ class ApiContractTest {
     @MockitoBean RuleExtractionService ruleExtractionService;
     @MockitoBean TranscriptService transcriptService;
     @MockitoBean SyuSourceImportService syuSourceImportService;
+    @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
@@ -115,18 +118,10 @@ class ApiContractTest {
     }
 
     @Test
-    void downloadsTranscriptValidationResultAsExcel() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-            "file", "sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            new byte[] {1, 2, 3}
-        );
-        when(transcriptService.exportExcelValidation(
-            anyInt(), anyLong(), any(MultipartFile.class), isNull()
-        ))
-            .thenReturn(new byte[] {4, 5, 6});
+    void downloadsStoredTranscriptValidationResultAsExcel() throws Exception {
+        when(storedTranscriptVerificationService.export(1L, 2027)).thenReturn(new byte[] {4, 5, 6});
 
-        mockMvc.perform(multipart("/api/transcripts/imports/excel/preview/export")
-                .file(file)
+        mockMvc.perform(get("/api/transcripts/verifications/export")
                 .param("admissionYear", "2027")
                 .param("universityId", "1"))
             .andExpect(status().isOk())
@@ -139,6 +134,26 @@ class ApiContractTest {
                 )
             ))
             .andExpect(content().bytes(new byte[] {4, 5, 6}));
+    }
+
+    @Test
+    void verifiesOnlyStoredTranscriptData() throws Exception {
+        when(storedTranscriptVerificationService.verify(1L, 2027)).thenReturn(new TranscriptPreviewResponse(
+            "stored.xlsx", "hash", "HANSHIN_MULTI_SHEET_V1", 1, 2, 2, 0, 0,
+            List.of(),
+            new TranscriptPreviewResponse.VerificationSummary(1, 1, 0, List.of()),
+            List.of(),
+            List.of("DB 저장 데이터 기준")
+        ));
+
+        mockMvc.perform(get("/api/transcripts/verifications")
+                .param("admissionYear", "2027")
+                .param("universityId", "1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.originalFileName").value("stored.xlsx"))
+            .andExpect(jsonPath("$.verification.successfulApplications").value(1));
+
+        verify(storedTranscriptVerificationService).verify(1L, 2027);
     }
 
     @Test

@@ -64,6 +64,7 @@ class TransferImportServiceTest {
 
         assertThat(student.getGraduationStatus()).isEqualTo(GraduationStatus.GRADUATE);
         assertThat(student.getHighSchoolType()).isEqualTo(HighSchoolType.SPECIALIZED);
+        assertThat(student.getApplicantHighSchoolCategoryCode()).isEqualTo("전문계고교");
     }
 
     @Test
@@ -72,7 +73,7 @@ class TransferImportServiceTest {
         StudentTranscriptCourseRepository courseRepository = mock(StudentTranscriptCourseRepository.class);
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         TransferImportService service = new TransferImportService(
-            null, null, null, null, null, null, courseRepository, null, jdbcTemplate
+            null, null, null, null, null, null, courseRepository, null, jdbcTemplate, null
         );
         Student first = mock(Student.class);
         when(first.getId()).thenReturn(11L);
@@ -87,22 +88,15 @@ class TransferImportServiceTest {
             university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
             "current", 1, 1, 0, "HANSHIN_MULTI_SHEET_V1"
         );
-        StudentTranscriptImport previousImport = StudentTranscriptImport.create(
-            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
-            "previous", 2, 2, 0, "HANSHIN_MULTI_SHEET_V1"
-        );
         ReflectionTestUtils.setField(currentImport, "id", 31L);
-        ReflectionTestUtils.setField(previousImport, "id", 30L);
-        when(courseRepository.deleteAllBySourceImportId(30L)).thenReturn(7);
         when(jdbcTemplate.batchUpdate(
             anyString(), same(rows), anyInt(), any(ParameterizedPreparedStatementSetter.class)
         )).thenReturn(new int[][] {{1}});
 
         TransferImportService.CourseResult result = service.replaceCourses(
-            rows, Map.of("A-001", first), "reupload.xlsx", currentImport, previousImport
+            rows, Map.of("A-001", first), "reupload.xlsx", currentImport, 7
         );
 
-        verify(courseRepository).deleteAllBySourceImportId(30L);
         assertThat(result.created()).isEqualTo(1);
         assertThat(result.deleted()).isEqualTo(7);
     }
@@ -115,7 +109,7 @@ class TransferImportServiceTest {
         StudentApplicationRepository applicationRepository = mock(StudentApplicationRepository.class);
         TransferImportService service = new TransferImportService(
             null, null, trackRepository, unitRepository, applicationRepository,
-            null, null, null, null
+            null, null, null, null, null
         );
         University university = University.create("HS", "한신대학교");
         ReflectionTestUtils.setField(university, "id", 1L);
@@ -127,11 +121,6 @@ class TransferImportServiceTest {
         ReflectionTestUtils.setField(staleUnit, "id", 202L);
         Student student = Student.create(university, 2027, "A-001", "학생", null, null, 2027);
         ReflectionTestUtils.setField(student, "id", 11L);
-        StudentApplication staleApplication = StudentApplication.create(student, staleUnit);
-        Student removedStudent = Student.create(university, 2027, "A-002", "삭제학생", null, null, 2027);
-        ReflectionTestUtils.setField(removedStudent, "id", 12L);
-        StudentApplication removedApplication = StudentApplication.create(removedStudent, desiredUnit);
-
         when(trackRepository.findAllByUniversityIdAndAdmissionYearOrderByNameAsc(1L, 2027))
             .thenReturn(List.of(track));
         when(unitRepository.findAllByAdmissionTrackIdInOrderByNameAsc(List.of(101L)))
@@ -140,14 +129,7 @@ class TransferImportServiceTest {
             university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
             "current", 1, 1, 0, "HANSHIN_MULTI_SHEET_V1"
         );
-        StudentTranscriptImport previousImport = StudentTranscriptImport.create(
-            university, 2027, "reupload.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
-            "previous", 2, 2, 0, "HANSHIN_MULTI_SHEET_V1"
-        );
         ReflectionTestUtils.setField(currentImport, "id", 31L);
-        ReflectionTestUtils.setField(previousImport, "id", 30L);
-        when(applicationRepository.findAllBySourceImport_Id(30L))
-            .thenReturn(List.of(staleApplication, removedApplication));
 
         TransferImportService.CatalogResult result = service.importApplications(
             university,
@@ -157,12 +139,9 @@ class TransferImportServiceTest {
             )),
             Map.of("A-001", student),
             currentImport,
-            previousImport
+            2
         );
 
-        ArgumentCaptor<List<StudentApplication>> deleted = ArgumentCaptor.forClass(List.class);
-        verify(applicationRepository).deleteAllInBatch(deleted.capture());
-        assertThat(deleted.getValue()).containsExactlyInAnyOrder(staleApplication, removedApplication);
         ArgumentCaptor<Iterable<StudentApplication>> created = ArgumentCaptor.forClass(Iterable.class);
         verify(applicationRepository).saveAll(created.capture());
         assertThat(created.getValue()).singleElement().satisfies(application -> {
