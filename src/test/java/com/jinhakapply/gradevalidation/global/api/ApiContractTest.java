@@ -543,13 +543,22 @@ class ApiContractTest {
         );
         when(operationsDashboardService.getDashboard()).thenReturn(new OperationsDashboardResponse(
             3, 120, 960, 5, 80, 22, 4,
-            new OperationsDashboardResponse.RuleCounts(1, 2, 3, 4), snapshot
+            new OperationsDashboardResponse.RuleCounts(1, 2, 3, 4),
+            List.of(new OperationsDashboardResponse.UniversityDataStatus(
+                1L, "HS", "한신대학교", true, 2027, true,
+                120, 960, 80, "COMPLETED", "학생성적.xlsx",
+                LocalDateTime.of(2026, 8, 8, 14, 30), true, 22,
+                LocalDateTime.of(2026, 8, 8, 15, 10)
+            )), snapshot
         ));
 
         mockMvc.perform(get("/api/operations/dashboard"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.universities").value(3))
             .andExpect(jsonPath("$.students").value(120))
+            .andExpect(jsonPath("$.universityDataStatuses[0].universityName").value("한신대학교"))
+            .andExpect(jsonPath("$.universityDataStatuses[0].studentDataPresent").value(true))
+            .andExpect(jsonPath("$.universityDataStatuses[0].verificationDataPresent").value(true))
             .andExpect(jsonPath("$.rules.published").value(3))
             .andExpect(jsonPath("$.http.totalRequests").value(12))
             .andExpect(jsonPath("$.http.errorRequests").value(1));

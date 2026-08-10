@@ -11,6 +11,8 @@ import com.jinhakapply.gradevalidation.admission.repository.VerificationRunRepos
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleExtractionRepository;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
+import com.jinhakapply.gradevalidation.operation.repository.UniversityDataStatusProjection;
+import com.jinhakapply.gradevalidation.operation.repository.UniversityDataStatusRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
@@ -32,6 +34,7 @@ class OperationsDashboardServiceTest {
     @Mock VerificationRunRepository verificationRunRepository;
     @Mock EvaluationRuleExtractionRepository extractionRepository;
     @Mock EvaluationRuleRepository ruleRepository;
+    @Mock UniversityDataStatusRepository dataStatusRepository;
     @Mock OperationalMetrics metrics;
     @InjectMocks OperationsDashboardService service;
 
@@ -48,6 +51,12 @@ class OperationsDashboardServiceTest {
         when(ruleRepository.countByStatus(EvaluationRuleStatus.VERIFIED)).thenReturn(2L);
         when(ruleRepository.countByStatus(EvaluationRuleStatus.PUBLISHED)).thenReturn(5L);
         when(ruleRepository.countByStatus(EvaluationRuleStatus.RETIRED)).thenReturn(1L);
+        LocalDateTime importedAt = LocalDateTime.of(2026, 8, 8, 14, 30);
+        LocalDateTime verifiedAt = LocalDateTime.of(2026, 8, 8, 15, 10);
+        when(dataStatusRepository.findAll()).thenReturn(List.of(new UniversityDataStatusProjection(
+            1L, "HS", "한신대학교", true, 2027, 30, 900, 12,
+            "COMPLETED", "학생성적.xlsx", importedAt, 8, verifiedAt
+        )));
         OperationalMetrics.Snapshot http = new OperationalMetrics.Snapshot(
             LocalDateTime.now(), 20, 2, 15, 70, List.of()
         );
@@ -64,6 +73,14 @@ class OperationsDashboardServiceTest {
             assertThat(counts.verified()).isEqualTo(2);
             assertThat(counts.published()).isEqualTo(5);
             assertThat(counts.retired()).isEqualTo(1);
+        });
+        assertThat(response.universityDataStatuses()).singleElement().satisfies(status -> {
+            assertThat(status.universityName()).isEqualTo("한신대학교");
+            assertThat(status.admissionYear()).isEqualTo(2027);
+            assertThat(status.studentDataPresent()).isTrue();
+            assertThat(status.latestImportAt()).isEqualTo(importedAt);
+            assertThat(status.verificationDataPresent()).isTrue();
+            assertThat(status.latestVerificationAt()).isEqualTo(verifiedAt);
         });
         assertThat(response.http()).isSameAs(http);
     }
