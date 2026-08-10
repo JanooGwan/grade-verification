@@ -37,6 +37,12 @@ class TranscriptValidationExcelWriter {
         "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
         "교과성적(1,000점 만점)"
     };
+    private static final String[] ALL_COURSE_HEADERS = {
+        "원본 성적 행", "수험번호", "학생명", "고교코드", "고교명", "졸업연도",
+        "학년", "학기", "교과", "과목명", "석차등급", "등급제", "성취도",
+        "원점수", "과목평균", "표준편차", "수강자수", "석차", "동석차",
+        "성취평가", "이수단위", "진로선택", "전문교과"
+    };
     private static final String[] SELECTED_COURSE_HEADERS = {
         "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
         "선택순번", "원본 성적 행", "학년", "학기", "과목명",
@@ -60,6 +66,7 @@ class TranscriptValidationExcelWriter {
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
             createVerificationResultSheet(workbook, styles, verification);
+            createAllCourseSheet(workbook, styles, courses);
             createSelectedCourseSheet(workbook, styles, verification);
             createSummarySheet(
                 workbook, styles, originalFileName, sourceFormat, applicationRows,
@@ -240,6 +247,44 @@ class TranscriptValidationExcelWriter {
         }
         finishTable(sheet, rowIndex - 3, SELECTED_COURSE_HEADERS.length);
         setWidths(sheet, SELECTED_COURSE_HEADERS, Set.of(3, 4, 9));
+        sheet.setColumnWidth(2, 24 * 256);
+    }
+
+    private void createAllCourseSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        List<TranscriptExcelRow> courses
+    ) {
+        Sheet sheet = workbook.createSheet("학생별 전체 과목");
+        sheet.setDisplayGridlines(false);
+        title(
+            sheet, styles,
+            "학생별 전체 과목 원본 - 수험번호와 원본 성적 행으로 선택 과목 시트와 비교",
+            ALL_COURSE_HEADERS.length - 1
+        );
+        header(sheet, styles, ALL_COURSE_HEADERS);
+
+        List<TranscriptExcelRow> sortedCourses = new ArrayList<>(courses);
+        sortedCourses.sort(Comparator
+            .comparing(TranscriptExcelRow::applicantNumber, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparingInt(TranscriptExcelRow::schoolYear)
+            .thenComparingInt(TranscriptExcelRow::semester)
+            .thenComparingInt(TranscriptExcelRow::rowNumber));
+
+        int rowIndex = 3;
+        for (TranscriptExcelRow course : sortedCourses) {
+            writeRow(sheet.createRow(rowIndex++), new Object[] {
+                course.rowNumber(), course.applicantNumber(), course.studentName(),
+                course.highSchoolCode(), course.highSchoolName(), course.graduationYear(),
+                course.schoolYear(), course.semester(), course.subjectCategory(), course.courseName(),
+                course.grade(), course.gradeScale(), course.achievement(), course.rawScore(),
+                course.meanScore(), course.standardDeviation(), course.studentCount(),
+                course.rankPosition(), course.tiedRankCount(), course.legacyAchievement(), course.credits(),
+                course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N"
+            }, styles, -1);
+        }
+        finishTable(sheet, sortedCourses.size(), ALL_COURSE_HEADERS.length);
+        setWidths(sheet, ALL_COURSE_HEADERS, Set.of(4, 9));
         sheet.setColumnWidth(2, 24 * 256);
     }
 
