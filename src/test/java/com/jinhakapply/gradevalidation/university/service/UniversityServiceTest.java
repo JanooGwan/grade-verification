@@ -14,6 +14,7 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.dto.CreateUniversityRequest;
+import com.jinhakapply.gradevalidation.university.repository.UniversityDataCleanupRepository;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,11 +31,14 @@ class UniversityServiceTest {
     @Mock
     private UniversityRepository universityRepository;
 
+    @Mock
+    private UniversityDataCleanupRepository dataCleanupRepository;
+
     private UniversityService universityService;
 
     @BeforeEach
     void setUp() {
-        universityService = new UniversityService(universityRepository);
+        universityService = new UniversityService(universityRepository, dataCleanupRepository);
     }
 
     @Test
@@ -111,11 +115,24 @@ class UniversityServiceTest {
     @Test
     void deletesExistingUniversity() {
         University university = university(1L, "TUK", "한국공학대학교");
-        when(universityRepository.findById(1L)).thenReturn(Optional.of(university));
+        when(universityRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(university));
 
         universityService.delete(1L);
 
+        verify(dataCleanupRepository).deleteAllByUniversityId(1L);
         verify(universityRepository).delete(university);
+        verify(universityRepository).flush();
+    }
+
+    @Test
+    void doesNotCleanUpDataWhenUniversityDoesNotExist() {
+        when(universityRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> universityService.delete(99L))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(UNIVERSITY_NOT_FOUND));
+
+        org.mockito.Mockito.verifyNoInteractions(dataCleanupRepository);
     }
 
     private University university(Long id, String code, String name) {

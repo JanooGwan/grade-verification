@@ -36,6 +36,7 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRe
 import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
+import com.jinhakapply.gradevalidation.university.service.UniversityService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -75,6 +76,7 @@ class MySqlRepositoryIntegrationTest {
 
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired UniversityRepository universityRepository;
+    @Autowired UniversityService universityService;
     @Autowired AdmissionTrackRepository trackRepository;
     @Autowired RecruitmentUnitRepository unitRepository;
     @Autowired StudentRepository studentRepository;
@@ -358,6 +360,34 @@ class MySqlRepositoryIntegrationTest {
         assertThat(deletedRows).isOne();
         assertThat(courseRepository.count()).isZero();
         assertThat(applicationRepository.count()).isZero();
+    }
+
+    @Test
+    void deletesUniversityAfterCleaningUpOwnedStudentData() {
+        University university = universityRepository.saveAndFlush(
+            University.create("DELETE-ME", "삭제 대상 대학교")
+        );
+        Student student = studentRepository.saveAndFlush(Student.create(
+            university, 2027, "DELETE-001", "삭제 대상 학생", null, null, 2027
+        ));
+        courseRepository.saveAndFlush(course(student, "수학", 2));
+
+        entityManager.clear();
+        universityService.delete(university.getId());
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM university WHERE id = ?", Long.class, university.getId()
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM student WHERE university_id = ?", Long.class, university.getId()
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+            """
+                SELECT COUNT(*)
+                FROM student_transcript_course course
+                WHERE course.student_id = ?
+                """, Long.class, student.getId()
+        )).isZero();
     }
 
     private EvaluationRuleExtraction extraction(University university, String hash) {
