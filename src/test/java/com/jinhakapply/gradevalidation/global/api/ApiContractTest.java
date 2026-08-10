@@ -57,6 +57,7 @@ import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
@@ -154,6 +155,26 @@ class ApiContractTest {
             .andExpect(jsonPath("$.verification.successfulApplications").value(1));
 
         verify(storedTranscriptVerificationService).verify(1L, 2027);
+    }
+
+    @Test
+    void persistsStoredTranscriptVerificationResults() throws Exception {
+        when(storedTranscriptVerificationService.persist(1L, 2027)).thenReturn(
+            new StoredVerificationPersistenceResponse(80L, 3, 2, 1, 2, LocalDateTime.of(2027, 1, 2, 3, 4))
+        );
+
+        mockMvc.perform(post("/api/transcripts/verifications/persist")
+                .param("admissionYear", "2027")
+                .param("universityId", "1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.sourceImportId").value(80))
+            .andExpect(jsonPath("$.savedResults").value(2))
+            .andExpect(jsonPath("$.failedResults").value(1))
+            .andExpect(jsonPath("$.replacedResults").value(2));
+
+        verify(storedTranscriptVerificationService).persist(1L, 2027);
     }
 
     @Test

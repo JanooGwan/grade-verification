@@ -5,10 +5,12 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.STORED
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
@@ -19,11 +21,13 @@ import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +42,8 @@ public class StoredTranscriptVerificationService {
     private final JdbcTemplate jdbcTemplate;
     private final TranscriptBatchVerificationService batchVerificationService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final BatchVerificationRunRepository batchVerificationRunRepository;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public TranscriptPreviewResponse verify(Long universityId, int admissionYear) {
@@ -62,7 +68,63 @@ public class StoredTranscriptVerificationService {
         );
     }
 
+    @Transactional
+    public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear) {
+        StoredInput stored = loadStoredInput(universityId, admissionYear);
+        Long sourceImportId = stored.transcriptImport().getId();
+        int replacedResults = batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId);
+        int[] savedResults = {0};
+        TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+            universityId,
+            admissionYear,
+            stored.applications(),
+            stored.courses(),
+            stored.schoolInfoByApplicant(),
+            (application, result) -> {
+                if (application.applicationId() == null) {
+                    throw new IllegalStateException("DB 지원정보 식별자가 없어 검증 결과를 저장할 수 없습니다.");
+                }
+                int inserted = batchVerificationRunRepository.insert(
+                    sourceImportId,
+                    application.applicationId(),
+                    result,
+                    objectMapper.writeValueAsString(result)
+                );
+                if (inserted != 1) {
+                    throw new IllegalStateException(
+                        "지원정보 #%d에 대한 검증 결과를 저장하지 못했습니다.".formatted(application.applicationId())
+                    );
+                }
+                savedResults[0] += inserted;
+            }
+        );
+        requireMatchedVerificationRule(verification);
+        return new StoredVerificationPersistenceResponse(
+            sourceImportId,
+            stored.applications().size(),
+            savedResults[0],
+            verification.failures().size(),
+            replacedResults,
+            LocalDateTime.now()
+        );
+    }
+
     private StoredVerification verifyStored(Long universityId, int admissionYear) {
+        StoredInput stored = loadStoredInput(universityId, admissionYear);
+        TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+            universityId,
+            admissionYear,
+            stored.applications(),
+            stored.courses(),
+            stored.schoolInfoByApplicant()
+        );
+        requireMatchedVerificationRule(verification);
+        return new StoredVerification(
+            stored.transcriptImport(), stored.applications(), stored.courses(), verification
+        );
+    }
+
+    private StoredInput loadStoredInput(Long universityId, int admissionYear) {
         importRepository.findTopByUniversity_IdAndAdmissionYearOrderByCreatedAtDesc(universityId, admissionYear)
             .filter(latest -> latest.getStatus() == TranscriptImportStatus.QUEUED
                 || latest.getStatus() == TranscriptImportStatus.PROCESSING)
@@ -89,15 +151,12 @@ public class StoredTranscriptVerificationService {
                 "최신 DB 저장본에 지원정보 또는 과목 성적이 없습니다. 완전한 파일을 다시 업로드해 주세요."
             );
         }
-        TranscriptBatchVerificationResult verification = batchVerificationService.verify(
-            universityId,
-            admissionYear,
+        return new StoredInput(
+            transcriptImport,
             applications,
             courses,
             loadSchoolInfo(universityId, admissionYear)
         );
-        requireMatchedVerificationRule(verification);
-        return new StoredVerification(transcriptImport, applications, courses, verification);
     }
 
     private List<TransferApplicationRow> loadApplications(Long universityId, int admissionYear) {
@@ -119,6 +178,7 @@ public class StoredTranscriptVerificationService {
               AND track.admission_year = ?
             ORDER BY application.id
             """, (resultSet, rowNumber) -> new TransferApplicationRow(
+                resultSet.getLong("id"),
                 rowNumber + 1,
                 resultSet.getInt("admission_year"),
                 resultSet.getString("applicant_number"),
@@ -301,5 +361,12 @@ public class StoredTranscriptVerificationService {
         List<TransferApplicationRow> applications,
         List<TranscriptExcelRow> courses,
         TranscriptBatchVerificationResult verification
+    ) {}
+
+    private record StoredInput(
+        StudentTranscriptImport transcriptImport,
+        List<TransferApplicationRow> applications,
+        List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant
     ) {}
 }

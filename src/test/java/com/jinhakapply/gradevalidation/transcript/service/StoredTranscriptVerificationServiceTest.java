@@ -9,6 +9,7 @@ import java.util.Optional;
 
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class StoredTranscriptVerificationServiceTest {
@@ -24,13 +26,20 @@ class StoredTranscriptVerificationServiceTest {
     @Mock JdbcTemplate jdbcTemplate;
     @Mock TranscriptBatchVerificationService batchVerificationService;
     @Mock TranscriptValidationExcelWriter validationExcelWriter;
+    @Mock BatchVerificationRunRepository batchVerificationRunRepository;
+    @Mock ObjectMapper objectMapper;
 
     private StoredTranscriptVerificationService service;
 
     @BeforeEach
     void setUp() {
         service = new StoredTranscriptVerificationService(
-            importRepository, jdbcTemplate, batchVerificationService, validationExcelWriter
+            importRepository,
+            jdbcTemplate,
+            batchVerificationService,
+            validationExcelWriter,
+            batchVerificationRunRepository,
+            objectMapper
         );
     }
 

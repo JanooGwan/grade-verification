@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
@@ -48,6 +49,24 @@ class TranscriptBatchVerificationService {
         List<TransferApplicationRow> applications,
         List<TranscriptExcelRow> courses,
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant
+    ) {
+        return verify(
+            universityId,
+            admissionYear,
+            applications,
+            courses,
+            schoolInfoByApplicant,
+            (application, verification) -> { }
+        );
+    }
+
+    TranscriptBatchVerificationResult verify(
+        Long universityId,
+        int admissionYear,
+        List<TransferApplicationRow> applications,
+        List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer
     ) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
@@ -103,6 +122,7 @@ class TranscriptBatchVerificationService {
                 GradeVerificationResponse verification = ineligibleVerification(
                     rule, application, gradableCourses.size()
                 );
+                verifiedResultConsumer.accept(application, verification);
                 successes.add(new TranscriptBatchVerificationResult.Success(
                     application, studentName, verification, List.of(), schoolInfo
                 ));
@@ -125,6 +145,8 @@ class TranscriptBatchVerificationService {
             );
             try {
                 GradeVerificationResponse verification = evaluationService.verify(rule, request);
+                GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
+                verifiedResultConsumer.accept(application, annotated);
                 List<TranscriptBatchVerificationResult.SelectedCourse> selected = new ArrayList<>();
                 for (int index = 0; index < verification.calculations().size(); index++) {
                     GradeVerificationResponse.CourseCalculation calculation = verification.calculations().get(index);
@@ -135,7 +157,7 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(verification, application, admissionYear),
+                    application, studentName, compact(annotated),
                     List.copyOf(selected), schoolInfo
                 ));
             } catch (CustomException exception) {
@@ -184,7 +206,7 @@ class TranscriptBatchVerificationService {
         );
     }
 
-    private GradeVerificationResponse compact(
+    private GradeVerificationResponse annotate(
         GradeVerificationResponse result,
         TransferApplicationRow application,
         int admissionYear
@@ -206,7 +228,17 @@ class TranscriptBatchVerificationService {
             result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
             result.averageGrade(), result.selectionStrategy(), result.scoreAggregation(), result.sourceDocument(),
             result.sourcePages(), result.includedCourseCount(), result.excludedCourseCount(),
-            result.calculationSummary(), List.of(), List.copyOf(warnings)
+            result.calculationSummary(), result.calculations(), List.copyOf(warnings)
+        );
+    }
+
+    private GradeVerificationResponse compact(GradeVerificationResponse result) {
+        return new GradeVerificationResponse(
+            result.ruleId(), result.ruleName(), result.ruleVersion(), result.universityName(),
+            result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
+            result.averageGrade(), result.selectionStrategy(), result.scoreAggregation(), result.sourceDocument(),
+            result.sourcePages(), result.includedCourseCount(), result.excludedCourseCount(),
+            result.calculationSummary(), List.of(), result.warnings()
         );
     }
 

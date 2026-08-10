@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -28,6 +29,8 @@ import lombok.NoArgsConstructor;
 public class VerificationRun {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @ManyToOne(fetch = LAZY) @JoinColumn(name = "source_import_id")
+    private StudentTranscriptImport sourceImport;
     @ManyToOne(fetch = LAZY, optional = false) @JoinColumn(name = "student_id", nullable = false)
     private Student student;
     @ManyToOne(fetch = LAZY) @JoinColumn(name = "application_id")

@@ -5,6 +5,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
@@ -72,6 +73,13 @@ public interface TranscriptApi {
     @Operation(summary = "DB 저장 학생부 성적검증", description = "최신 완료 가져오기의 DB 데이터만 사용합니다.")
     @GetMapping("/verifications")
     ResponseEntity<TranscriptPreviewResponse> verifyStoredTranscript(
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
+    );
+
+    @Operation(summary = "DB 저장 학생부 성적검증 결과 저장", description = "최신 완료 업로드 건의 검증 결과를 DB에 저장합니다.")
+    @PostMapping("/verifications/persist")
+    ResponseEntity<StoredVerificationPersistenceResponse> persistStoredTranscriptVerification(
         @RequestParam @NotNull @Positive Long universityId,
         @RequestParam @Min(2000) @Max(2100) int admissionYear
     );

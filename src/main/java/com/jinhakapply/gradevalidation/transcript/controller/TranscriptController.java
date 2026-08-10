@@ -8,6 +8,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
@@ -62,6 +63,13 @@ public class TranscriptController implements TranscriptApi {
         Long universityId, int admissionYear
     ) {
         return ResponseEntity.ok(storedTranscriptVerificationService.verify(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<StoredVerificationPersistenceResponse> persistStoredTranscriptVerification(
+        Long universityId, int admissionYear
+    ) {
+        return ResponseEntity.ok(storedTranscriptVerificationService.persist(universityId, admissionYear));
     }
 
     @Override
