@@ -39,7 +39,7 @@ public class VerificationRun {
     private EvaluationRule rule;
     @Column(name = "rule_version", nullable = false) private int ruleVersion;
     @Column(name = "final_score", nullable = false, precision = 14, scale = 6) private BigDecimal finalScore;
-    @Column(name = "average_grade", nullable = false, precision = 10, scale = 6) private BigDecimal averageGrade;
+    @Column(name = "average_grade", precision = 10, scale = 6) private BigDecimal averageGrade;
     @Column(name = "included_course_count", nullable = false) private int includedCourseCount;
     @Column(name = "excluded_course_count", nullable = false) private int excludedCourseCount;
     @Lob @Column(name = "result_json", nullable = false, columnDefinition = "LONGTEXT") private String resultJson;

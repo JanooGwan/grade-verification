@@ -129,6 +129,12 @@ class MySqlRepositoryIntegrationTest {
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME <> 'flyway_schema_history'
+              AND TABLE_NAME IN (
+                  SELECT TABLE_NAME
+                  FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_TYPE = 'BASE TABLE'
+              )
               AND COLUMN_COMMENT = ''
             ORDER BY TABLE_NAME, ORDINAL_POSITION
             """, String.class);
@@ -136,8 +142,16 @@ class MySqlRepositoryIntegrationTest {
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
             "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
-            "32", "33", "34", "35", "36", "37", "38", "39", "40"
+            "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45"
         );
+        String averageGradeNullable = jdbcTemplate.queryForObject("""
+            SELECT IS_NULLABLE
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'verification_run'
+              AND COLUMN_NAME = 'average_grade'
+            """, String.class);
+        assertThat(averageGradeNullable).isEqualTo("YES");
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
             "student_id", "summary_type", "school_year", "semester_key"

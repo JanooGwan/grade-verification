@@ -248,6 +248,7 @@ class TranscriptBatchVerificationServiceTest {
         assertThat(result.successes()).singleElement().satisfies(success -> {
             assertThat(success.verification().finalScore()).isZero();
             assertThat(success.verification().baseScore()).isZero();
+            assertThat(success.verification().averageGrade()).isNull();
             assertThat(success.verification().includedCourseCount()).isZero();
             assertThat(success.selectedCourses()).isEmpty();
             assertThat(success.verification().warnings())
