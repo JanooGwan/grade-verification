@@ -4,7 +4,10 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -13,6 +16,7 @@ import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
@@ -129,7 +133,7 @@ class TranscriptBatchVerificationService {
                 );
                 verifiedResultConsumer.accept(application, verification);
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, verification, List.of(), schoolInfo
+                    application, studentName, verification, List.of(), List.of(), schoolInfo
                 ));
                 continue;
             }
@@ -163,7 +167,7 @@ class TranscriptBatchVerificationService {
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
                     application, studentName, compact(annotated),
-                    List.copyOf(selected), schoolInfo
+                    List.copyOf(selected), buildKbuIntermediateCalculations(rule, verification), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
@@ -171,6 +175,132 @@ class TranscriptBatchVerificationService {
             }
         }
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
+    }
+
+    List<TranscriptBatchVerificationResult.IntermediateCalculation> buildKbuIntermediateCalculations(
+        EvaluationRule rule,
+        GradeVerificationResponse verification
+    ) {
+        if (rule.getAdmissionYear() != 2026 || !isKbuRule(rule) || verification.calculations() == null) {
+            return List.of();
+        }
+        return switch (verification.selectionStrategy()) {
+            case TOP_N_SUBJECTS -> aggregateKbuGroups(rule, verification.calculations(), true);
+            case TOP_N_SEMESTERS -> aggregateKbuGroups(rule, verification.calculations(), false);
+            default -> List.of();
+        };
+    }
+
+    private List<TranscriptBatchVerificationResult.IntermediateCalculation> aggregateKbuGroups(
+        EvaluationRule rule,
+        List<GradeVerificationResponse.CourseCalculation> calculations,
+        boolean bySubject
+    ) {
+        Map<GroupKey, GroupAccumulator> groups = new LinkedHashMap<>();
+        for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
+            if (calculation.effectiveGrade() == null || calculation.appliedCredits() == null
+                || calculation.appliedCredits().signum() <= 0) {
+                continue;
+            }
+            GroupKey key = bySubject ? subjectGroupKey(rule, calculation.appliedSubjectCategory())
+                : semesterGroupKey(calculation.schoolYear(), calculation.semester());
+            if (key == null) continue;
+            groups.computeIfAbsent(key, ignored -> new GroupAccumulator()).add(calculation);
+        }
+
+        List<GroupValue> values = groups.entrySet().stream()
+            .map(entry -> entry.getValue().value(entry.getKey()))
+            .toList();
+        Map<String, Integer> selectedOrder = new LinkedHashMap<>();
+        values.stream().filter(GroupValue::selected)
+            .sorted(Comparator.comparing(GroupValue::averageGrade)
+                .thenComparing(GroupValue::totalCredits, Comparator.reverseOrder())
+                .thenComparingInt(value -> value.key().selectionPriority()))
+            .forEachOrdered(value -> selectedOrder.put(value.key().name(), selectedOrder.size() + 1));
+
+        return values.stream().sorted(Comparator.comparingInt(value -> value.key().displayOrder()))
+            .map(value -> new TranscriptBatchVerificationResult.IntermediateCalculation(
+                bySubject ? "교과" : "학기", value.key().name(), value.selected(),
+                selectedOrder.get(value.key().name()), value.courseCount(), value.totalCredits(),
+                value.gradeTimesCreditsSum(), value.averageGrade(),
+                value.convertedScoreTimesCreditsSum(), value.averageConvertedScore()
+            ))
+            .toList();
+    }
+
+    private GroupKey subjectGroupKey(EvaluationRule rule, SubjectCategory category) {
+        if (category == null || category == SubjectCategory.OTHER) {
+            return null;
+        }
+        int displayOrder = switch (category) {
+            case KOREAN -> 1;
+            case MATH -> 2;
+            case SOCIAL -> 3;
+            case SCIENCE -> 4;
+            case ENGLISH -> 5;
+            case OTHER -> 6;
+        };
+        String name = switch (category) {
+            case KOREAN -> "국어";
+            case MATH -> "수학";
+            case SOCIAL -> "사회";
+            case SCIENCE -> "과학";
+            case ENGLISH -> "영어";
+            case OTHER -> "기타";
+        };
+        return new GroupKey(name, displayOrder,
+            rule.getSubjectPriorities().getOrDefault(category, Integer.MAX_VALUE));
+    }
+
+    private GroupKey semesterGroupKey(int schoolYear, int semester) {
+        int order = schoolYear * 10 + semester;
+        return new GroupKey(schoolYear + "학년 " + semester + "학기", order, -order);
+    }
+
+    private record GroupKey(String name, int displayOrder, int selectionPriority) {}
+
+    private record GroupValue(
+        GroupKey key,
+        boolean selected,
+        int courseCount,
+        BigDecimal totalCredits,
+        BigDecimal gradeTimesCreditsSum,
+        BigDecimal averageGrade,
+        BigDecimal convertedScoreTimesCreditsSum,
+        BigDecimal averageConvertedScore
+    ) {}
+
+    private static final class GroupAccumulator {
+        private int courseCount;
+        private boolean selected;
+        private BigDecimal totalCredits = BigDecimal.ZERO;
+        private BigDecimal gradeTimesCreditsSum = BigDecimal.ZERO;
+        private BigDecimal convertedScoreTimesCreditsSum = BigDecimal.ZERO;
+
+        private void add(GradeVerificationResponse.CourseCalculation calculation) {
+            courseCount++;
+            selected |= calculation.included();
+            totalCredits = totalCredits.add(calculation.appliedCredits());
+            gradeTimesCreditsSum = gradeTimesCreditsSum.add(
+                calculation.effectiveGrade().multiply(calculation.appliedCredits())
+            );
+            if (calculation.convertedScore() != null) {
+                convertedScoreTimesCreditsSum = convertedScoreTimesCreditsSum.add(
+                    calculation.convertedScore().multiply(calculation.appliedCredits())
+                );
+            }
+        }
+
+        private GroupValue value(GroupKey key) {
+            BigDecimal averageGrade = gradeTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+            BigDecimal averageConvertedScore = convertedScoreTimesCreditsSum.divide(
+                totalCredits, 8, RoundingMode.HALF_UP
+            );
+            return new GroupValue(
+                key, selected, courseCount, totalCredits, gradeTimesCreditsSum, averageGrade,
+                convertedScoreTimesCreditsSum, averageConvertedScore
+            );
+        }
     }
 
     private boolean isIneligibleSpecializedGraduateApplicant(

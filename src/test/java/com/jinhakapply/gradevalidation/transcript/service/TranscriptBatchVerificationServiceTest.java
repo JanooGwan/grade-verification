@@ -9,9 +9,11 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
+import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
@@ -81,6 +83,77 @@ class TranscriptBatchVerificationServiceTest {
             "실용음악과·공연예술과",
             "일반학과"
         );
+    }
+
+    @Test
+    void aggregatesKbuHealthDepartmentSubjectAveragesAndSelections() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(rule.getAdmissionYear()).thenReturn(2026);
+        when(rule.getUniversity()).thenReturn(university);
+        when(university.getCode()).thenReturn("KBOK");
+        when(rule.getSubjectPriorities()).thenReturn(Map.of(
+            SubjectCategory.SCIENCE, 1,
+            SubjectCategory.MATH, 2,
+            SubjectCategory.KOREAN, 3,
+            SubjectCategory.ENGLISH, 4,
+            SubjectCategory.SOCIAL, 5
+        ));
+        when(verification.selectionStrategy()).thenReturn(SelectionStrategy.TOP_N_SUBJECTS);
+        when(verification.calculations()).thenReturn(List.of(
+            calculation("국어Ⅰ", 1, 1, SubjectCategory.KOREAN, "2", "2", true),
+            calculation("국어Ⅱ", 2, 1, SubjectCategory.KOREAN, "5", "1", true),
+            calculation("수학", 1, 1, SubjectCategory.MATH, "2", "3", true),
+            calculation("영어", 1, 1, SubjectCategory.ENGLISH, "4", "3", false),
+            calculation("사회", 1, 1, SubjectCategory.SOCIAL, "5", "3", false),
+            calculation("과학", 1, 1, SubjectCategory.SCIENCE, "1", "3", true)
+        ));
+
+        List<TranscriptBatchVerificationResult.IntermediateCalculation> result =
+            service.buildKbuIntermediateCalculations(rule, verification);
+
+        assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactly("국어", "수학", "사회", "과학", "영어");
+        assertThat(result).filteredOn(item -> item.groupName().equals("국어")).singleElement().satisfies(item -> {
+            assertThat(item.selected()).isTrue();
+            assertThat(item.courseCount()).isEqualTo(2);
+            assertThat(item.totalCredits()).isEqualByComparingTo("3");
+            assertThat(item.gradeTimesCreditsSum()).isEqualByComparingTo("9");
+            assertThat(item.averageGrade()).isEqualByComparingTo("3");
+        });
+        assertThat(result).filteredOn(TranscriptBatchVerificationResult.IntermediateCalculation::selected)
+            .extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactlyInAnyOrder("국어", "수학", "과학");
+    }
+
+    @Test
+    void aggregatesKbuGeneralDepartmentSemesterAveragesAndSelections() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        when(rule.getAdmissionYear()).thenReturn(2026);
+        when(rule.getUniversity()).thenReturn(university);
+        when(university.getCode()).thenReturn("KBOK");
+        when(verification.selectionStrategy()).thenReturn(SelectionStrategy.TOP_N_SEMESTERS);
+        when(verification.calculations()).thenReturn(List.of(
+            calculation("국어", 1, 1, SubjectCategory.KOREAN, "4", "2", false),
+            calculation("수학", 1, 1, SubjectCategory.MATH, "2", "2", false),
+            calculation("영어", 1, 2, SubjectCategory.ENGLISH, "2", "3", true),
+            calculation("과학", 2, 1, SubjectCategory.SCIENCE, "1", "3", true),
+            calculation("사회", 2, 2, SubjectCategory.SOCIAL, "5", "3", false)
+        ));
+
+        List<TranscriptBatchVerificationResult.IntermediateCalculation> result =
+            service.buildKbuIntermediateCalculations(rule, verification);
+
+        assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactly("1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기");
+        assertThat(result).filteredOn(TranscriptBatchVerificationResult.IntermediateCalculation::selected)
+            .extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactlyInAnyOrder("1학년 2학기", "2학년 1학기");
+        assertThat(result).filteredOn(item -> item.groupName().equals("1학년 1학기"))
+            .singleElement().satisfies(item -> assertThat(item.averageGrade()).isEqualByComparingTo("3"));
     }
 
     @Test
@@ -373,6 +446,28 @@ class TranscriptBatchVerificationServiceTest {
             1, 1, SubjectCategory.OTHER, name, null, GradeScale.NINE_LEVEL, null,
             null, null, null, null, null, null, null,
             BigDecimal.ONE, false, false
+        );
+    }
+
+    private GradeVerificationResponse.CourseCalculation calculation(
+        String courseName,
+        int schoolYear,
+        int semester,
+        SubjectCategory category,
+        String grade,
+        String credits,
+        boolean included
+    ) {
+        BigDecimal effectiveGrade = new BigDecimal(grade);
+        BigDecimal appliedCredits = new BigDecimal(credits);
+        BigDecimal convertedScore = new BigDecimal("100").subtract(effectiveGrade);
+        return new GradeVerificationResponse.CourseCalculation(
+            courseName, schoolYear, semester, category, category,
+            effectiveGrade.intValue(), GradeScale.NINE_LEVEL, null,
+            null, null, null, null, null, effectiveGrade, convertedScore,
+            BigDecimal.ONE, BigDecimal.ONE, appliedCredits, appliedCredits, appliedCredits,
+            included ? convertedScore.multiply(appliedCredits) : BigDecimal.ZERO,
+            included, included ? null : "모집요강의 과목 선택 기준에 따라 제외되었습니다."
         );
     }
 }

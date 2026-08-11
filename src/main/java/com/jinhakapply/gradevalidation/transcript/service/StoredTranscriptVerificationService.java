@@ -58,6 +58,7 @@ public class StoredTranscriptVerificationService {
         return validationExcelWriter.write(
             transcriptImport.getOriginalFileName(),
             transcriptImport.getSourceFormat(),
+            transcriptImport.getUniversity().getName(),
             stored.applications().size(),
             transcriptImport.getTotalRows(),
             List.of(),

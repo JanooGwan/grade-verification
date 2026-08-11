@@ -51,6 +51,7 @@ class TranscriptValidationExcelWriterTest {
                 List.of(new TranscriptBatchVerificationResult.SelectedCourse(
                     course, verification.calculations().getFirst()
                 )),
+                List.of(),
                 null
             )),
             List.of(new TranscriptBatchVerificationResult.Failure(
@@ -60,7 +61,7 @@ class TranscriptValidationExcelWriterTest {
         );
 
         byte[] file = writer.write(
-            "테스트.xlsx", "HANSHIN_MULTI_SHEET_V1", 1, 3,
+            "테스트.xlsx", "HANSHIN_MULTI_SHEET_V1", "한신대학교", 1, 3,
             List.of(new TranscriptImportRowError(14, "편제명 없음")),
             List.of(course, unselectedCourse), List.of(new TranscriptImportRowError(13, "학기가 올바르지 않습니다.")),
             List.of("제외 행이 있습니다."), batch
@@ -122,6 +123,52 @@ class TranscriptValidationExcelWriterTest {
                 .isTrue();
             assertThat(containsCellValue(summarySheet, "편제명 없음")).isTrue();
             assertThat(containsCellValue(summarySheet, "학기가 올바르지 않습니다.")).isTrue();
+        }
+    }
+
+    @Test
+    void writesKbuTitleAndIntermediateCalculationSheet() throws Exception {
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "K-001", "01", "수시 일반고", "10", "(주)간호학과", 2026
+        );
+        TranscriptBatchVerificationResult batch = new TranscriptBatchVerificationResult(
+            List.of(new TranscriptBatchVerificationResult.Success(
+                application, "경복 학생", verification(), List.of(),
+                List.of(
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "교과", "국어", true, 2, 8, new BigDecimal("24"),
+                        new BigDecimal("48"), new BigDecimal("2"),
+                        new BigDecimal("2352"), new BigDecimal("98")
+                    ),
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "교과", "영어", false, null, 6, new BigDecimal("18"),
+                        new BigDecimal("72"), new BigDecimal("4"),
+                        new BigDecimal("1692"), new BigDecimal("94")
+                    )
+                ),
+                null
+            )),
+            List.of()
+        );
+
+        byte[] file = writer.write(
+            "경복대 성적검증 파일.xlsx", "KOREAN_MULTI_SHEET_V1", "경복대학교", 1, 2,
+            List.of(), List.of(), List.of(), List.of(), batch
+        );
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
+                .startsWith("경복대 교과성적 검증 결과");
+            Sheet intermediate = workbook.getSheet("성적 산출 중간값");
+            assertThat(intermediate).isNotNull();
+            assertThat(intermediate.getRow(2).getCell(11).getStringCellValue()).isEqualTo("평균등급");
+            assertThat(intermediate.getRow(3).getCell(5).getStringCellValue()).isEqualTo("국어");
+            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("선택됨");
+            assertThat(intermediate.getRow(3).getCell(6).getCellStyle().getFillPattern())
+                .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            assertThat(intermediate.getRow(3).getCell(11).getNumericCellValue()).isEqualTo(2);
+            assertThat(intermediate.getRow(4).getCell(6).getStringCellValue()).isEqualTo("미선택");
         }
     }
 

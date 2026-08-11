@@ -45,10 +45,16 @@ class TranscriptValidationExcelWriter {
         "석차등급", "성취도", "이수단위", "환산점수", "가중점수",
         "진로선택", "전문교과", "원본 고교구분", "지원자 고교구분코드"
     };
+    private static final String[] INTERMEDIATE_HEADERS = {
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "산출 구분", "교과·학기",
+        "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
+        "평균등급", "환산점수×이수단위 합", "평균환산점수"
+    };
 
     byte[] write(
         String originalFileName,
         String sourceFormat,
+        String universityName,
         int applicationRows,
         int totalRows,
         List<TranscriptImportRowError> skipped,
@@ -61,7 +67,8 @@ class TranscriptValidationExcelWriter {
         workbook.setCompressTempFiles(true);
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
-            createVerificationResultSheet(workbook, styles, verification);
+            createVerificationResultSheet(workbook, styles, universityName, verification);
+            createIntermediateCalculationSheet(workbook, styles, universityName, verification);
             createCourseComparisonSheet(workbook, styles, courses, verification);
             createSummarySheet(
                 workbook, styles, originalFileName, sourceFormat, applicationRows,
@@ -172,11 +179,13 @@ class TranscriptValidationExcelWriter {
     private void createVerificationResultSheet(
         SXSSFWorkbook workbook,
         Styles styles,
+        String universityName,
         TranscriptBatchVerificationResult verification
     ) {
         Sheet sheet = workbook.createSheet("학생별 검증 결과");
         sheet.setDisplayGridlines(false);
-        title(sheet, styles, "한신대 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
+        title(sheet, styles, shortUniversityName(universityName)
+            + " 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
         header(sheet, styles, RESULT_HEADERS);
         List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
         results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
@@ -198,6 +207,50 @@ class TranscriptValidationExcelWriter {
         }
         finishTable(sheet, results.size(), RESULT_HEADERS.length);
         setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
+    }
+
+    private void createIntermediateCalculationSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        String universityName,
+        TranscriptBatchVerificationResult verification
+    ) {
+        boolean hasIntermediateCalculations = verification.successes().stream()
+            .anyMatch(success -> !success.intermediateCalculations().isEmpty());
+        if (!hasIntermediateCalculations) return;
+
+        Sheet sheet = workbook.createSheet("성적 산출 중간값");
+        sheet.setDisplayGridlines(false);
+        title(
+            sheet, styles,
+            shortUniversityName(universityName)
+                + " 성적 산출 중간값 - 노란색 셀은 최종 계산에 선택된 교과·학기",
+            INTERMEDIATE_HEADERS.length - 1
+        );
+        header(sheet, styles, INTERMEDIATE_HEADERS);
+
+        List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
+        results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
+        int rowIndex = 3;
+        for (TranscriptBatchVerificationResult.Success success : results) {
+            for (TranscriptBatchVerificationResult.IntermediateCalculation calculation
+                : success.intermediateCalculations()) {
+                TransferApplicationRow application = success.application();
+                Row row = sheet.createRow(rowIndex++);
+                writeRow(row, new Object[] {
+                    application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                    application.recruitmentUnitName(), calculation.groupType(), calculation.groupName(),
+                    calculation.selected() ? "선택됨" : "미선택", calculation.selectionOrder(),
+                    calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
+                    calculation.averageGrade(), calculation.convertedScoreTimesCreditsSum(),
+                    calculation.averageConvertedScore()
+                }, styles, -1);
+                if (calculation.selected()) row.getCell(6).setCellStyle(styles.selected);
+            }
+        }
+        finishTable(sheet, rowIndex - 3, INTERMEDIATE_HEADERS.length);
+        sheet.createFreezePane(6, 3);
+        setWidths(sheet, INTERMEDIATE_HEADERS, Set.of(2, 3));
     }
 
     private void createCourseComparisonSheet(
@@ -414,6 +467,13 @@ class TranscriptValidationExcelWriter {
         if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
         if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
         return "표준 성적양식";
+    }
+
+    private String shortUniversityName(String universityName) {
+        if (universityName == null || universityName.isBlank()) return "대학";
+        String name = universityName.trim();
+        if (name.endsWith("대학교")) return name.substring(0, name.length() - "대학교".length()) + "대";
+        return name;
     }
 
     private static final class Styles {
