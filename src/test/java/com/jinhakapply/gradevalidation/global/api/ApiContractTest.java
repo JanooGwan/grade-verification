@@ -143,6 +143,25 @@ class ApiContractTest {
     }
 
     @Test
+    void downloadsSavedVerificationBatchAsExcel() throws Exception {
+        when(savedVerificationQueryService.export(80L)).thenReturn(new byte[] {7, 8, 9});
+
+        mockMvc.perform(get("/api/transcripts/saved-verifications/batches/80/export"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {7, 8, 9}));
+
+        verify(savedVerificationQueryService).export(80L);
+    }
+
+    @Test
     void verifiesOnlyStoredTranscriptData() throws Exception {
         when(storedTranscriptVerificationService.verify(1L, 2027)).thenReturn(new TranscriptPreviewResponse(
             "stored.xlsx", "hash", "HANSHIN_MULTI_SHEET_V1", 1, 2, 2, 0, 0,

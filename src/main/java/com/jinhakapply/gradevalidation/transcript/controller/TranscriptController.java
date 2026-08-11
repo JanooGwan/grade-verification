@@ -97,6 +97,19 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
+    public ResponseEntity<byte[]> exportSavedVerificationBatch(Long sourceImportId) {
+        byte[] result = savedVerificationQueryService.export(sourceImportId);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(result.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("저장검증결과-" + sourceImportId + ".xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
+    }
+
+    @Override
     public ResponseEntity<byte[]> exportStoredTranscriptVerification(Long universityId, int admissionYear) {
         byte[] result = storedTranscriptVerificationService.export(universityId, admissionYear);
         return ResponseEntity.ok()

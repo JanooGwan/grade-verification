@@ -48,6 +48,68 @@ public class SavedVerificationQueryRepository {
             ), universityId, admissionYear);
     }
 
+    public Optional<SavedVerificationBatchResponse> findBatch(Long sourceImportId) {
+        List<SavedVerificationBatchResponse> results = jdbcTemplate.query("""
+            SELECT transcript_import.id AS source_import_id,
+                   university.id AS university_id,
+                   university.name AS university_name,
+                   transcript_import.admission_year,
+                   transcript_import.original_file_name,
+                   transcript_import.source_format,
+                   COUNT(verification.id) AS result_count,
+                   MAX(verification.created_at) AS saved_at
+            FROM verification_run verification
+            JOIN student_transcript_import transcript_import
+              ON transcript_import.id = verification.source_import_id
+            JOIN university ON university.id = transcript_import.university_id
+            WHERE transcript_import.id = ?
+            GROUP BY transcript_import.id, university.id, university.name,
+                     transcript_import.admission_year, transcript_import.original_file_name,
+                     transcript_import.source_format
+            """, (resultSet, ignored) -> new SavedVerificationBatchResponse(
+                resultSet.getLong("source_import_id"),
+                resultSet.getLong("university_id"),
+                resultSet.getString("university_name"),
+                resultSet.getInt("admission_year"),
+                resultSet.getString("original_file_name"),
+                resultSet.getString("source_format"),
+                resultSet.getLong("result_count"),
+                resultSet.getTimestamp("saved_at").toLocalDateTime()
+            ), sourceImportId);
+        return results.stream().findFirst();
+    }
+
+    public List<ExportProjection> findExportResults(Long sourceImportId) {
+        return jdbcTemplate.query("""
+            SELECT verification.id AS verification_run_id,
+                   verification.rule_id,
+                   application.id AS application_id,
+                   student.applicant_number,
+                   student.name AS student_name,
+                   track.name AS admission_track_name,
+                   unit.code AS recruitment_unit_code,
+                   unit.name AS recruitment_unit_name,
+                   verification.result_json
+            FROM verification_run verification
+            JOIN student ON student.id = verification.student_id
+            JOIN student_application application ON application.id = verification.application_id
+            JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+            JOIN admission_track track ON track.id = unit.admission_track_id
+            WHERE verification.source_import_id = ?
+            ORDER BY student.applicant_number, verification.id
+            """, (resultSet, ignored) -> new ExportProjection(
+                resultSet.getLong("verification_run_id"),
+                resultSet.getLong("rule_id"),
+                resultSet.getLong("application_id"),
+                resultSet.getString("applicant_number"),
+                resultSet.getString("student_name"),
+                resultSet.getString("admission_track_name"),
+                resultSet.getString("recruitment_unit_code"),
+                resultSet.getString("recruitment_unit_name"),
+                resultSet.getString("result_json")
+            ), sourceImportId);
+    }
+
     public long countResults(Long sourceImportId, String keyword) {
         return jdbcTemplate.queryForObject("""
             SELECT COUNT(*)
@@ -151,6 +213,18 @@ public class SavedVerificationQueryRepository {
         String applicantNumber,
         String studentName,
         java.time.LocalDateTime savedAt,
+        String resultJson
+    ) {}
+
+    public record ExportProjection(
+        Long verificationRunId,
+        Long ruleId,
+        Long applicationId,
+        String applicantNumber,
+        String studentName,
+        String admissionTrackName,
+        String recruitmentUnitCode,
+        String recruitmentUnitName,
         String resultJson
     ) {}
 }
