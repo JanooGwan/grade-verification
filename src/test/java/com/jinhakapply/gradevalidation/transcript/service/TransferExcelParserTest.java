@@ -68,6 +68,7 @@ class TransferExcelParserTest {
             assertThat(application.admissionYear()).isEqualTo(2026);
             assertThat(application.applicantNumber()).isEqualTo("2B0726");
             assertThat(application.graduationYear()).isEqualTo(2025);
+            assertThat(application.recruitmentPeriodName()).isEqualTo("수시1차");
         });
         assertThat(result.courses()).singleElement().satisfies(course -> {
             assertThat(course.applicantNumber()).isEqualTo("2B0726");

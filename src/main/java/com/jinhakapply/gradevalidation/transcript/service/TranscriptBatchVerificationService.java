@@ -27,6 +27,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 class TranscriptBatchVerificationService {
     private static final String HANSHIN_UNIVERSITY_CODE = "HS";
+    private static final String KBU_UNIVERSITY_CODE = "KBOK";
+    private static final String KBU_GENERAL_UNITS = "일반학과";
+    private static final String KBU_HEALTH_UNITS = "간호·치위생·작업치료·임상병리·물리치료";
+    private static final String KBU_INTERVIEW_UNITS = "항공서비스과·준오헤어디자인과";
+    private static final String KBU_PRACTICAL_UNITS = "실용음악과·공연예술과";
     private static final Set<String> COMMON_UNIT_NAMES = Set.of(
         "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
         "공통", "모든모집단위"
@@ -243,6 +248,9 @@ class TranscriptBatchVerificationService {
     }
 
     private List<EvaluationRule> matchRules(List<EvaluationRule> rules, TransferApplicationRow application) {
+        if (rules.stream().anyMatch(this::isKbuRule)) {
+            return matchKbuRules(rules, application);
+        }
         List<EvaluationRule> sameTrack = rules.stream()
             .filter(rule -> normalizePolicyText(rule.getAdmissionType())
                 .equals(normalizePolicyText(application.admissionTrackName())))
@@ -259,6 +267,35 @@ class TranscriptBatchVerificationService {
         return sameTrack.stream()
             .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
             .toList();
+    }
+
+    private List<EvaluationRule> matchKbuRules(
+        List<EvaluationRule> rules,
+        TransferApplicationRow application
+    ) {
+        String admissionType = normalizePolicyText(application.admissionTrackName());
+        String recruitmentUnit = normalizePolicyText(kbuRuleUnit(application.recruitmentUnitName()));
+        return rules.stream()
+            .filter(this::isKbuRule)
+            .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(admissionType))
+            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(recruitmentUnit))
+            .toList();
+    }
+
+    private boolean isKbuRule(EvaluationRule rule) {
+        return rule.getUniversity() != null
+            && KBU_UNIVERSITY_CODE.equalsIgnoreCase(rule.getUniversity().getCode());
+    }
+
+    static String kbuRuleUnit(String recruitmentUnitName) {
+        String unit = normalizePolicyText(recruitmentUnitName);
+        if (unit.contains("실용음악") || unit.contains("공연예술")) return KBU_PRACTICAL_UNITS;
+        if (unit.contains("항공서비스") || unit.contains("준오헤어디자인")) return KBU_INTERVIEW_UNITS;
+        if (unit.contains("간호") || unit.contains("치위생") || unit.contains("작업치료")
+            || unit.contains("임상병리") || unit.contains("물리치료")) {
+            return KBU_HEALTH_UNITS;
+        }
+        return KBU_GENERAL_UNITS;
     }
 
     private boolean requiresDedicatedHanshinRule(String admissionTrackName) {

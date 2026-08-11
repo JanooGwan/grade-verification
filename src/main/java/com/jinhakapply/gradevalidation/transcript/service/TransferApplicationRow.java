@@ -9,7 +9,8 @@ record TransferApplicationRow(
     String admissionTrackName,
     String recruitmentUnitCode,
     String recruitmentUnitName,
-    Integer graduationYear
+    Integer graduationYear,
+    String recruitmentPeriodName
 ) {
     TransferApplicationRow(
         int rowNumber,
@@ -23,7 +24,24 @@ record TransferApplicationRow(
     ) {
         this(
             null, rowNumber, admissionYear, applicantNumber, admissionTrackCode, admissionTrackName,
-            recruitmentUnitCode, recruitmentUnitName, graduationYear
+            recruitmentUnitCode, recruitmentUnitName, graduationYear, null
+        );
+    }
+
+    TransferApplicationRow(
+        int rowNumber,
+        int admissionYear,
+        String applicantNumber,
+        String admissionTrackCode,
+        String admissionTrackName,
+        String recruitmentUnitCode,
+        String recruitmentUnitName,
+        Integer graduationYear,
+        String recruitmentPeriodName
+    ) {
+        this(
+            null, rowNumber, admissionYear, applicantNumber, admissionTrackCode, admissionTrackName,
+            recruitmentUnitCode, recruitmentUnitName, graduationYear, recruitmentPeriodName
         );
     }
 }

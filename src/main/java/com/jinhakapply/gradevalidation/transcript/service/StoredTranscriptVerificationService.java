@@ -186,7 +186,8 @@ public class StoredTranscriptVerificationService {
                 resultSet.getString("admission_track_name"),
                 resultSet.getString("recruitment_unit_code"),
                 resultSet.getString("recruitment_unit_name"),
-                nullableInteger(resultSet, "graduation_year")
+                nullableInteger(resultSet, "graduation_year"),
+                null
             ), universityId, admissionYear, universityId, admissionYear);
     }
 

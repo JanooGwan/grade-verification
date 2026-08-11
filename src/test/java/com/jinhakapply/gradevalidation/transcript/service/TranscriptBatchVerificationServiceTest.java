@@ -36,6 +36,54 @@ class TranscriptBatchVerificationServiceTest {
     @Mock University university;
 
     @Test
+    void matchesKbuApplicationToPublishedAdmissionAndUnitGroup() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService
+        );
+        EvaluationRule generalRule = mock(EvaluationRule.class);
+        EvaluationRule healthRule = mock(EvaluationRule.class);
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            5L, 2026, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(generalRule, healthRule));
+        when(generalRule.getUniversity()).thenReturn(university);
+        when(generalRule.getAdmissionType()).thenReturn("수시 일반고");
+        when(generalRule.getRecruitmentUnit()).thenReturn("일반학과");
+        when(healthRule.getUniversity()).thenReturn(university);
+        when(healthRule.getAdmissionType()).thenReturn("수시 일반고");
+        when(healthRule.getRecruitmentUnit()).thenReturn("간호·치위생·작업치료·임상병리·물리치료");
+        when(university.getCode()).thenReturn("KBOK");
+        when(evaluationService.verify(eq(healthRule), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "2000", "수시 일반고", "3020", "(주)간호학과", 2026
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            5L, 2026, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).hasSize(1);
+        assertThat(result.failures()).isEmpty();
+        verify(evaluationService).verify(eq(healthRule), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void mapsKbuActualDepartmentNamesToRuleGroups() {
+        assertThat(List.of(
+            TranscriptBatchVerificationService.kbuRuleUnit("(주)간호학과"),
+            TranscriptBatchVerificationService.kbuRuleUnit("(주)항공서비스과"),
+            TranscriptBatchVerificationService.kbuRuleUnit("(주)공연예술과"),
+            TranscriptBatchVerificationService.kbuRuleUnit("(주)사회복지과")
+        )).containsExactly(
+            "간호·치위생·작업치료·임상병리·물리치료",
+            "항공서비스과·준오헤어디자인과",
+            "실용음악과·공연예술과",
+            "일반학과"
+        );
+    }
+
+    @Test
     void excludesCoursesWithoutGradableAssessmentBeforeVerification() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService

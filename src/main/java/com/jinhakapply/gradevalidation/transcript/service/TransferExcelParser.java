@@ -289,7 +289,8 @@ class TransferExcelParser {
             required(values, 8, "전형명"),
             optional(values, 9),
             required(values, 10, "모집단위명"),
-            integer(values, koreanLayout ? 12 : 11, false)
+            integer(values, koreanLayout ? 12 : 11, false),
+            optional(values, 2)
         );
     }
 
