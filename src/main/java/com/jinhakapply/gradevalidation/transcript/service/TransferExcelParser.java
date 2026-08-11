@@ -51,6 +51,10 @@ class TransferExcelParser {
 
     private static final String APPLICATION_SHEET = "vwapplyinfo";
     private static final String COURSE_SHEET = "hsbsubjectscore";
+    private static final String KOREAN_APPLICATION_SHEET = "지원자정보";
+    private static final String KOREAN_COURSE_SHEET = "교과학습발달";
+    private static final String HANSHIN_SOURCE_FORMAT = "HANSHIN_MULTI_SHEET_V1";
+    private static final String KOREAN_SOURCE_FORMAT = "KOREAN_MULTI_SHEET_V1";
     private static final int MAX_COURSE_ROWS = 500_000;
     private static final int MAX_REPORTED_ERRORS = 1_000;
 
@@ -78,7 +82,9 @@ class TransferExcelParser {
                 });
                 xmlReader.parse(new InputSource(workbookData));
             }
-            return sheets.contains(APPLICATION_SHEET) && sheets.contains(COURSE_SHEET);
+            boolean hanshinLayout = sheets.contains(APPLICATION_SHEET) && sheets.contains(COURSE_SHEET);
+            boolean koreanLayout = sheets.contains(KOREAN_APPLICATION_SHEET) && sheets.contains(KOREAN_COURSE_SHEET);
+            return hanshinLayout || koreanLayout;
             }
         } catch (Exception exception) {
             log.debug("Transfer workbook detection failed", exception);
@@ -99,6 +105,7 @@ class TransferExcelParser {
         int[] skippedRows = {0};
         int[] duplicateRows = {0};
         int[] missingAssessmentRows = {0};
+        String[] sourceFormat = {HANSHIN_SOURCE_FORMAT};
         Path temporaryFile = null;
         try {
             temporaryFile = copyToTemporaryFile(file, "transfer-import-");
@@ -110,18 +117,22 @@ class TransferExcelParser {
             while (iterator.hasNext()) {
                 try (InputStream sheet = iterator.next()) {
                     String sheetName = iterator.getSheetName().toLowerCase(Locale.ROOT);
-                    if (APPLICATION_SHEET.equals(sheetName)) {
+                    if (isApplicationSheet(sheetName)) {
                         found.add(APPLICATION_SHEET);
+                        boolean koreanLayout = KOREAN_APPLICATION_SHEET.equals(sheetName);
+                        if (koreanLayout) sourceFormat[0] = KOREAN_SOURCE_FORMAT;
                         readSheet(styles, strings, sheet, (rowNumber, values) -> {
                             if (rowNumber == 0) return;
                             try {
-                                applications.add(parseApplication(rowNumber + 1, values));
+                                applications.add(parseApplication(rowNumber + 1, values, koreanLayout));
                             } catch (IllegalArgumentException exception) {
                                 addError(errors, invalidRows, rowNumber + 1, exception.getMessage());
                             }
                         });
-                    } else if (COURSE_SHEET.equals(sheetName)) {
+                    } else if (isCourseSheet(sheetName)) {
                         found.add(COURSE_SHEET);
+                        boolean koreanLayout = KOREAN_COURSE_SHEET.equals(sheetName);
+                        if (koreanLayout) sourceFormat[0] = KOREAN_SOURCE_FORMAT;
                         readSheet(styles, strings, sheet, (rowNumber, values) -> {
                             if (rowNumber == 0) return;
                             if (courses.size() + invalidRows[0] + skippedRows[0] >= MAX_COURSE_ROWS) {
@@ -129,7 +140,7 @@ class TransferExcelParser {
                                     "전달양식 성적은 한 번에 최대 %,d행까지 처리할 수 있습니다.".formatted(MAX_COURSE_ROWS));
                             }
                             try {
-                                TranscriptExcelRow course = parseCourse(rowNumber + 1, values);
+                                TranscriptExcelRow course = parseCourse(rowNumber + 1, values, koreanLayout);
                                 courseMetadata.put(
                                     course.rowNumber(), new CourseSourceMetadata(optional(values, 6))
                                 );
@@ -148,7 +159,7 @@ class TransferExcelParser {
             }
             if (!found.containsAll(Set.of(APPLICATION_SHEET, COURSE_SHEET))) {
                 throw CustomException.of(INVALID_TRANSCRIPT_FILE,
-                    "한신대 전달양식 시트(vwapplyinfo, hsbsubjectscore)를 찾을 수 없습니다.");
+                    "전달양식 시트(vwapplyinfo/지원자정보, hsbsubjectscore/교과학습발달)를 찾을 수 없습니다.");
             }
         } catch (CustomException exception) {
             throw exception;
@@ -176,7 +187,7 @@ class TransferExcelParser {
                 .formatted(duplicateRows[0]));
         }
         return new TransferExcelParseResult(
-            "HANSHIN_MULTI_SHEET_V1",
+            sourceFormat[0],
             List.copyOf(applications),
             deduplicatedCourses,
             invalidRows[0],
@@ -185,6 +196,14 @@ class TransferExcelParser {
             List.copyOf(errors),
             List.copyOf(warnings)
         );
+    }
+
+    private boolean isApplicationSheet(String sheetName) {
+        return APPLICATION_SHEET.equals(sheetName) || KOREAN_APPLICATION_SHEET.equals(sheetName);
+    }
+
+    private boolean isCourseSheet(String sheetName) {
+        return COURSE_SHEET.equals(sheetName) || KOREAN_COURSE_SHEET.equals(sheetName);
     }
 
     private List<TranscriptExcelRow> deduplicateCourses(
@@ -256,7 +275,11 @@ class TransferExcelParser {
         xmlReader.parse(new InputSource(input));
     }
 
-    private TransferApplicationRow parseApplication(int rowNumber, Map<Integer, String> values) {
+    private TransferApplicationRow parseApplication(
+        int rowNumber,
+        Map<Integer, String> values,
+        boolean koreanLayout
+    ) {
         String applicantNumber = required(values, 3, "수험번호");
         return new TransferApplicationRow(
             rowNumber,
@@ -266,25 +289,26 @@ class TransferExcelParser {
             required(values, 8, "전형명"),
             optional(values, 9),
             required(values, 10, "모집단위명"),
-            integer(values, 11, false)
+            integer(values, koreanLayout ? 12 : 11, false)
         );
     }
 
-    private TranscriptExcelRow parseCourse(int rowNumber, Map<Integer, String> values) {
+    private TranscriptExcelRow parseCourse(int rowNumber, Map<Integer, String> values, boolean koreanLayout) {
         String applicantNumber = required(values, 2, "수험번호");
         int schoolYear = requiredInteger(values, 3, "학년", 1, 3);
         int semester = requiredInteger(values, 4, "학기", 1, 2);
         String organizationName = optional(values, 6);
-        String courseName = required(values, 8, "과목명");
-        BigDecimal credits = decimal(values, 9);
+        int columnOffset = koreanLayout ? 2 : 0;
+        String courseName = required(values, 8 + columnOffset, "과목명");
+        BigDecimal credits = decimal(values, 9 + columnOffset);
         if (credits == null || credits.signum() <= 0) {
             throw new IllegalArgumentException("이수단위는 0보다 커야 합니다.");
         }
-        Integer grade = positiveInteger(values, 16);
-        AchievementLevel achievement = achievement(optional(values, 17));
-        Integer rank = positiveInteger(values, 10);
-        Integer studentCount = positiveInteger(values, 11);
-        Integer tiedRank = positiveInteger(values, 12);
+        Integer grade = positiveInteger(values, 16 + columnOffset);
+        AchievementLevel achievement = achievement(optional(values, 17 + columnOffset));
+        Integer rank = positiveInteger(values, 10 + columnOffset);
+        Integer studentCount = positiveInteger(values, 11 + columnOffset);
+        Integer tiedRank = positiveInteger(values, 12 + columnOffset);
         return new TranscriptExcelRow(
             rowNumber,
             applicantNumber,
@@ -299,9 +323,9 @@ class TransferExcelParser {
             grade,
             GradeScale.NINE_LEVEL,
             achievement,
-            decimal(values, 13),
-            decimal(values, 14),
-            positiveDecimal(values, 15),
+            decimal(values, 13 + columnOffset),
+            decimal(values, 14 + columnOffset),
+            positiveDecimal(values, 15 + columnOffset),
             studentCount,
             rank,
             tiedRank,

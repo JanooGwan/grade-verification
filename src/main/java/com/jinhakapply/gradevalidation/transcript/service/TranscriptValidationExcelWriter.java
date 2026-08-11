@@ -411,7 +411,9 @@ class TranscriptValidationExcelWriter {
     }
 
     private String formatLabel(String sourceFormat) {
-        return "HANSHIN_MULTI_SHEET_V1".equals(sourceFormat) ? "한신대 전달양식" : "표준 성적양식";
+        if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
+        if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
+        return "표준 성적양식";
     }
 
     private static final class Styles {

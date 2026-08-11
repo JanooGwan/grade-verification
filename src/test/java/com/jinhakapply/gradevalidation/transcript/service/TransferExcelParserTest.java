@@ -57,6 +57,31 @@ class TransferExcelParserTest {
     }
 
     @Test
+    void detectsAndParsesKoreanNamedMultiSheetTransferWorkbook() throws Exception {
+        MockMultipartFile file = koreanNamedWorkbook();
+
+        assertThat(parser.supports(file)).isTrue();
+        TransferExcelParseResult result = parser.parse(file);
+
+        assertThat(result.sourceFormat()).isEqualTo("KOREAN_MULTI_SHEET_V1");
+        assertThat(result.applications()).singleElement().satisfies(application -> {
+            assertThat(application.admissionYear()).isEqualTo(2026);
+            assertThat(application.applicantNumber()).isEqualTo("2B0726");
+            assertThat(application.graduationYear()).isEqualTo(2025);
+        });
+        assertThat(result.courses()).singleElement().satisfies(course -> {
+            assertThat(course.applicantNumber()).isEqualTo("2B0726");
+            assertThat(course.subjectCategory()).isEqualTo(SubjectCategory.OTHER);
+            assertThat(course.courseName()).isEqualTo("일본어Ⅰ");
+            assertThat(course.credits()).isEqualByComparingTo("2");
+            assertThat(course.grade()).isEqualTo(3);
+            assertThat(course.studentCount()).isEqualTo(181);
+            assertThat(course.rawScore()).isEqualByComparingTo("94");
+        });
+        assertThat(result.invalidRows()).isZero();
+    }
+
+    @Test
     void classifiesOnlyCoreSubjectOrganizationsAsCoreSubjects() throws Exception {
         MockMultipartFile file = hanshinSubjectCategoryWorkbook();
 
@@ -141,6 +166,38 @@ class TransferExcelParserTest {
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "한신대-전달양식.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
+            );
+        }
+    }
+
+    private MockMultipartFile koreanNamedWorkbook() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet applications = workbook.createSheet("지원자정보");
+            writeRow(applications.createRow(0), new Object[] {
+                "입학연도", "모집시기", "모집시기명", "수험번호", "군ID", "계열", "계열명",
+                "전형코드", "전형명", "모집단위코드", "모집단위명", "학과부코드", "졸업연도",
+                "학생부동의코드", "학생부동의"
+            });
+            writeRow(applications.createRow(1), new Object[] {
+                2026, 1, "수시1차", "2B0726", 0, 2, "자연과학계열", "5000", "전문대학졸업이상자",
+                "3080", "물리치료과", "3080", 2025, 1, "동의"
+            });
+
+            Sheet courses = workbook.createSheet("교과학습발달");
+            writeRow(courses.createRow(0), new Object[] {
+                "입학연도", "모집시기", "수험번호", "학년", "학기", "편제코드", "편제명", "교과코드",
+                "교과명", "과목코드", "과목명", "이수단위", "석차", "재적수", "동석차", "원점수",
+                "평균", "표준편차", "석차등급", "성취도", "과목구분코드"
+            });
+            writeRow(courses.createRow(1), new Object[] {
+                2026, 1, "2B0726", 2, 2, "011122301010401", "기술·가정/제2외국어/한문/교양",
+                "000", " ", "0000000095", "일본어Ⅰ", 2, 0, 181, 0, 94, 64.6, 25, 3, null, "01"
+            });
+            workbook.createSheet("반영교과설정");
+            workbook.write(output);
+            return new MockMultipartFile(
+                "file", "경복대-성적검증.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
             );
         }
