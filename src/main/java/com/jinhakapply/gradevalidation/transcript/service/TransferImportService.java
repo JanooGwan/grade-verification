@@ -104,6 +104,8 @@ class TransferImportService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
         }
+        university = universityRepository.findByIdForUpdate(universityId)
+            .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
         StudentTranscriptImport previousImport = importRepository
             .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
                 university.getId(), admissionYear,
