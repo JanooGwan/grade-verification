@@ -311,8 +311,7 @@ public class TranscriptService {
             && transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED_WITH_ERRORS) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
         }
-        if ("SYU_SOURCE_WORKBOOK_V1".equals(transcriptImport.getSourceFormat())
-            && transcriptImport.getAdmissionYear() == 2026) {
+        if ("SYU_SOURCE_WORKBOOK_V1".equals(transcriptImport.getSourceFormat())) {
             syuImportScoreExcelWriter.write(transcriptImport, output);
             return;
         }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -308,6 +309,22 @@ class TranscriptServiceTest {
         assertThatThrownBy(() -> transcriptService.importExcel(2027, file))
             .isInstanceOf(CustomException.class);
         verifyNoInteractions(excelParser);
+    }
+
+    @Test
+    void exportsSyuSourceImportWithTheSelectedAdmissionYearScoreRule() {
+        StudentTranscriptImport transcriptImport = StudentTranscriptImport.create(
+            university, 2027, "syu-2026-source.xlsx", TranscriptImportMode.VALID_ROWS_ONLY,
+            "hash", 10, 10, 0, SyuSourceExcelStreamer.SOURCE_FORMAT
+        );
+        ReflectionTestUtils.setField(transcriptImport, "id", 20L);
+        when(importRepository.findById(20L)).thenReturn(Optional.of(transcriptImport));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        transcriptService.writeImportResult(20L, output);
+
+        verify(syuImportScoreExcelWriter).write(transcriptImport, output);
+        verifyNoInteractions(importResultExcelWriter);
     }
 
     @Test
