@@ -35,6 +35,9 @@ public class StudentTranscriptImport {
     @Column(name = "admission_year", nullable = false)
     private int admissionYear;
 
+    @Column(name = "source_admission_year")
+    private Integer sourceAdmissionYear;
+
     @Column(name = "original_file_name", nullable = false, length = 255)
     private String originalFileName;
 
