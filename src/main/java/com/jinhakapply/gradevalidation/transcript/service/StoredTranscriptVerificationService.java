@@ -42,17 +42,26 @@ public class StoredTranscriptVerificationService {
     private final JdbcTemplate jdbcTemplate;
     private final TranscriptBatchVerificationService batchVerificationService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final SyuImportScoreExcelWriter syuImportScoreExcelWriter;
     private final BatchVerificationRunRepository batchVerificationRunRepository;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public TranscriptPreviewResponse verify(Long universityId, int admissionYear) {
+        StudentTranscriptImport transcriptImport = loadLatestCompletedImport(universityId, admissionYear);
+        if (isSyuSource(transcriptImport)) {
+            return syuImportScoreExcelWriter.preview(transcriptImport);
+        }
         StoredVerification stored = verifyStored(universityId, admissionYear);
         return response(stored);
     }
 
     @Transactional(readOnly = true)
     public byte[] export(Long universityId, int admissionYear) {
+        StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
+        if (isSyuSource(latestImport)) {
+            return syuImportScoreExcelWriter.write(latestImport);
+        }
         StoredVerification stored = verifyStored(universityId, admissionYear);
         StudentTranscriptImport transcriptImport = stored.transcriptImport();
         return validationExcelWriter.write(
@@ -71,6 +80,13 @@ public class StoredTranscriptVerificationService {
 
     @Transactional
     public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear) {
+        StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
+        if (isSyuSource(latestImport)) {
+            throw CustomException.of(
+                INVALID_TRANSCRIPT_FILE,
+                "공통 교과 가상 시나리오는 실제 지원정보가 없어 검증 결과를 DB에 저장할 수 없습니다. 화면 결과 또는 Excel 내보내기를 사용해 주세요."
+            );
+        }
         StoredInput stored = loadStoredInput(universityId, admissionYear);
         Long sourceImportId = stored.transcriptImport().getId();
         int replacedResults = batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId);
@@ -126,24 +142,7 @@ public class StoredTranscriptVerificationService {
     }
 
     private StoredInput loadStoredInput(Long universityId, int admissionYear) {
-        importRepository.findTopByUniversity_IdAndAdmissionYearOrderByCreatedAtDesc(universityId, admissionYear)
-            .filter(latest -> latest.getStatus() == TranscriptImportStatus.QUEUED
-                || latest.getStatus() == TranscriptImportStatus.PROCESSING)
-            .ifPresent(latest -> {
-                throw CustomException.of(
-                    INVALID_TRANSCRIPT_FILE,
-                    "최신 DB 저장 작업 #%d이 아직 처리 중입니다. 완료 후 성적검증을 실행해 주세요."
-                        .formatted(latest.getId())
-                );
-            });
-        StudentTranscriptImport transcriptImport = importRepository
-            .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
-                universityId, admissionYear, COMPLETED_STATUSES
-            )
-            .orElseThrow(() -> CustomException.of(
-                STORED_TRANSCRIPT_DATA_NOT_FOUND,
-                "선택한 대학교·모집연도의 DB 저장 데이터를 먼저 업로드해 주세요."
-            ));
+        StudentTranscriptImport transcriptImport = loadLatestCompletedImport(universityId, admissionYear);
         List<TransferApplicationRow> applications = loadApplications(universityId, admissionYear);
         List<TranscriptExcelRow> courses = loadCourses(universityId, admissionYear);
         if (applications.isEmpty() || courses.isEmpty()) {
@@ -158,6 +157,31 @@ public class StoredTranscriptVerificationService {
             courses,
             loadSchoolInfo(universityId, admissionYear)
         );
+    }
+
+    private StudentTranscriptImport loadLatestCompletedImport(Long universityId, int admissionYear) {
+        importRepository.findTopByUniversity_IdAndAdmissionYearOrderByCreatedAtDesc(universityId, admissionYear)
+            .filter(latest -> latest.getStatus() == TranscriptImportStatus.QUEUED
+                || latest.getStatus() == TranscriptImportStatus.PROCESSING)
+            .ifPresent(latest -> {
+                throw CustomException.of(
+                    INVALID_TRANSCRIPT_FILE,
+                    "최신 DB 저장 작업 #%d이 아직 처리 중입니다. 완료 후 성적검증을 실행해 주세요."
+                        .formatted(latest.getId())
+                );
+            });
+        return importRepository
+            .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+                universityId, admissionYear, COMPLETED_STATUSES
+            )
+            .orElseThrow(() -> CustomException.of(
+                STORED_TRANSCRIPT_DATA_NOT_FOUND,
+                "선택한 대학교·모집연도의 DB 저장 데이터를 먼저 업로드해 주세요."
+            ));
+    }
+
+    private boolean isSyuSource(StudentTranscriptImport transcriptImport) {
+        return SyuSourceExcelStreamer.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat());
     }
 
     private List<TransferApplicationRow> loadApplications(Long universityId, int admissionYear) {

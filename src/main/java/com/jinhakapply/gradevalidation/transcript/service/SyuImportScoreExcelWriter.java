@@ -5,6 +5,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.PreparedStatement;
@@ -26,6 +27,7 @@ import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -64,6 +66,64 @@ class SyuImportScoreExcelWriter {
         this.jdbcTemplate = jdbcTemplate;
         this.ruleRepository = ruleRepository;
         this.evaluationService = evaluationService;
+    }
+
+    TranscriptPreviewResponse preview(StudentTranscriptImport transcriptImport) {
+        EvaluationRule rule = loadCommonRule(transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
+        List<TranscriptPreviewResponse.PreviewRow> sampleRows = new ArrayList<>();
+        List<TranscriptPreviewResponse.VerificationResultRow> sampleResults = new ArrayList<>();
+        int[] applicationRows = {0};
+        int[] courseRows = {0};
+        int[] successfulApplications = {0};
+        int[] failedApplications = {0};
+
+        streamCourses(transcriptImport, courses -> {
+            applicationRows[0]++;
+            courseRows[0] += courses.size();
+            for (Course course : courses) {
+                if (sampleRows.size() >= 50) break;
+                sampleRows.add(new TranscriptPreviewResponse.PreviewRow(
+                    course.sourceRowNumber(), course.applicantNumber(), "미등록",
+                    course.schoolYear(), course.semester(), course.subjectCategory(), course.courseName(),
+                    course.grade(), course.achievement(), course.credits()
+                ));
+            }
+            ApplicantResult result = calculate(courses, rule);
+            if (result.score() == null) {
+                failedApplications[0]++;
+                return;
+            }
+            successfulApplications[0]++;
+            if (sampleResults.size() < 20) {
+                GradeVerificationResponse score = result.score();
+                sampleResults.add(new TranscriptPreviewResponse.VerificationResultRow(
+                    applicationRows[0], courses.getFirst().applicantNumber(), "미등록",
+                    rule.getAdmissionType(), rule.getRecruitmentUnit(), score.finalScore(),
+                    score.averageGrade(), score.includedCourseCount()
+                ));
+            }
+        });
+
+        return new TranscriptPreviewResponse(
+            transcriptImport.getOriginalFileName(), transcriptImport.getFileSha256(),
+            transcriptImport.getSourceFormat(), applicationRows[0], transcriptImport.getTotalRows(),
+            courseRows[0], transcriptImport.getFailedRows(), 0, List.copyOf(sampleRows),
+            new TranscriptPreviewResponse.VerificationSummary(
+                applicationRows[0], successfulApplications[0], failedApplications[0], List.copyOf(sampleResults)
+            ),
+            List.of(),
+            List.of(
+                "DB 가져오기 #%d의 교과 성적을 사용했습니다.".formatted(transcriptImport.getId()),
+                "실제 지원 전형·모집단위 정보가 없어 모든 학생에게 '%s × %s' 공통 교과 규칙을 적용한 가상 시나리오입니다."
+                    .formatted(rule.getAdmissionType(), rule.getRecruitmentUnit())
+            )
+        );
+    }
+
+    byte[] write(StudentTranscriptImport transcriptImport) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        write(transcriptImport, output);
+        return output.toByteArray();
     }
 
     void write(StudentTranscriptImport transcriptImport, OutputStream output) {
