@@ -13,8 +13,19 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot.Attendance;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot.SchoolViolenceAction;
+import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
+import com.jinhakapply.gradevalidation.admission.service.GuidebookQuantitativeScoreCalculator;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
@@ -26,6 +37,8 @@ import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import org.apache.poi.ss.usermodel.BorderStyle;
@@ -47,29 +60,47 @@ import org.springframework.stereotype.Component;
 class SyuImportScoreExcelWriter {
     private static final String COMMON_RULE_KEY = "학교장추천|일반학과(부)";
     private static final String RESULT_SHEET_NAME = "지원자별 환산 결과";
-    private static final String[] RESULT_HEADERS = {
+    private static final String GUIDE_SHEET_NAME = "산출 안내";
+    private static final String[] COMMON_RESULT_HEADERS = {
         "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
         "환산점수×이수단위 합", "반영 이수단위 합",
         "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
         "최종 교과 성적"
     };
+    private static final String[] SCENARIO_RESULT_HEADERS = {
+        "수험번호", "전형명", "모집단위", "산출 상태",
+        "전체 과목수", "환산 가능 과목수", "반영 과목수",
+        "환산점수×이수단위 합", "반영 이수단위 합",
+        "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+        "교과 기준점수(100점)", "교과 반영점수", "환산 결석일수", "출결 반영점수",
+        "학교폭력 감점", "현재 산출점수", "전형 최종점수", "전형 총점 만점",
+        "추가입력·미산출 요소", "경고·오류", "규칙 버전"
+    };
+    private static final CalculateApplicationScoreRequest EMPTY_ADDITIONAL_SCORES =
+        new CalculateApplicationScoreRequest(null, null, null);
 
     private final JdbcTemplate jdbcTemplate;
     private final EvaluationRuleRepository ruleRepository;
     private final EvaluationService evaluationService;
+    private final GuidebookQuantitativeScoreCalculator applicationScoreCalculator;
 
     SyuImportScoreExcelWriter(
         JdbcTemplate jdbcTemplate,
         EvaluationRuleRepository ruleRepository,
-        EvaluationService evaluationService
+        EvaluationService evaluationService,
+        GuidebookQuantitativeScoreCalculator applicationScoreCalculator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.ruleRepository = ruleRepository;
         this.evaluationService = evaluationService;
+        this.applicationScoreCalculator = applicationScoreCalculator;
     }
 
     TranscriptPreviewResponse preview(StudentTranscriptImport transcriptImport) {
         EvaluationRule rule = loadCommonRule(transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
+        int scenarioCount = loadScenarioRules(
+            transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear()
+        ).size();
         List<TranscriptPreviewResponse.PreviewRow> sampleRows = new ArrayList<>();
         List<TranscriptPreviewResponse.VerificationResultRow> sampleResults = new ArrayList<>();
         int[] applicationRows = {0};
@@ -88,7 +119,7 @@ class SyuImportScoreExcelWriter {
                     course.grade(), course.achievement(), course.credits()
                 ));
             }
-            ApplicantResult result = calculate(courses, rule);
+            ApplicantResult result = calculate(courses, rule, emptyCommonData());
             if (result.score() == null) {
                 failedApplications[0]++;
                 return;
@@ -114,8 +145,12 @@ class SyuImportScoreExcelWriter {
             List.of(),
             List.of(
                 "DB 가져오기 #%d의 교과 성적을 사용했습니다.".formatted(transcriptImport.getId()),
-                "실제 지원 전형·모집단위 정보가 없어 모든 학생에게 '%s × %s' 공통 교과 규칙을 적용한 가상 시나리오입니다."
-                    .formatted(rule.getAdmissionType(), rule.getRecruitmentUnit())
+                "화면 미리보기는 '%s × %s' 교과 규칙을 적용합니다."
+                    .formatted(rule.getAdmissionType(), rule.getRecruitmentUnit()),
+                transcriptImport.getAdmissionYear() == 2027
+                    ? "Excel 내보내기에는 게시된 %d개 전형·모집단위 가상 시나리오와 출결점수, 추가입력 요소가 각각 구분됩니다."
+                        .formatted(scenarioCount)
+                    : "실제 지원 전형·모집단위 정보가 없어 공통 교과 규칙을 적용한 가상 시나리오입니다."
             )
         );
     }
@@ -127,38 +162,127 @@ class SyuImportScoreExcelWriter {
     }
 
     void write(StudentTranscriptImport transcriptImport, OutputStream output) {
-        EvaluationRule rule = loadCommonRule(transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
+        List<EvaluationRule> rules = loadScenarioRules(
+            transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear()
+        );
         SXSSFWorkbook workbook = new SXSSFWorkbook(200);
         workbook.setCompressTempFiles(true);
         try (workbook) {
             Styles styles = new Styles(workbook);
-            Sheet results = createResultSheet(workbook, styles);
-            int[] rowIndex = {3};
-
-            streamCourses(transcriptImport, courses -> {
-                ApplicantResult result = calculate(courses, rule);
-                writeApplicantRow(results.createRow(rowIndex[0]++), result, styles);
-            });
-
-            results.setAutoFilter(new CellRangeAddress(
-                2, Math.max(2, rowIndex[0] - 1), 0, RESULT_HEADERS.length - 1
-            ));
+            if (transcriptImport.getAdmissionYear() == 2027) {
+                writeScenarioWorkbook(workbook, styles, transcriptImport, rules);
+            } else {
+                writeCommonWorkbook(workbook, styles, transcriptImport, loadCommonRule(
+                    transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear()
+                ));
+            }
             workbook.write(output);
         } catch (IOException exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "삼육대 환산 결과 Excel 파일을 생성하지 못했습니다.");
         }
     }
 
+    private void writeCommonWorkbook(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        StudentTranscriptImport transcriptImport,
+        EvaluationRule rule
+    ) {
+        Sheet results = createResultSheet(workbook, styles, RESULT_SHEET_NAME, COMMON_RESULT_HEADERS);
+        int[] rowIndex = {3};
+        streamCourses(transcriptImport, courses -> {
+            ApplicantResult result = calculate(courses, rule, emptyCommonData());
+            writeCommonApplicantRow(results.createRow(rowIndex[0]++), result, styles);
+        });
+        applyResultSheetFeatures(results, rowIndex[0], COMMON_RESULT_HEADERS.length);
+    }
+
+    private void writeScenarioWorkbook(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        StudentTranscriptImport transcriptImport,
+        List<EvaluationRule> rules
+    ) {
+        Map<String, StudentCommonEvaluationSnapshot> commonData = loadCommonData(transcriptImport);
+        createGuideSheet(workbook, styles, rules);
+        List<ScenarioSheet> scenarioSheets = rules.stream()
+            .map(rule -> new ScenarioSheet(
+                rule,
+                createResultSheet(workbook, styles, scenarioSheetName(rule), SCENARIO_RESULT_HEADERS),
+                new int[] {3}
+            ))
+            .toList();
+
+        streamCourses(transcriptImport, courses -> {
+            String applicantNumber = courses.getFirst().applicantNumber();
+            StudentCommonEvaluationSnapshot applicantData = commonData.getOrDefault(
+                applicantNumber, emptyCommonData()
+            );
+            for (ScenarioSheet scenario : scenarioSheets) {
+                ApplicantResult result = calculate(courses, scenario.rule(), applicantData);
+                writeScenarioApplicantRow(
+                    scenario.sheet().createRow(scenario.rowIndex()[0]++), result, scenario.rule(), styles
+                );
+            }
+        });
+
+        scenarioSheets.forEach(scenario -> applyResultSheetFeatures(
+            scenario.sheet(), scenario.rowIndex()[0], SCENARIO_RESULT_HEADERS.length
+        ));
+    }
+
     private EvaluationRule loadCommonRule(Long universityId, int admissionYear) {
-        EvaluationRule rule = ruleRepository
-            .findAllByUniversityIdAndAdmissionYearAndStatus(universityId, admissionYear, PUBLISHED)
-            .stream()
+        EvaluationRule rule = loadScenarioRules(universityId, admissionYear).stream()
             .filter(candidate -> COMMON_RULE_KEY.equals(ruleKey(candidate)))
-            .max(Comparator.comparingInt(EvaluationRule::getVersion))
+            .findFirst()
             .orElseThrow(() -> CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "삼육대 " + admissionYear + "학년도 공통 교과 환산 규칙이 없습니다."));
-        initializeRuleCollections(rule);
         return rule;
+    }
+
+    private List<EvaluationRule> loadScenarioRules(Long universityId, int admissionYear) {
+        Map<String, EvaluationRule> latestByScenario = ruleRepository
+            .findAllByUniversityIdAndAdmissionYearAndStatus(universityId, admissionYear, PUBLISHED)
+            .stream()
+            .collect(Collectors.toMap(
+                this::ruleKey,
+                Function.identity(),
+                (left, right) -> left.getVersion() >= right.getVersion() ? left : right,
+                LinkedHashMap::new
+            ));
+        List<EvaluationRule> rules = latestByScenario.values().stream()
+            .sorted(Comparator
+                .comparingInt((EvaluationRule rule) -> admissionTypeOrder(rule.getAdmissionType()))
+                .thenComparingInt(rule -> recruitmentUnitOrder(rule.getRecruitmentUnit()))
+                .thenComparing(EvaluationRule::getAdmissionType)
+                .thenComparing(EvaluationRule::getRecruitmentUnit))
+            .toList();
+        if (rules.isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "삼육대 " + admissionYear + "학년도 게시 교과 환산 규칙이 없습니다.");
+        }
+        rules.forEach(this::initializeRuleCollections);
+        return rules;
+    }
+
+    private int admissionTypeOrder(String admissionType) {
+        return switch (admissionType) {
+            case "학교장추천" -> 1;
+            case "농어촌" -> 2;
+            case "서해5도" -> 3;
+            case "특성화고교" -> 4;
+            case "특성화고졸재직자" -> 5;
+            case "예체능인재" -> 6;
+            default -> 100;
+        };
+    }
+
+    private int recruitmentUnitOrder(String recruitmentUnit) {
+        if (recruitmentUnit.contains("일반학과")) return 1;
+        if (recruitmentUnit.contains("약학")) return 2;
+        if (recruitmentUnit.contains("아트앤디자인")) return 3;
+        if (recruitmentUnit.contains("체육")) return 4;
+        return 100;
     }
 
     private void initializeRuleCollections(EvaluationRule rule) {
@@ -229,19 +353,47 @@ class SyuImportScoreExcelWriter {
         return value == null ? null : Enum.valueOf(type, value);
     }
 
-    private ApplicantResult calculate(List<Course> courses, EvaluationRule rule) {
+    private ApplicantResult calculate(
+        List<Course> courses,
+        EvaluationRule rule,
+        StudentCommonEvaluationSnapshot commonData
+    ) {
         try {
             GradeVerificationResponse score = evaluationService.verify(rule, new VerifyGradeRequest(
-                rule.getId(), false, HighSchoolType.GENERAL, null,
+                rule.getId(), false, highSchoolType(rule), null,
                 courses.stream().map(Course::toRequest).toList()
             ));
-            return new ApplicantResult(courses, score);
+            try {
+                ApplicationScoreResult applicationScore = applicationScoreCalculator.calculate(
+                    rule, rule.getAdmissionType(), score, EMPTY_ADDITIONAL_SCORES,
+                    commonDataForRule(commonData, rule)
+                );
+                return new ApplicantResult(courses, score, applicationScore, null);
+            } catch (CustomException exception) {
+                return new ApplicantResult(courses, score, null, exception.getMessage());
+            }
         } catch (CustomException exception) {
-            return new ApplicantResult(courses, null);
+            return new ApplicantResult(courses, null, null, exception.getMessage());
         }
     }
 
-    private void writeApplicantRow(Row row, ApplicantResult result, Styles styles) {
+    private HighSchoolType highSchoolType(EvaluationRule rule) {
+        return rule.getAdmissionType().contains("특성화고")
+            ? HighSchoolType.SPECIALIZED : HighSchoolType.GENERAL;
+    }
+
+    private StudentCommonEvaluationSnapshot commonDataForRule(
+        StudentCommonEvaluationSnapshot data,
+        EvaluationRule rule
+    ) {
+        return new StudentCommonEvaluationSnapshot(
+            data.educationBackground(), highSchoolType(rule), data.graduationStatus(), data.graduationYear(),
+            data.gedAverageScore(), data.gedSubjectScores(), data.legacyGradeSummaries(),
+            data.attendance(), data.schoolViolenceActions()
+        );
+    }
+
+    private void writeCommonApplicantRow(Row row, ApplicantResult result, Styles styles) {
         GradeVerificationResponse score = result.score();
         Object[] values = {
             result.courses().getFirst().applicantNumber(),
@@ -260,6 +412,70 @@ class SyuImportScoreExcelWriter {
         };
         writeRow(row, values, styles);
         row.setHeightInPoints(24);
+    }
+
+    private void writeScenarioApplicantRow(
+        Row row,
+        ApplicantResult result,
+        EvaluationRule rule,
+        Styles styles
+    ) {
+        GradeVerificationResponse score = result.score();
+        ApplicationScoreResult applicationScore = result.applicationScore();
+        Object[] values = {
+            result.courses().getFirst().applicantNumber(),
+            rule.getAdmissionType(),
+            rule.getRecruitmentUnit(),
+            statusLabel(result),
+            result.courses().size(),
+            gradableCount(result.courses()),
+            score == null ? null : score.includedCourseCount(),
+            score == null ? null : score.calculationSummary().convertedScoreTimesCreditsSum(),
+            score == null ? null : score.calculationSummary().totalIncludedCredits(),
+            semesterIntermediate(score, 1, 1),
+            semesterIntermediate(score, 1, 2),
+            semesterIntermediate(score, 2, 1),
+            semesterIntermediate(score, 2, 2),
+            semesterIntermediate(score, 3, 1),
+            semesterIntermediate(score, 3, 2),
+            score == null ? null : score.baseScore(),
+            applicationScore == null ? null : applicationScore.academicScore(),
+            applicationScore == null ? null : applicationScore.equivalentAbsenceDays(),
+            applicationScore == null ? null : applicationScore.attendanceScore(),
+            applicationScore == null ? null : applicationScore.schoolViolenceDeduction(),
+            applicationScore == null ? null : applicationScore.scoreAfterDeduction(),
+            applicationScore == null ? null : applicationScore.finalScore(),
+            applicationScore == null ? null : applicationScore.maximumTotalScore(),
+            applicationScore == null ? pendingDescription(rule)
+                : String.join(", ", applicationScore.pendingComponents()),
+            warningAndError(result),
+            rule.getVersion()
+        };
+        writeRow(row, values, styles);
+        row.setHeightInPoints(24);
+    }
+
+    private String statusLabel(ApplicantResult result) {
+        if (result.score() == null) return "교과 산출 실패";
+        if (result.applicationScore() == null) return "정량 산출 실패";
+        return switch (result.applicationScore().status()) {
+            case COMPLETE -> "산출 완료";
+            case QUALITATIVE_PENDING -> "외부점수 입력 필요";
+            case INELIGIBLE -> "지원자격 확인 필요";
+        };
+    }
+
+    private String warningAndError(ApplicantResult result) {
+        List<String> messages = new ArrayList<>();
+        if (result.errorMessage() != null && !result.errorMessage().isBlank()) {
+            messages.add(result.errorMessage());
+        }
+        if (result.score() != null) messages.addAll(result.score().warnings());
+        if (result.applicationScore() != null) {
+            messages.addAll(result.applicationScore().ineligibilityReasons());
+            messages.addAll(result.applicationScore().warnings());
+        }
+        return String.join(" / ", messages);
     }
 
     private BigDecimal semesterIntermediate(GradeVerificationResponse score, int schoolYear, int semester) {
@@ -299,22 +515,155 @@ class SyuImportScoreExcelWriter {
         ).count();
     }
 
-    private Sheet createResultSheet(SXSSFWorkbook workbook, Styles styles) {
-        Sheet sheet = workbook.createSheet(RESULT_SHEET_NAME);
+    private Map<String, StudentCommonEvaluationSnapshot> loadCommonData(
+        StudentTranscriptImport transcriptImport
+    ) {
+        Map<String, CommonDataBuilder> builders = new HashMap<>();
+        jdbcTemplate.query("""
+            SELECT student.applicant_number, attendance.school_year,
+                   attendance.unexcused_absence_days, attendance.unexcused_tardy_count,
+                   attendance.unexcused_early_leave_count, attendance.unexcused_class_absence_count
+            FROM student_attendance attendance
+            JOIN student student ON student.id = attendance.student_id
+            WHERE student.university_id = ? AND student.admission_year = ?
+            ORDER BY student.applicant_number, attendance.school_year
+            """, (org.springframework.jdbc.core.RowCallbackHandler) rs -> builders.computeIfAbsent(
+                rs.getString("applicant_number"), ignored -> new CommonDataBuilder()
+            ).attendance().add(new Attendance(
+                rs.getInt("school_year"), rs.getInt("unexcused_absence_days"),
+                rs.getInt("unexcused_tardy_count"), rs.getInt("unexcused_early_leave_count"),
+                rs.getInt("unexcused_class_absence_count")
+            )), transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
+
+        jdbcTemplate.query("""
+            SELECT student.applicant_number, action.school_year, action.action_number,
+                   action.action_date, action.active, action.note
+            FROM student_school_violence_action action
+            JOIN student student ON student.id = action.student_id
+            WHERE student.university_id = ? AND student.admission_year = ?
+            ORDER BY student.applicant_number, action.action_number
+            """, (org.springframework.jdbc.core.RowCallbackHandler) rs -> builders.computeIfAbsent(
+                rs.getString("applicant_number"), ignored -> new CommonDataBuilder()
+            ).schoolViolenceActions().add(new SchoolViolenceAction(
+                nullableInteger(rs, "school_year"), rs.getInt("action_number"),
+                rs.getDate("action_date") == null ? null : rs.getDate("action_date").toLocalDate(),
+                rs.getBoolean("active"), rs.getString("note")
+            )), transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear());
+
+        return builders.entrySet().stream().collect(Collectors.toMap(
+            Map.Entry::getKey,
+            entry -> entry.getValue().build()
+        ));
+    }
+
+    private StudentCommonEvaluationSnapshot emptyCommonData() {
+        return new StudentCommonEvaluationSnapshot(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.GENERAL,
+            GraduationStatus.EXPECTED_GRADUATE, null, null,
+            List.of(), List.of(), List.of(), List.of()
+        );
+    }
+
+    private void createGuideSheet(SXSSFWorkbook workbook, Styles styles, List<EvaluationRule> rules) {
+        Sheet sheet = workbook.createSheet(GUIDE_SHEET_NAME);
         sheet.setDisplayGridlines(false);
         Row title = sheet.createRow(0);
         title.setHeightInPoints(32);
-        set(title.createCell(0), RESULT_SHEET_NAME, styles.title);
-        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, RESULT_HEADERS.length - 1));
+        set(title.createCell(0), "삼육대학교 2027 전형·모집단위별 산출 안내", styles.title);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 8));
+        set(sheet.createRow(2).createCell(0),
+            "실제 지원 전형·모집단위 정보가 없으므로 모든 지원자를 각 규칙으로 계산한 가상 시나리오입니다.",
+            styles.notice);
+        sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, 8));
+        set(sheet.createRow(3).createCell(0),
+            "교과와 원본 출결은 자동 산출하며, 실기·수상실적·면접은 원본에 점수가 없어 '추가입력·미산출 요소'로 표시합니다.",
+            styles.notice);
+        sheet.addMergedRegion(new CellRangeAddress(3, 3, 0, 8));
+
+        String[] headers = {
+            "결과 시트", "전형명", "모집단위", "교과 반영방법", "교과 배점",
+            "출결", "추가입력·미산출 요소", "전형 총점", "근거"
+        };
+        Row header = sheet.createRow(5);
+        for (int index = 0; index < headers.length; index++) {
+            set(header.createCell(index), headers[index], styles.header);
+            sheet.setColumnWidth(index, (index == 3 || index == 6 ? 44 : 22) * 256);
+        }
+        int rowIndex = 6;
+        for (EvaluationRule rule : rules) {
+            Row row = sheet.createRow(rowIndex++);
+            Object[] values = {
+                scenarioSheetName(rule), rule.getAdmissionType(), rule.getRecruitmentUnit(),
+                rule.getInterpretationNote(),
+                BigDecimal.valueOf(100).multiply(rule.getScoreMultiplier()),
+                isAthleticTalent(rule) ? "교과 90% + 출결 10%" : "미반영",
+                pendingDescription(rule), new BigDecimal("1000"),
+                rule.getSourceDocument() + " " + rule.getSourcePages() + "쪽"
+            };
+            writeRow(row, values, styles);
+            row.setHeightInPoints(42);
+        }
+        sheet.createFreezePane(0, 6);
+        sheet.setAutoFilter(new CellRangeAddress(5, Math.max(5, rowIndex - 1), 0, headers.length - 1));
+    }
+
+    private String pendingDescription(EvaluationRule rule) {
+        if (isAthleticTalent(rule)) return "1단계 수상실적 600점, 2단계 면접 200점";
+        if (isPracticalTrack(rule)) {
+            return rule.getRecruitmentUnit().contains("아트앤디자인")
+                ? "실기고사 800점" : "실기고사 600점";
+        }
+        return "없음";
+    }
+
+    private boolean isAthleticTalent(EvaluationRule rule) {
+        return rule.getAdmissionType().equals("예체능인재")
+            && rule.getRecruitmentUnit().contains("체육학과");
+    }
+
+    private boolean isPracticalTrack(EvaluationRule rule) {
+        return (rule.getAdmissionType().equals("학교장추천") || rule.getAdmissionType().equals("농어촌"))
+            && (rule.getRecruitmentUnit().contains("아트앤디자인")
+                || rule.getRecruitmentUnit().contains("체육학과"));
+    }
+
+    static String scenarioSheetName(EvaluationRule rule) {
+        String unit = rule.getRecruitmentUnit()
+            .replace("일반학과(부)", "일반")
+            .replace("아트앤디자인학과", "아트디자인")
+            .replace("체육학과", "체육")
+            .replace("약학과", "약학");
+        String name = rule.getAdmissionType() + "_" + unit;
+        return name.length() <= 31 ? name : name.substring(0, 31);
+    }
+
+    private Sheet createResultSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        String sheetName,
+        String[] headers
+    ) {
+        Sheet sheet = workbook.createSheet(sheetName);
+        sheet.setDisplayGridlines(false);
+        Row title = sheet.createRow(0);
+        title.setHeightInPoints(32);
+        set(title.createCell(0), sheetName, styles.title);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, headers.length - 1));
 
         Row header = sheet.createRow(2);
         header.setHeightInPoints(36);
-        for (int index = 0; index < RESULT_HEADERS.length; index++) {
-            set(header.createCell(index), RESULT_HEADERS[index], styles.header);
-            sheet.setColumnWidth(index, Math.min(36, Math.max(14, RESULT_HEADERS[index].length() + 5)) * 256);
+        for (int index = 0; index < headers.length; index++) {
+            set(header.createCell(index), headers[index], styles.header);
+            sheet.setColumnWidth(index, Math.min(36, Math.max(14, headers[index].length() + 5)) * 256);
         }
         sheet.createFreezePane(1, 3);
         return sheet;
+    }
+
+    private void applyResultSheetFeatures(Sheet sheet, int nextRowIndex, int headerCount) {
+        sheet.setAutoFilter(new CellRangeAddress(
+            2, Math.max(2, nextRowIndex - 1), 0, headerCount - 1
+        ));
     }
 
     private void writeRow(Row row, Object[] values, Styles styles) {
@@ -336,7 +685,7 @@ class SyuImportScoreExcelWriter {
     }
 
     static List<String> resultHeaders() {
-        return List.of(RESULT_HEADERS);
+        return List.of(SCENARIO_RESULT_HEADERS);
     }
 
     private record Course(
@@ -356,8 +705,34 @@ class SyuImportScoreExcelWriter {
     }
 
     private record ApplicantResult(
-        List<Course> courses, GradeVerificationResponse score
+        List<Course> courses,
+        GradeVerificationResponse score,
+        ApplicationScoreResult applicationScore,
+        String errorMessage
     ) {}
+
+    private record ScenarioSheet(EvaluationRule rule, Sheet sheet, int[] rowIndex) {}
+
+    private static final class CommonDataBuilder {
+        private final List<Attendance> attendance = new ArrayList<>();
+        private final List<SchoolViolenceAction> schoolViolenceActions = new ArrayList<>();
+
+        private List<Attendance> attendance() {
+            return attendance;
+        }
+
+        private List<SchoolViolenceAction> schoolViolenceActions() {
+            return schoolViolenceActions;
+        }
+
+        private StudentCommonEvaluationSnapshot build() {
+            return new StudentCommonEvaluationSnapshot(
+                EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.GENERAL,
+                GraduationStatus.EXPECTED_GRADUATE, null, null,
+                List.of(), List.of(), List.copyOf(attendance), List.copyOf(schoolViolenceActions)
+            );
+        }
+    }
 
     @FunctionalInterface
     private interface CourseGroupConsumer {
@@ -369,6 +744,7 @@ class SyuImportScoreExcelWriter {
         private final CellStyle header;
         private final CellStyle value;
         private final CellStyle number;
+        private final CellStyle notice;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true, false);
@@ -376,6 +752,7 @@ class SyuImportScoreExcelWriter {
             value = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number.setDataFormat(workbook.createDataFormat().getFormat("#,##0.####"));
+            notice = style(workbook, IndexedColors.LIGHT_YELLOW, IndexedColors.DARK_RED, false, true);
         }
 
         private static CellStyle style(

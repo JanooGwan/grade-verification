@@ -84,7 +84,7 @@ public class StoredTranscriptVerificationService {
         if (isSyuSource(latestImport)) {
             throw CustomException.of(
                 INVALID_TRANSCRIPT_FILE,
-                "공통 교과 가상 시나리오는 실제 지원정보가 없어 검증 결과를 DB에 저장할 수 없습니다. 화면 결과 또는 Excel 내보내기를 사용해 주세요."
+                "전형·모집단위별 가상 시나리오는 실제 지원정보가 없어 검증 결과를 DB에 저장할 수 없습니다. 화면 결과 또는 Excel 내보내기를 사용해 주세요."
             );
         }
         StoredInput stored = loadStoredInput(universityId, admissionYear);
