@@ -83,7 +83,7 @@ class SavedVerificationQueryServiceTest {
         ));
         when(repository.findExportResults(80L)).thenReturn(List.of(
             new SavedVerificationQueryRepository.ExportProjection(
-                91L, 31L, 41L, "2B0004", "미등록", "수시 일반고", "101", "(주)간호학과",
+                91L, 31L, null, "2B0004", "미등록", "수시 일반고", "101", "(주)간호학과",
                 "{stored-result}"
             )
         ));
@@ -102,4 +102,5 @@ class SavedVerificationQueryServiceTest {
         verify(objectMapper).readValue("{stored-result}", GradeVerificationResponse.class);
         verify(batchVerificationService).buildKbuIntermediateCalculations(rule, verification);
     }
+
 }

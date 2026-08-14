@@ -1,0 +1,79 @@
+package com.jinhakapply.gradevalidation.transcript.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.function.BiConsumer;
+
+import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository;
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
+import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.ObjectMapper;
+
+@ExtendWith(MockitoExtension.class)
+class SyuScenarioVerificationPersistenceServiceTest {
+
+    @Mock SyuImportScoreExcelWriter scoreExcelWriter;
+    @Mock BatchVerificationRunRepository verificationRunRepository;
+    @Mock ObjectMapper objectMapper;
+    @Mock StudentTranscriptImport transcriptImport;
+    @Mock GradeVerificationResponse firstResult;
+    @Mock GradeVerificationResponse secondResult;
+    @Mock EvaluationRule rule;
+
+    private SyuScenarioVerificationPersistenceService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new SyuScenarioVerificationPersistenceService(
+            scoreExcelWriter, verificationRunRepository, objectMapper
+        );
+    }
+
+    @Test
+    void storesScenarioResultsWithStudentIdsAndNoApplications() {
+        when(transcriptImport.getId()).thenReturn(80L);
+        when(verificationRunRepository.deleteAllBySourceImportId(80L)).thenReturn(3);
+        when(objectMapper.writeValueAsString(firstResult)).thenReturn("{first}");
+        when(objectMapper.writeValueAsString(secondResult)).thenReturn("{second}");
+        when(verificationRunRepository.insertScenarios(eq(80L), anyList())).thenAnswer(invocation ->
+            ((List<?>) invocation.getArgument(1)).size()
+        );
+        doAnswer(invocation -> {
+            BiConsumer<Long, GradeVerificationResponse> consumer = invocation.getArgument(2);
+            consumer.accept(11L, firstResult);
+            consumer.accept(12L, secondResult);
+            return new SyuImportScoreExcelWriter.ScenarioVerificationSummary(3, 2, 1);
+        }).when(scoreExcelWriter).verifyScenarios(
+            eq(transcriptImport), eq(List.of(rule)), org.mockito.ArgumentMatchers.any()
+        );
+
+        var response = service.persist(transcriptImport, List.of(rule));
+
+        assertThat(response.sourceImportId()).isEqualTo(80L);
+        assertThat(response.totalApplications()).isEqualTo(3);
+        assertThat(response.savedResults()).isEqualTo(2);
+        assertThat(response.failedResults()).isEqualTo(1);
+        assertThat(response.replacedResults()).isEqualTo(3);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BatchVerificationRunRepository.ScenarioVerificationRow>> rowsCaptor =
+            ArgumentCaptor.forClass(List.class);
+        verify(verificationRunRepository).insertScenarios(eq(80L), rowsCaptor.capture());
+        assertThat(rowsCaptor.getValue())
+            .extracting(BatchVerificationRunRepository.ScenarioVerificationRow::studentId)
+            .containsExactly(11L, 12L);
+    }
+}

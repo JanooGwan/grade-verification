@@ -43,6 +43,7 @@ public class StoredTranscriptVerificationService {
     private final TranscriptBatchVerificationService batchVerificationService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
     private final SyuImportScoreExcelWriter syuImportScoreExcelWriter;
+    private final SyuScenarioVerificationPersistenceService syuPersistenceService;
     private final BatchVerificationRunRepository batchVerificationRunRepository;
     private final ObjectMapper objectMapper;
 
@@ -82,9 +83,9 @@ public class StoredTranscriptVerificationService {
     public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear) {
         StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
         if (isSyuSource(latestImport)) {
-            throw CustomException.of(
-                INVALID_TRANSCRIPT_FILE,
-                "전형·모집단위별 가상 시나리오는 실제 지원정보가 없어 검증 결과를 DB에 저장할 수 없습니다. 화면 결과 또는 Excel 내보내기를 사용해 주세요."
+            return syuPersistenceService.persist(
+                latestImport,
+                syuImportScoreExcelWriter.loadScenarioRules(universityId, admissionYear)
             );
         }
         StoredInput stored = loadStoredInput(universityId, admissionYear);

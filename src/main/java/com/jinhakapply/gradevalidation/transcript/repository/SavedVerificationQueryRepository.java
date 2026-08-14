@@ -86,21 +86,22 @@ public class SavedVerificationQueryRepository {
                    application.id AS application_id,
                    student.applicant_number,
                    student.name AS student_name,
-                   track.name AS admission_track_name,
+                   COALESCE(track.name, rule.admission_type) AS admission_track_name,
                    unit.code AS recruitment_unit_code,
-                   unit.name AS recruitment_unit_name,
+                   COALESCE(unit.name, rule.recruitment_unit) AS recruitment_unit_name,
                    verification.result_json
             FROM verification_run verification
             JOIN student ON student.id = verification.student_id
-            JOIN student_application application ON application.id = verification.application_id
-            JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
-            JOIN admission_track track ON track.id = unit.admission_track_id
+            JOIN evaluation_rule rule ON rule.id = verification.rule_id
+            LEFT JOIN student_application application ON application.id = verification.application_id
+            LEFT JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+            LEFT JOIN admission_track track ON track.id = unit.admission_track_id
             WHERE verification.source_import_id = ?
             ORDER BY student.applicant_number, verification.id
             """, (resultSet, ignored) -> new ExportProjection(
                 resultSet.getLong("verification_run_id"),
                 resultSet.getLong("rule_id"),
-                resultSet.getLong("application_id"),
+                resultSet.getObject("application_id", Long.class),
                 resultSet.getString("applicant_number"),
                 resultSet.getString("student_name"),
                 resultSet.getString("admission_track_name"),
@@ -115,12 +116,14 @@ public class SavedVerificationQueryRepository {
             SELECT COUNT(*)
             FROM verification_run verification
             JOIN student ON student.id = verification.student_id
-            JOIN student_application application ON application.id = verification.application_id
-            JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
-            JOIN admission_track track ON track.id = unit.admission_track_id
+            JOIN evaluation_rule rule ON rule.id = verification.rule_id
+            LEFT JOIN student_application application ON application.id = verification.application_id
+            LEFT JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+            LEFT JOIN admission_track track ON track.id = unit.admission_track_id
             WHERE verification.source_import_id = ?
               AND (? = '' OR student.applicant_number LIKE ? OR student.name LIKE ?
-                   OR track.name LIKE ? OR unit.name LIKE ?)
+                   OR COALESCE(track.name, rule.admission_type) LIKE ?
+                   OR COALESCE(unit.name, rule.recruitment_unit) LIKE ?)
             """, Long.class, sourceImportId, keyword, like(keyword), like(keyword), like(keyword), like(keyword));
     }
 
@@ -135,8 +138,8 @@ public class SavedVerificationQueryRepository {
                    student.id AS student_id,
                    student.applicant_number,
                    student.name AS student_name,
-                   track.name AS admission_track_name,
-                   unit.name AS recruitment_unit_name,
+                   COALESCE(track.name, rule.admission_type) AS admission_track_name,
+                   COALESCE(unit.name, rule.recruitment_unit) AS recruitment_unit_name,
                    rule.name AS rule_name,
                    verification.rule_version,
                    verification.final_score,
@@ -146,13 +149,14 @@ public class SavedVerificationQueryRepository {
                    verification.created_at AS saved_at
             FROM verification_run verification
             JOIN student ON student.id = verification.student_id
-            JOIN student_application application ON application.id = verification.application_id
-            JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
-            JOIN admission_track track ON track.id = unit.admission_track_id
             JOIN evaluation_rule rule ON rule.id = verification.rule_id
+            LEFT JOIN student_application application ON application.id = verification.application_id
+            LEFT JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+            LEFT JOIN admission_track track ON track.id = unit.admission_track_id
             WHERE verification.source_import_id = ?
               AND (? = '' OR student.applicant_number LIKE ? OR student.name LIKE ?
-                   OR track.name LIKE ? OR unit.name LIKE ?)
+                   OR COALESCE(track.name, rule.admission_type) LIKE ?
+                   OR COALESCE(unit.name, rule.recruitment_unit) LIKE ?)
             ORDER BY student.applicant_number, verification.id
             LIMIT ? OFFSET ?
             """, (resultSet, ignored) -> resultRow(resultSet),

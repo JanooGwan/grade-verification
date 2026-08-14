@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -161,6 +162,37 @@ class SyuImportScoreExcelWriter {
         return output.toByteArray();
     }
 
+    ScenarioVerificationSummary verifyScenarios(
+        StudentTranscriptImport transcriptImport,
+        List<EvaluationRule> rules,
+        BiConsumer<Long, GradeVerificationResponse> resultConsumer
+    ) {
+        Map<String, StudentCommonEvaluationSnapshot> commonData = loadCommonData(transcriptImport);
+        int[] totalScenarios = {0};
+        int[] successfulScenarios = {0};
+        int[] failedScenarios = {0};
+
+        streamCourses(transcriptImport, courses -> {
+            String applicantNumber = courses.getFirst().applicantNumber();
+            StudentCommonEvaluationSnapshot applicantData = commonData.getOrDefault(
+                applicantNumber, emptyCommonData()
+            );
+            for (EvaluationRule rule : rules) {
+                totalScenarios[0]++;
+                ApplicantResult result = calculate(courses, rule, applicantData);
+                if (result.score() == null) {
+                    failedScenarios[0]++;
+                    continue;
+                }
+                resultConsumer.accept(courses.getFirst().studentId(), result.score());
+                successfulScenarios[0]++;
+            }
+        });
+        return new ScenarioVerificationSummary(
+            totalScenarios[0], successfulScenarios[0], failedScenarios[0]
+        );
+    }
+
     void write(StudentTranscriptImport transcriptImport, OutputStream output) {
         List<EvaluationRule> rules = loadScenarioRules(
             transcriptImport.getUniversity().getId(), transcriptImport.getAdmissionYear()
@@ -240,7 +272,7 @@ class SyuImportScoreExcelWriter {
         return rule;
     }
 
-    private List<EvaluationRule> loadScenarioRules(Long universityId, int admissionYear) {
+    List<EvaluationRule> loadScenarioRules(Long universityId, int admissionYear) {
         Map<String, EvaluationRule> latestByScenario = ruleRepository
             .findAllByUniversityIdAndAdmissionYearAndStatus(universityId, admissionYear, PUBLISHED)
             .stream()
@@ -300,18 +332,24 @@ class SyuImportScoreExcelWriter {
     private void streamCourses(StudentTranscriptImport transcriptImport, CourseGroupConsumer consumer) {
         jdbcTemplate.query(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
-                SELECT course.applicant_number, course.source_row_number, course.school_year, course.semester,
+                SELECT student.id AS student_id, course.applicant_number, course.source_row_number,
+                       course.school_year, course.semester,
                        course.subject_category, course.course_name, course.grade_value, course.grade_scale,
                        course.achievement, course.raw_score, course.mean_score, course.standard_deviation,
                        course.student_count, course.rank_position, course.tied_rank_count,
                        course.legacy_achievement, course.credits, course.career_subject,
                        course.professional_course
                 FROM student_transcript_import_course course
+                JOIN student ON student.university_id = ?
+                            AND student.admission_year = ?
+                            AND student.applicant_number = course.applicant_number
                 WHERE course.import_id = ?
                 ORDER BY course.applicant_number, course.source_row_number
                 """, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
             statement.setFetchSize(Integer.MIN_VALUE);
-            statement.setLong(1, transcriptImport.getId());
+            statement.setLong(1, transcriptImport.getUniversity().getId());
+            statement.setInt(2, transcriptImport.getAdmissionYear());
+            statement.setLong(3, transcriptImport.getId());
             return statement;
         }, rs -> {
             List<Course> group = new ArrayList<>();
@@ -332,7 +370,7 @@ class SyuImportScoreExcelWriter {
 
     private Course mapCourse(ResultSet rs) throws SQLException {
         return new Course(
-            rs.getString("applicant_number"), rs.getInt("source_row_number"),
+            rs.getLong("student_id"), rs.getString("applicant_number"), rs.getInt("source_row_number"),
             rs.getInt("school_year"), rs.getInt("semester"),
             SubjectCategory.valueOf(rs.getString("subject_category")), rs.getString("course_name"),
             nullableInteger(rs, "grade_value"), GradeScale.valueOf(rs.getString("grade_scale")),
@@ -689,7 +727,7 @@ class SyuImportScoreExcelWriter {
     }
 
     private record Course(
-        String applicantNumber, int sourceRowNumber, int schoolYear, int semester,
+        Long studentId, String applicantNumber, int sourceRowNumber, int schoolYear, int semester,
         SubjectCategory subjectCategory, String courseName, Integer grade, GradeScale gradeScale,
         AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
         BigDecimal standardDeviation, Integer studentCount, Integer rankPosition,
@@ -712,6 +750,12 @@ class SyuImportScoreExcelWriter {
     ) {}
 
     private record ScenarioSheet(EvaluationRule rule, Sheet sheet, int[] rowIndex) {}
+
+    record ScenarioVerificationSummary(
+        int totalScenarios,
+        int successfulScenarios,
+        int failedScenarios
+    ) {}
 
     private static final class CommonDataBuilder {
         private final List<Attendance> attendance = new ArrayList<>();
