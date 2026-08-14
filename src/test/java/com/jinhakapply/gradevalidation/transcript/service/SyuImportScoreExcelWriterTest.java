@@ -1,20 +1,17 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import org.junit.jupiter.api.Test;
 
 class SyuImportScoreExcelWriterTest {
 
     @Test
     void exportsAdmissionScenarioAndAvailableApplicationScoreComponents() {
-        assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("지원자별 환산 결과");
+        assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("전형별 환산 결과");
         assertThat(SyuImportScoreExcelWriter.resultHeaders()).containsExactly(
             "수험번호", "전형명", "모집단위", "산출 상태",
             "전체 과목수", "환산 가능 과목수", "반영 과목수",
@@ -33,16 +30,6 @@ class SyuImportScoreExcelWriterTest {
         assertThat(SyuImportScoreExcelWriter.semesterIntermediate(
             new BigDecimal("585.5"), new BigDecimal("6"), 10, RoundingMode.DOWN
         )).isEqualByComparingTo("97.5833333333");
-    }
-
-    @Test
-    void namesScenarioSheetsByAdmissionAndRecruitmentUnit() {
-        EvaluationRule rule = mock(EvaluationRule.class);
-        when(rule.getAdmissionType()).thenReturn("학교장추천");
-        when(rule.getRecruitmentUnit()).thenReturn("아트앤디자인학과");
-
-        assertThat(SyuImportScoreExcelWriter.scenarioSheetName(rule))
-            .isEqualTo("학교장추천_아트디자인");
     }
 
     @Test

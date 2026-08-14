@@ -60,8 +60,8 @@ import org.springframework.stereotype.Component;
 @Component
 class SyuImportScoreExcelWriter {
     private static final String COMMON_RULE_KEY = "학교장추천|일반학과(부)";
-    private static final String RESULT_SHEET_NAME = "지원자별 환산 결과";
-    private static final String GUIDE_SHEET_NAME = "산출 안내";
+    private static final String COMMON_RESULT_SHEET_NAME = "지원자별 환산 결과";
+    private static final String SCENARIO_RESULT_SHEET_NAME = "전형별 환산 결과";
     private static final String[] COMMON_RESULT_HEADERS = {
         "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
         "환산점수×이수단위 합", "반영 이수단위 합",
@@ -220,7 +220,9 @@ class SyuImportScoreExcelWriter {
         StudentTranscriptImport transcriptImport,
         EvaluationRule rule
     ) {
-        Sheet results = createResultSheet(workbook, styles, RESULT_SHEET_NAME, COMMON_RESULT_HEADERS);
+        Sheet results = createResultSheet(
+            workbook, styles, COMMON_RESULT_SHEET_NAME, COMMON_RESULT_HEADERS
+        );
         int[] rowIndex = {3};
         streamCourses(transcriptImport, courses -> {
             ApplicantResult result = calculate(courses, rule, emptyCommonData());
@@ -236,31 +238,25 @@ class SyuImportScoreExcelWriter {
         List<EvaluationRule> rules
     ) {
         Map<String, StudentCommonEvaluationSnapshot> commonData = loadCommonData(transcriptImport);
-        createGuideSheet(workbook, styles, rules);
-        List<ScenarioSheet> scenarioSheets = rules.stream()
-            .map(rule -> new ScenarioSheet(
-                rule,
-                createResultSheet(workbook, styles, scenarioSheetName(rule), SCENARIO_RESULT_HEADERS),
-                new int[] {3}
-            ))
-            .toList();
+        Sheet results = createResultSheet(
+            workbook, styles, SCENARIO_RESULT_SHEET_NAME, SCENARIO_RESULT_HEADERS
+        );
+        int[] rowIndex = {3};
 
         streamCourses(transcriptImport, courses -> {
             String applicantNumber = courses.getFirst().applicantNumber();
             StudentCommonEvaluationSnapshot applicantData = commonData.getOrDefault(
                 applicantNumber, emptyCommonData()
             );
-            for (ScenarioSheet scenario : scenarioSheets) {
-                ApplicantResult result = calculate(courses, scenario.rule(), applicantData);
+            for (EvaluationRule rule : rules) {
+                ApplicantResult result = calculate(courses, rule, applicantData);
                 writeScenarioApplicantRow(
-                    scenario.sheet().createRow(scenario.rowIndex()[0]++), result, scenario.rule(), styles
+                    results.createRow(rowIndex[0]++), result, rule, styles
                 );
             }
         });
 
-        scenarioSheets.forEach(scenario -> applyResultSheetFeatures(
-            scenario.sheet(), scenario.rowIndex()[0], SCENARIO_RESULT_HEADERS.length
-        ));
+        applyResultSheetFeatures(results, rowIndex[0], SCENARIO_RESULT_HEADERS.length);
     }
 
     private EvaluationRule loadCommonRule(Long universityId, int admissionYear) {
@@ -602,49 +598,6 @@ class SyuImportScoreExcelWriter {
         );
     }
 
-    private void createGuideSheet(SXSSFWorkbook workbook, Styles styles, List<EvaluationRule> rules) {
-        Sheet sheet = workbook.createSheet(GUIDE_SHEET_NAME);
-        sheet.setDisplayGridlines(false);
-        Row title = sheet.createRow(0);
-        title.setHeightInPoints(32);
-        set(title.createCell(0), "삼육대학교 2027 전형·모집단위별 산출 안내", styles.title);
-        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 8));
-        set(sheet.createRow(2).createCell(0),
-            "실제 지원 전형·모집단위 정보가 없으므로 모든 지원자를 각 규칙으로 계산한 가상 시나리오입니다.",
-            styles.notice);
-        sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, 8));
-        set(sheet.createRow(3).createCell(0),
-            "교과와 원본 출결은 자동 산출하며, 실기·수상실적·면접은 원본에 점수가 없어 '추가입력·미산출 요소'로 표시합니다.",
-            styles.notice);
-        sheet.addMergedRegion(new CellRangeAddress(3, 3, 0, 8));
-
-        String[] headers = {
-            "결과 시트", "전형명", "모집단위", "교과 반영방법", "교과 배점",
-            "출결", "추가입력·미산출 요소", "전형 총점", "근거"
-        };
-        Row header = sheet.createRow(5);
-        for (int index = 0; index < headers.length; index++) {
-            set(header.createCell(index), headers[index], styles.header);
-            sheet.setColumnWidth(index, (index == 3 || index == 6 ? 44 : 22) * 256);
-        }
-        int rowIndex = 6;
-        for (EvaluationRule rule : rules) {
-            Row row = sheet.createRow(rowIndex++);
-            Object[] values = {
-                scenarioSheetName(rule), rule.getAdmissionType(), rule.getRecruitmentUnit(),
-                rule.getInterpretationNote(),
-                BigDecimal.valueOf(100).multiply(rule.getScoreMultiplier()),
-                isAthleticTalent(rule) ? "교과 90% + 출결 10%" : "미반영",
-                pendingDescription(rule), new BigDecimal("1000"),
-                rule.getSourceDocument() + " " + rule.getSourcePages() + "쪽"
-            };
-            writeRow(row, values, styles);
-            row.setHeightInPoints(42);
-        }
-        sheet.createFreezePane(0, 6);
-        sheet.setAutoFilter(new CellRangeAddress(5, Math.max(5, rowIndex - 1), 0, headers.length - 1));
-    }
-
     private String pendingDescription(EvaluationRule rule) {
         if (isAthleticTalent(rule)) return "1단계 수상실적 600점, 2단계 면접 200점";
         if (isPracticalTrack(rule)) {
@@ -663,16 +616,6 @@ class SyuImportScoreExcelWriter {
         return (rule.getAdmissionType().equals("학교장추천") || rule.getAdmissionType().equals("농어촌"))
             && (rule.getRecruitmentUnit().contains("아트앤디자인")
                 || rule.getRecruitmentUnit().contains("체육학과"));
-    }
-
-    static String scenarioSheetName(EvaluationRule rule) {
-        String unit = rule.getRecruitmentUnit()
-            .replace("일반학과(부)", "일반")
-            .replace("아트앤디자인학과", "아트디자인")
-            .replace("체육학과", "체육")
-            .replace("약학과", "약학");
-        String name = rule.getAdmissionType() + "_" + unit;
-        return name.length() <= 31 ? name : name.substring(0, 31);
     }
 
     private Sheet createResultSheet(
@@ -719,7 +662,7 @@ class SyuImportScoreExcelWriter {
     }
 
     static String resultSheetName() {
-        return RESULT_SHEET_NAME;
+        return SCENARIO_RESULT_SHEET_NAME;
     }
 
     static List<String> resultHeaders() {
@@ -748,8 +691,6 @@ class SyuImportScoreExcelWriter {
         ApplicationScoreResult applicationScore,
         String errorMessage
     ) {}
-
-    private record ScenarioSheet(EvaluationRule rule, Sheet sheet, int[] rowIndex) {}
 
     record ScenarioVerificationSummary(
         int totalScenarios,
@@ -788,7 +729,6 @@ class SyuImportScoreExcelWriter {
         private final CellStyle header;
         private final CellStyle value;
         private final CellStyle number;
-        private final CellStyle notice;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true, false);
@@ -796,7 +736,6 @@ class SyuImportScoreExcelWriter {
             value = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number.setDataFormat(workbook.createDataFormat().getFormat("#,##0.####"));
-            notice = style(workbook, IndexedColors.LIGHT_YELLOW, IndexedColors.DARK_RED, false, true);
         }
 
         private static CellStyle style(
