@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 class SyuScenarioVerificationPersistenceServiceTest {
 
     @Mock SyuImportScoreExcelWriter scoreExcelWriter;
-    @Mock BatchVerificationRunRepository verificationRunRepository;
+    @Mock SyuScenarioVerificationBatchWriter batchWriter;
     @Mock ObjectMapper objectMapper;
     @Mock StudentTranscriptImport transcriptImport;
     @Mock GradeVerificationResponse firstResult;
@@ -38,17 +38,17 @@ class SyuScenarioVerificationPersistenceServiceTest {
     @BeforeEach
     void setUp() {
         service = new SyuScenarioVerificationPersistenceService(
-            scoreExcelWriter, verificationRunRepository, objectMapper
+            scoreExcelWriter, batchWriter, objectMapper
         );
     }
 
     @Test
     void storesScenarioResultsWithStudentIdsAndNoApplications() {
         when(transcriptImport.getId()).thenReturn(80L);
-        when(verificationRunRepository.deleteAllBySourceImportId(80L)).thenReturn(3);
+        when(batchWriter.deleteAll(80L)).thenReturn(3);
         when(objectMapper.writeValueAsString(firstResult)).thenReturn("{first}");
         when(objectMapper.writeValueAsString(secondResult)).thenReturn("{second}");
-        when(verificationRunRepository.insertScenarios(eq(80L), anyList())).thenAnswer(invocation ->
+        when(batchWriter.insert(eq(80L), anyList())).thenAnswer(invocation ->
             ((List<?>) invocation.getArgument(1)).size()
         );
         doAnswer(invocation -> {
@@ -71,7 +71,7 @@ class SyuScenarioVerificationPersistenceServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<BatchVerificationRunRepository.ScenarioVerificationRow>> rowsCaptor =
             ArgumentCaptor.forClass(List.class);
-        verify(verificationRunRepository).insertScenarios(eq(80L), rowsCaptor.capture());
+        verify(batchWriter).insert(eq(80L), rowsCaptor.capture());
         assertThat(rowsCaptor.getValue())
             .extracting(BatchVerificationRunRepository.ScenarioVerificationRow::studentId)
             .containsExactly(11L, 12L);

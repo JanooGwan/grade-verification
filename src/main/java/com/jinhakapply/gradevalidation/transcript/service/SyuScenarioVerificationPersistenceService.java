@@ -4,7 +4,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository;
 import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository.ScenarioVerificationRow;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
@@ -22,7 +21,7 @@ class SyuScenarioVerificationPersistenceService {
     private static final int INSERT_BATCH_SIZE = 200;
 
     private final SyuImportScoreExcelWriter scoreExcelWriter;
-    private final BatchVerificationRunRepository verificationRunRepository;
+    private final SyuScenarioVerificationBatchWriter batchWriter;
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -31,7 +30,7 @@ class SyuScenarioVerificationPersistenceService {
         List<EvaluationRule> rules
     ) {
         Long sourceImportId = transcriptImport.getId();
-        int replacedResults = verificationRunRepository.deleteAllBySourceImportId(sourceImportId);
+        int replacedResults = batchWriter.deleteAll(sourceImportId);
         List<ScenarioVerificationRow> insertBuffer = new ArrayList<>(INSERT_BATCH_SIZE);
         int[] savedResults = {0};
 
@@ -58,14 +57,14 @@ class SyuScenarioVerificationPersistenceService {
                 LocalDateTime.now()
             );
         } catch (RuntimeException exception) {
-            verificationRunRepository.deleteAllBySourceImportId(sourceImportId);
+            batchWriter.deleteAll(sourceImportId);
             throw exception;
         }
     }
 
     private int flush(Long sourceImportId, List<ScenarioVerificationRow> buffer) {
         if (buffer.isEmpty()) return 0;
-        int inserted = verificationRunRepository.insertScenarios(sourceImportId, List.copyOf(buffer));
+        int inserted = batchWriter.insert(sourceImportId, List.copyOf(buffer));
         buffer.clear();
         return inserted;
     }
