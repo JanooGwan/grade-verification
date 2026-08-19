@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ class SavedVerificationQueryServiceTest {
     @Mock EvaluationRuleRepository ruleRepository;
     @Mock TranscriptBatchVerificationService batchVerificationService;
     @Mock TranscriptValidationExcelWriter validationExcelWriter;
+    @Mock SyuSavedVerificationExcelWriter syuSavedVerificationExcelWriter;
     @Mock EvaluationRule rule;
 
     private SavedVerificationQueryService service;
@@ -38,7 +40,8 @@ class SavedVerificationQueryServiceTest {
     @BeforeEach
     void setUp() {
         service = new SavedVerificationQueryService(
-            repository, objectMapper, ruleRepository, batchVerificationService, validationExcelWriter
+            repository, objectMapper, ruleRepository, batchVerificationService, validationExcelWriter,
+            syuSavedVerificationExcelWriter
         );
     }
 
@@ -101,6 +104,22 @@ class SavedVerificationQueryServiceTest {
         assertThat(result).containsExactly(1, 2, 3);
         verify(objectMapper).readValue("{stored-result}", GradeVerificationResponse.class);
         verify(batchVerificationService).buildKbuIntermediateCalculations(rule, verification);
+    }
+
+    @Test
+    void streamsSyuSavedResultsWithoutLoadingResultJson() {
+        LocalDateTime savedAt = LocalDateTime.of(2027, 1, 2, 3, 4);
+        SavedVerificationBatchResponse batch = new SavedVerificationBatchResponse(
+            80L, 2L, "삼육대학교", 2027, "삼육대.xlsx",
+            SyuSourceExcelStreamer.SOURCE_FORMAT, 184_200, savedAt
+        );
+        when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(batch));
+        when(syuSavedVerificationExcelWriter.write(batch)).thenReturn(new byte[] {4, 5, 6});
+
+        assertThat(service.export(80L)).containsExactly(4, 5, 6);
+
+        verify(syuSavedVerificationExcelWriter).write(batch);
+        verifyNoInteractions(objectMapper, ruleRepository, batchVerificationService, validationExcelWriter);
     }
 
 }

@@ -29,6 +29,7 @@ public class SavedVerificationQueryService {
     private final EvaluationRuleRepository ruleRepository;
     private final TranscriptBatchVerificationService batchVerificationService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final SyuSavedVerificationExcelWriter syuSavedVerificationExcelWriter;
 
     @Transactional(readOnly = true)
     public List<SavedVerificationBatchResponse> findBatches(Long universityId, int admissionYear) {
@@ -76,6 +77,9 @@ public class SavedVerificationQueryService {
     public byte[] export(Long sourceImportId) {
         SavedVerificationBatchResponse batch = repository.findBatch(sourceImportId)
             .orElseThrow(() -> CustomException.of(VERIFICATION_RUN_NOT_FOUND));
+        if (SyuSourceExcelStreamer.SOURCE_FORMAT.equals(batch.sourceFormat())) {
+            return syuSavedVerificationExcelWriter.write(batch);
+        }
         List<SavedVerificationQueryRepository.ExportProjection> storedResults =
             repository.findExportResults(sourceImportId);
         if (storedResults.isEmpty()) throw CustomException.of(VERIFICATION_RUN_NOT_FOUND);

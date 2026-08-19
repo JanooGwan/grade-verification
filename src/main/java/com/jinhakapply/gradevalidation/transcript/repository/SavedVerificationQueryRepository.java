@@ -1,9 +1,11 @@
 package com.jinhakapply.gradevalidation.transcript.repository;
 
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationResultRow;
@@ -109,6 +111,58 @@ public class SavedVerificationQueryRepository {
                 resultSet.getString("recruitment_unit_name"),
                 resultSet.getString("result_json")
             ), sourceImportId);
+    }
+
+    public void streamScenarioExportResults(
+        Long sourceImportId,
+        Consumer<ScenarioExportProjection> consumer
+    ) {
+        jdbcTemplate.query(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                SELECT verification.id AS verification_run_id,
+                       student.applicant_number,
+                       student.name AS student_name,
+                       COALESCE(track.name, rule.admission_type) AS admission_track_name,
+                       COALESCE(unit.name, rule.recruitment_unit) AS recruitment_unit_name,
+                       rule.name AS rule_name,
+                       verification.rule_version,
+                       verification.included_course_count,
+                       verification.excluded_course_count,
+                       verification.average_grade,
+                       verification.final_score,
+                       verification.created_at AS saved_at
+                FROM verification_run verification
+                JOIN student ON student.id = verification.student_id
+                JOIN evaluation_rule rule ON rule.id = verification.rule_id
+                LEFT JOIN student_application application ON application.id = verification.application_id
+                LEFT JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+                LEFT JOIN admission_track track ON track.id = unit.admission_track_id
+                WHERE verification.source_import_id = ?
+                ORDER BY student.applicant_number, rule.admission_type, rule.recruitment_unit,
+                         verification.id
+                """, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            statement.setFetchSize(Integer.MIN_VALUE);
+            statement.setLong(1, sourceImportId);
+            return statement;
+        }, resultSet -> {
+            while (resultSet.next()) {
+                consumer.accept(new ScenarioExportProjection(
+                    resultSet.getLong("verification_run_id"),
+                    resultSet.getString("applicant_number"),
+                    resultSet.getString("student_name"),
+                    resultSet.getString("admission_track_name"),
+                    resultSet.getString("recruitment_unit_name"),
+                    resultSet.getString("rule_name"),
+                    resultSet.getInt("rule_version"),
+                    resultSet.getInt("included_course_count"),
+                    resultSet.getInt("excluded_course_count"),
+                    resultSet.getBigDecimal("average_grade"),
+                    resultSet.getBigDecimal("final_score"),
+                    resultSet.getTimestamp("saved_at").toLocalDateTime()
+                ));
+            }
+            return null;
+        });
     }
 
     public long countResults(Long sourceImportId, String keyword) {
@@ -230,5 +284,20 @@ public class SavedVerificationQueryRepository {
         String recruitmentUnitCode,
         String recruitmentUnitName,
         String resultJson
+    ) {}
+
+    public record ScenarioExportProjection(
+        Long verificationRunId,
+        String applicantNumber,
+        String studentName,
+        String admissionTrackName,
+        String recruitmentUnitName,
+        String ruleName,
+        int ruleVersion,
+        int includedCourseCount,
+        int excludedCourseCount,
+        java.math.BigDecimal averageGrade,
+        java.math.BigDecimal finalScore,
+        java.time.LocalDateTime savedAt
     ) {}
 }
