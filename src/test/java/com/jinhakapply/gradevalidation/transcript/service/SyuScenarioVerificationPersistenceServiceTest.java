@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -48,6 +49,10 @@ class SyuScenarioVerificationPersistenceServiceTest {
         when(batchWriter.deleteAll(80L)).thenReturn(3);
         when(objectMapper.writeValueAsString(firstResult)).thenReturn("{first}");
         when(objectMapper.writeValueAsString(secondResult)).thenReturn("{second}");
+        when(objectMapper.writeValueAsString(any(SyuScenarioExportSummary.class)))
+            .thenReturn("{summary}");
+        stubExportSummary(firstResult);
+        stubExportSummary(secondResult);
         when(batchWriter.insert(eq(80L), anyList())).thenAnswer(invocation ->
             ((List<?>) invocation.getArgument(1)).size()
         );
@@ -75,5 +80,18 @@ class SyuScenarioVerificationPersistenceServiceTest {
         assertThat(rowsCaptor.getValue())
             .extracting(BatchVerificationRunRepository.ScenarioVerificationRow::studentId)
             .containsExactly(11L, 12L);
+        assertThat(rowsCaptor.getValue())
+            .extracting(BatchVerificationRunRepository.ScenarioVerificationRow::exportSummaryJson)
+            .containsExactly("{summary}", "{summary}");
+    }
+
+    private void stubExportSummary(GradeVerificationResponse result) {
+        GradeVerificationResponse.CalculationSummary summary =
+            org.mockito.Mockito.mock(GradeVerificationResponse.CalculationSummary.class);
+        when(summary.convertedScoreTimesCreditsSum()).thenReturn(java.math.BigDecimal.TEN);
+        when(summary.totalIncludedCredits()).thenReturn(java.math.BigDecimal.ONE);
+        when(result.calculationSummary()).thenReturn(summary);
+        when(result.calculations()).thenReturn(List.of());
+        when(result.baseScore()).thenReturn(java.math.BigDecimal.TEN);
     }
 }

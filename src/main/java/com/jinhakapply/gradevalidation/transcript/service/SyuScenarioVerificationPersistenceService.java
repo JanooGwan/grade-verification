@@ -40,7 +40,10 @@ class SyuScenarioVerificationPersistenceService {
                 rules,
                 (studentId, result) -> {
                     insertBuffer.add(new ScenarioVerificationRow(
-                        studentId, result, objectMapper.writeValueAsString(result)
+                        studentId,
+                        result,
+                        objectMapper.writeValueAsString(result),
+                        objectMapper.writeValueAsString(SyuScenarioExportSummary.from(result))
                     ));
                     if (insertBuffer.size() >= INSERT_BATCH_SIZE) {
                         savedResults[0] += flush(sourceImportId, insertBuffer);

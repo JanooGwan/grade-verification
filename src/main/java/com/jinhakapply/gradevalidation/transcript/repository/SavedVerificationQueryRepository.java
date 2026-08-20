@@ -119,18 +119,18 @@ public class SavedVerificationQueryRepository {
     ) {
         jdbcTemplate.query(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
-                SELECT verification.id AS verification_run_id,
-                       student.applicant_number,
-                       student.name AS student_name,
+                SELECT student.applicant_number,
                        COALESCE(track.name, rule.admission_type) AS admission_track_name,
                        COALESCE(unit.name, rule.recruitment_unit) AS recruitment_unit_name,
-                       rule.name AS rule_name,
-                       verification.rule_version,
                        verification.included_course_count,
                        verification.excluded_course_count,
                        verification.average_grade,
                        verification.final_score,
-                       verification.created_at AS saved_at
+                       verification.export_summary_json,
+                       CASE WHEN verification.export_summary_json IS NULL
+                            THEN verification.result_json
+                            ELSE NULL
+                       END AS result_json
                 FROM verification_run verification
                 JOIN student ON student.id = verification.student_id
                 JOIN evaluation_rule rule ON rule.id = verification.rule_id
@@ -147,18 +147,15 @@ public class SavedVerificationQueryRepository {
         }, resultSet -> {
             while (resultSet.next()) {
                 consumer.accept(new ScenarioExportProjection(
-                    resultSet.getLong("verification_run_id"),
                     resultSet.getString("applicant_number"),
-                    resultSet.getString("student_name"),
                     resultSet.getString("admission_track_name"),
                     resultSet.getString("recruitment_unit_name"),
-                    resultSet.getString("rule_name"),
-                    resultSet.getInt("rule_version"),
                     resultSet.getInt("included_course_count"),
                     resultSet.getInt("excluded_course_count"),
                     resultSet.getBigDecimal("average_grade"),
                     resultSet.getBigDecimal("final_score"),
-                    resultSet.getTimestamp("saved_at").toLocalDateTime()
+                    resultSet.getString("export_summary_json"),
+                    resultSet.getString("result_json")
                 ));
             }
             return null;
@@ -287,17 +284,14 @@ public class SavedVerificationQueryRepository {
     ) {}
 
     public record ScenarioExportProjection(
-        Long verificationRunId,
         String applicantNumber,
-        String studentName,
         String admissionTrackName,
         String recruitmentUnitName,
-        String ruleName,
-        int ruleVersion,
         int includedCourseCount,
         int excludedCourseCount,
         java.math.BigDecimal averageGrade,
         java.math.BigDecimal finalScore,
-        java.time.LocalDateTime savedAt
+        String exportSummaryJson,
+        String resultJson
     ) {}
 }

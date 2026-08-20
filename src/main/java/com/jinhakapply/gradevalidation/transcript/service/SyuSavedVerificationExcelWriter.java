@@ -5,8 +5,8 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.SavedVerificationQueryRepository;
@@ -26,20 +26,24 @@ import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 @RequiredArgsConstructor
 class SyuSavedVerificationExcelWriter {
 
     private static final String SHEET_NAME = "전형별 검증 결과";
-    private static final int HEADER_ROW_INDEX = 3;
+    private static final int HEADER_ROW_INDEX = 4;
     private static final int DATA_ROW_INDEX = HEADER_ROW_INDEX + 1;
     private static final String[] HEADERS = {
-        "검증결과 ID", "수험번호", "학생명", "전형", "모집단위", "규칙명", "규칙 버전",
-        "반영 과목수", "제외 과목수", "평균등급", "최종 환산점수", "검증 시각"
+        "수험번호", "전형", "모집단위", "전체 과목수", "반영 과목수", "제외 과목수",
+        "환산점수×이수단위 합", "반영 이수단위 합",
+        "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+        "평균등급", "교과 기준점수(100점)", "교과 반영점수"
     };
 
     private final SavedVerificationQueryRepository repository;
+    private final ObjectMapper objectMapper;
 
     byte[] write(SavedVerificationBatchResponse batch) {
         requireExcelRowCapacity(batch.resultCount());
@@ -90,36 +94,57 @@ class SyuSavedVerificationExcelWriter {
         Row metadata = sheet.createRow(1);
         set(metadata.createCell(0), "원본 파일", styles.label);
         set(metadata.createCell(1), batch.originalFileName(), styles.text);
-        set(metadata.createCell(3), "검증 완료", styles.label);
-        set(metadata.createCell(4), batch.savedAt(), styles.dateTime);
-        set(metadata.createCell(6), "결과 건수", styles.label);
-        set(metadata.createCell(7), batch.resultCount(), styles.integer);
+        set(metadata.createCell(3), "결과 건수", styles.label);
+        set(metadata.createCell(4), batch.resultCount(), styles.integer);
+
+        Row notice = sheet.createRow(2);
+        notice.setHeightInPoints(34);
+        set(notice.createCell(0),
+            "실제 지원 전형·모집단위 정보가 없어 모든 수험번호를 게시된 전형·모집단위 규칙 각각으로 계산한 가상 시나리오입니다.",
+            styles.notice);
+        sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, HEADERS.length - 1));
 
         Row header = sheet.createRow(HEADER_ROW_INDEX);
         header.setHeightInPoints(30);
         for (int index = 0; index < HEADERS.length; index++) {
             set(header.createCell(index), HEADERS[index], styles.header);
         }
-        int[] widths = {16, 16, 16, 20, 22, 38, 12, 13, 13, 14, 18, 22};
+        int[] widths = {16, 20, 22, 14, 14, 14, 24, 18, 14, 14, 14, 14, 14, 14, 14, 22, 18};
         for (int index = 0; index < widths.length; index++) {
             sheet.setColumnWidth(index, widths[index] * 256);
         }
-        sheet.createFreezePane(2, DATA_ROW_INDEX);
+        sheet.createFreezePane(3, DATA_ROW_INDEX);
     }
 
     private void writeResultRow(Row row, Styles styles, ScenarioExportProjection result) {
-        set(row.createCell(0), result.verificationRunId(), styles.integer);
-        set(row.createCell(1), result.applicantNumber(), styles.text);
-        set(row.createCell(2), result.studentName(), styles.text);
-        set(row.createCell(3), result.admissionTrackName(), styles.text);
-        set(row.createCell(4), result.recruitmentUnitName(), styles.text);
-        set(row.createCell(5), result.ruleName(), styles.text);
-        set(row.createCell(6), result.ruleVersion(), styles.integer);
-        set(row.createCell(7), result.includedCourseCount(), styles.integer);
-        set(row.createCell(8), result.excludedCourseCount(), styles.integer);
-        set(row.createCell(9), result.averageGrade(), styles.decimal);
-        set(row.createCell(10), result.finalScore(), styles.decimal);
-        set(row.createCell(11), result.savedAt(), styles.dateTime);
+        SyuScenarioExportSummary summary = exportSummary(result);
+        set(row.createCell(0), result.applicantNumber(), styles.text);
+        set(row.createCell(1), result.admissionTrackName(), styles.text);
+        set(row.createCell(2), result.recruitmentUnitName(), styles.text);
+        set(row.createCell(3), result.includedCourseCount() + result.excludedCourseCount(), styles.integer);
+        set(row.createCell(4), result.includedCourseCount(), styles.integer);
+        set(row.createCell(5), result.excludedCourseCount(), styles.integer);
+        set(row.createCell(6), summary.convertedScoreTimesCreditsSum(), styles.decimal);
+        set(row.createCell(7), summary.totalIncludedCredits(), styles.decimal);
+        set(row.createCell(8), summary.semester11(), styles.decimal);
+        set(row.createCell(9), summary.semester12(), styles.decimal);
+        set(row.createCell(10), summary.semester21(), styles.decimal);
+        set(row.createCell(11), summary.semester22(), styles.decimal);
+        set(row.createCell(12), summary.semester31(), styles.decimal);
+        set(row.createCell(13), summary.semester32(), styles.decimal);
+        set(row.createCell(14), result.averageGrade(), styles.decimal);
+        set(row.createCell(15), summary.baseScore(), styles.decimal);
+        set(row.createCell(16), result.finalScore(), styles.decimal);
+    }
+
+    private SyuScenarioExportSummary exportSummary(ScenarioExportProjection result) {
+        if (result.exportSummaryJson() != null && !result.exportSummaryJson().isBlank()) {
+            return objectMapper.readValue(result.exportSummaryJson(), SyuScenarioExportSummary.class);
+        }
+        GradeVerificationResponse verification = objectMapper.readValue(
+            result.resultJson(), GradeVerificationResponse.class
+        );
+        return SyuScenarioExportSummary.from(verification);
     }
 
     private void set(Cell cell, Object value, CellStyle style) {
@@ -127,7 +152,6 @@ class SyuSavedVerificationExcelWriter {
         if (value == null) cell.setBlank();
         else if (value instanceof BigDecimal decimal) cell.setCellValue(decimal.doubleValue());
         else if (value instanceof Number number) cell.setCellValue(number.doubleValue());
-        else if (value instanceof LocalDateTime dateTime) cell.setCellValue(dateTime);
         else cell.setCellValue(value.toString());
     }
 
@@ -142,23 +166,23 @@ class SyuSavedVerificationExcelWriter {
     private static final class Styles {
         private final CellStyle title;
         private final CellStyle label;
+        private final CellStyle notice;
         private final CellStyle header;
         private final CellStyle text;
         private final CellStyle integer;
         private final CellStyle decimal;
-        private final CellStyle dateTime;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true);
             label = style(workbook, IndexedColors.LIGHT_GREEN, IndexedColors.DARK_GREEN, true);
+            notice = style(workbook, IndexedColors.LIGHT_YELLOW, IndexedColors.DARK_RED, false);
+            notice.setWrapText(true);
             header = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true);
             text = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false);
             integer = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false);
             integer.setDataFormat(workbook.createDataFormat().getFormat("#,##0"));
             decimal = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false);
             decimal.setDataFormat(workbook.createDataFormat().getFormat("#,##0.########"));
-            dateTime = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false);
-            dateTime.setDataFormat(workbook.createDataFormat().getFormat("yyyy-mm-dd hh:mm:ss"));
         }
 
         private static CellStyle style(

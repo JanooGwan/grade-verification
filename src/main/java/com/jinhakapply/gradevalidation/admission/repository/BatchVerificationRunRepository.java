@@ -55,8 +55,8 @@ public class BatchVerificationRunRepository {
             INSERT INTO verification_run (
                 source_import_id, student_id, application_id, rule_id, rule_version,
                 final_score, average_grade, included_course_count, excluded_course_count,
-                result_json, created_at
-            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
+                result_json, export_summary_json, created_at
+            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
             """, new BatchPreparedStatementSetter() {
                 @Override
                 public void setValues(PreparedStatement statement, int index) throws SQLException {
@@ -71,6 +71,7 @@ public class BatchVerificationRunRepository {
                     statement.setInt(7, result.includedCourseCount());
                     statement.setInt(8, result.excludedCourseCount());
                     statement.setString(9, row.resultJson());
+                    statement.setString(10, row.exportSummaryJson());
                 }
 
                 @Override
@@ -84,6 +85,7 @@ public class BatchVerificationRunRepository {
     public record ScenarioVerificationRow(
         Long studentId,
         GradeVerificationResponse result,
-        String resultJson
+        String resultJson,
+        String exportSummaryJson
     ) {}
 }
