@@ -72,7 +72,9 @@ class SyuImportScoreExcelWriter {
         "수험번호", "전형명", "모집단위", "산출 상태",
         "전체 과목수", "환산 가능 과목수", "반영 과목수",
         "환산점수×이수단위 합", "반영 이수단위 합",
-        "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+        "반영 교과영역",
+        "교과영역 1", "영역 1 성적(100점)", "교과영역 2", "영역 2 성적(100점)",
+        "교과영역 3", "영역 3 성적(100점)", "교과영역 4", "영역 4 성적(100점)",
         "교과 기준점수(100점)", "교과 반영점수", "환산 결석일수", "출결 반영점수",
         "학교폭력 감점", "현재 산출점수", "전형 최종점수", "전형 총점 만점",
         "추가입력·미산출 요소", "경고·오류", "규칙 버전"
@@ -241,6 +243,13 @@ class SyuImportScoreExcelWriter {
         Sheet results = createResultSheet(
             workbook, styles, SCENARIO_RESULT_SHEET_NAME, SCENARIO_RESULT_HEADERS
         );
+        Row notice = results.createRow(1);
+        notice.setHeightInPoints(32);
+        set(notice.createCell(0),
+            "영역별 성적은 반영 과목 환산점수의 적용 이수단위 가중평균(100점 기준)이며, "
+                + "상위 2개 반영 모집단위는 실제 선택된 영역만 표시합니다.",
+            styles.notice);
+        results.addMergedRegion(new CellRangeAddress(1, 1, 0, SCENARIO_RESULT_HEADERS.length - 1));
         int[] rowIndex = {3};
 
         streamCourses(transcriptImport, courses -> {
@@ -456,6 +465,8 @@ class SyuImportScoreExcelWriter {
     ) {
         GradeVerificationResponse score = result.score();
         ApplicationScoreResult applicationScore = result.applicationScore();
+        SyuScenarioExportSummary exportSummary = score == null
+            ? null : SyuScenarioExportSummary.from(score);
         Object[] values = {
             result.courses().getFirst().applicantNumber(),
             rule.getAdmissionType(),
@@ -466,12 +477,11 @@ class SyuImportScoreExcelWriter {
             score == null ? null : score.includedCourseCount(),
             score == null ? null : score.calculationSummary().convertedScoreTimesCreditsSum(),
             score == null ? null : score.calculationSummary().totalIncludedCredits(),
-            semesterIntermediate(score, 1, 1),
-            semesterIntermediate(score, 1, 2),
-            semesterIntermediate(score, 2, 1),
-            semesterIntermediate(score, 2, 2),
-            semesterIntermediate(score, 3, 1),
-            semesterIntermediate(score, 3, 2),
+            exportSummary == null ? null : exportSummary.domainNames(),
+            domainName(exportSummary, 0), domainScore(exportSummary, 0),
+            domainName(exportSummary, 1), domainScore(exportSummary, 1),
+            domainName(exportSummary, 2), domainScore(exportSummary, 2),
+            domainName(exportSummary, 3), domainScore(exportSummary, 3),
             score == null ? null : score.baseScore(),
             applicationScore == null ? null : applicationScore.academicScore(),
             applicationScore == null ? null : applicationScore.equivalentAbsenceDays(),
@@ -487,6 +497,16 @@ class SyuImportScoreExcelWriter {
         };
         writeRow(row, values, styles);
         row.setHeightInPoints(24);
+    }
+
+    private String domainName(SyuScenarioExportSummary summary, int index) {
+        SyuScenarioExportSummary.SubjectDomainScore domain = summary == null ? null : summary.domain(index);
+        return domain == null ? null : domain.domainName();
+    }
+
+    private BigDecimal domainScore(SyuScenarioExportSummary summary, int index) {
+        SyuScenarioExportSummary.SubjectDomainScore domain = summary == null ? null : summary.domain(index);
+        return domain == null ? null : domain.score();
     }
 
     private String statusLabel(ApplicantResult result) {
@@ -726,12 +746,14 @@ class SyuImportScoreExcelWriter {
 
     private static final class Styles {
         private final CellStyle title;
+        private final CellStyle notice;
         private final CellStyle header;
         private final CellStyle value;
         private final CellStyle number;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true, false);
+            notice = style(workbook, IndexedColors.LIGHT_YELLOW, IndexedColors.DARK_RED, false, true);
             header = style(workbook, IndexedColors.DARK_GREEN, IndexedColors.WHITE, true, true);
             value = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);
             number = style(workbook, IndexedColors.WHITE, IndexedColors.BLACK, false, false);

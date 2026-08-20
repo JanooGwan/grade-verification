@@ -127,7 +127,7 @@ public class SavedVerificationQueryRepository {
                        verification.average_grade,
                        verification.final_score,
                        verification.export_summary_json,
-                       CASE WHEN verification.export_summary_json IS NULL
+                       CASE WHEN JSON_EXTRACT(verification.export_summary_json, '$.subjectDomains') IS NULL
                             THEN verification.result_json
                             ELSE NULL
                        END AS result_json

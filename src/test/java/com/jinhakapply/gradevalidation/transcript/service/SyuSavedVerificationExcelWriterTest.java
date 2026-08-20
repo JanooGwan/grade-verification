@@ -14,6 +14,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Consumer;
 
+import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CalculationSummary;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CourseCalculation;
@@ -51,10 +53,10 @@ class SyuSavedVerificationExcelWriterTest {
             SyuSourceExcelStreamer.SOURCE_FORMAT, 2, savedAt
         );
         ScenarioExportProjection first = result(
-            "10005001", "학교장추천", "일반학과(부)", "summary-json", null
+            "10005001", "학교장추천", "아트앤디자인학과", "summary-json", null
         );
         ScenarioExportProjection second = result(
-            "10005001", "농어촌", "약학과", null, "result-json"
+            "10005001", "특성화고교", "일반학과(부)", null, "result-json"
         );
         SyuScenarioExportSummary summary = summary();
         GradeVerificationResponse verification = verification();
@@ -77,17 +79,28 @@ class SyuSavedVerificationExcelWriterTest {
             assertThat(sheet.getRow(2).getCell(0).getStringCellValue()).contains("가상 시나리오");
             assertThat(sheet.getRow(5).getCell(0).getStringCellValue()).isEqualTo("10005001");
             assertThat(sheet.getRow(5).getCell(1).getStringCellValue()).isEqualTo("학교장추천");
-            assertThat(sheet.getRow(6).getCell(2).getStringCellValue()).isEqualTo("약학과");
+            assertThat(sheet.getRow(6).getCell(2).getStringCellValue()).isEqualTo("일반학과(부)");
             assertThat(sheet.getRow(5).getCell(3).getNumericCellValue()).isEqualTo(53);
             assertThat(sheet.getRow(5).getCell(6).getNumericCellValue()).isEqualTo(4125);
-            assertThat(sheet.getRow(5).getCell(8).getNumericCellValue()).isEqualTo(97.5833333333);
-            assertThat(sheet.getRow(5).getCell(15).getNumericCellValue()).isEqualTo(99.07826);
-            assertThat(sheet.getRow(5).getCell(16).getNumericCellValue()).isEqualTo(990.7826);
+            assertThat(sheet.getRow(5).getCell(8).getStringCellValue()).isEqualTo("영어, 국어");
+            assertThat(sheet.getRow(5).getCell(9).getStringCellValue()).isEqualTo("영어");
+            assertThat(sheet.getRow(5).getCell(10).getNumericCellValue()).isEqualTo(99.2);
+            assertThat(sheet.getRow(5).getCell(11).getStringCellValue()).isEqualTo("국어");
+            assertThat(sheet.getRow(5).getCell(12).getNumericCellValue()).isEqualTo(98.5);
+            assertThat(sheet.getRow(6).getCell(8).getStringCellValue()).isEqualTo("국어, 영어, 수학");
+            assertThat(sheet.getRow(6).getCell(9).getStringCellValue()).isEqualTo("국어");
+            assertThat(sheet.getRow(6).getCell(11).getStringCellValue()).isEqualTo("영어");
+            assertThat(sheet.getRow(6).getCell(13).getStringCellValue()).isEqualTo("수학");
+            assertThat(sheet.getRow(6).getCell(15).getStringCellValue()).isEmpty();
+            assertThat(sheet.getRow(5).getCell(18).getNumericCellValue()).isEqualTo(99.07826);
+            assertThat(sheet.getRow(5).getCell(19).getNumericCellValue()).isEqualTo(990.7826);
             assertThat(sheet.getLastRowNum()).isEqualTo(6);
         }
         assertThat(SyuSavedVerificationExcelWriter.headers())
-            .contains("환산점수×이수단위 합", "1-1 학기", "교과 기준점수(100점)")
-            .doesNotContain("검증결과 ID", "학생명", "규칙명", "규칙 버전", "검증 시각");
+            .contains("환산점수×이수단위 합", "반영 교과영역", "영역 1 성적(100점)",
+                "교과 기준점수(100점)")
+            .doesNotContain("1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+                "검증결과 ID", "학생명", "규칙명", "규칙 버전", "검증 시각");
         verify(repository).streamScenarioExportResults(eq(21L), org.mockito.ArgumentMatchers.any());
     }
 
@@ -108,7 +121,11 @@ class SyuSavedVerificationExcelWriterTest {
     private SyuScenarioExportSummary summary() {
         return new SyuScenarioExportSummary(
             new BigDecimal("4125"), new BigDecimal("42"),
-            new BigDecimal("97.5833333333"), null, null, null, null, null,
+            null, null, null, null, null, null,
+            List.of(
+                new SyuScenarioExportSummary.SubjectDomainScore(1, "영어", new BigDecimal("99.2")),
+                new SyuScenarioExportSummary.SubjectDomainScore(2, "국어", new BigDecimal("98.5"))
+            ),
             new BigDecimal("99.07826")
         );
     }
@@ -120,17 +137,33 @@ class SyuSavedVerificationExcelWriterTest {
         when(summary.intermediateScale()).thenReturn(10);
         when(summary.intermediateRounding()).thenReturn(RoundingMode.DOWN);
 
-        CourseCalculation calculation = mock(CourseCalculation.class);
-        when(calculation.included()).thenReturn(true);
-        when(calculation.schoolYear()).thenReturn(1);
-        when(calculation.semester()).thenReturn(1);
-        when(calculation.weightedScore()).thenReturn(new BigDecimal("585.5"));
-        when(calculation.appliedWeight()).thenReturn(new BigDecimal("6"));
-
         GradeVerificationResponse verification = mock(GradeVerificationResponse.class);
         when(verification.calculationSummary()).thenReturn(summary);
-        when(verification.calculations()).thenReturn(List.of(calculation));
+        List<CourseCalculation> calculations = List.of(
+            calculation(SubjectCategory.KOREAN, true, "294", "3"),
+            calculation(SubjectCategory.ENGLISH, true, "396", "4"),
+            calculation(SubjectCategory.MATH, true, "194", "2"),
+            calculation(SubjectCategory.SOCIAL, false, "0", "3")
+        );
+        when(verification.calculations()).thenReturn(calculations);
+        when(verification.selectionStrategy()).thenReturn(SelectionStrategy.ALL_COURSES);
         when(verification.baseScore()).thenReturn(new BigDecimal("99.07826"));
         return verification;
+    }
+
+    private CourseCalculation calculation(
+        SubjectCategory category,
+        boolean included,
+        String weightedScore,
+        String appliedWeight
+    ) {
+        CourseCalculation calculation = mock(CourseCalculation.class);
+        when(calculation.included()).thenReturn(included);
+        if (included) {
+            when(calculation.appliedSubjectCategory()).thenReturn(category);
+            when(calculation.weightedScore()).thenReturn(new BigDecimal(weightedScore));
+            when(calculation.appliedWeight()).thenReturn(new BigDecimal(appliedWeight));
+        }
+        return calculation;
     }
 }

@@ -38,7 +38,9 @@ class SyuSavedVerificationExcelWriter {
     private static final String[] HEADERS = {
         "수험번호", "전형", "모집단위", "전체 과목수", "반영 과목수", "제외 과목수",
         "환산점수×이수단위 합", "반영 이수단위 합",
-        "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
+        "반영 교과영역",
+        "교과영역 1", "영역 1 성적(100점)", "교과영역 2", "영역 2 성적(100점)",
+        "교과영역 3", "영역 3 성적(100점)", "교과영역 4", "영역 4 성적(100점)",
         "평균등급", "교과 기준점수(100점)", "교과 반영점수"
     };
 
@@ -100,7 +102,8 @@ class SyuSavedVerificationExcelWriter {
         Row notice = sheet.createRow(2);
         notice.setHeightInPoints(34);
         set(notice.createCell(0),
-            "실제 지원 전형·모집단위 정보가 없어 모든 수험번호를 게시된 전형·모집단위 규칙 각각으로 계산한 가상 시나리오입니다.",
+            "실제 지원정보가 없어 게시된 규칙 각각으로 계산한 가상 시나리오입니다. "
+                + "영역별 성적은 반영 과목 환산점수의 적용 이수단위 가중평균(100점 기준)입니다.",
             styles.notice);
         sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, HEADERS.length - 1));
 
@@ -109,7 +112,11 @@ class SyuSavedVerificationExcelWriter {
         for (int index = 0; index < HEADERS.length; index++) {
             set(header.createCell(index), HEADERS[index], styles.header);
         }
-        int[] widths = {16, 20, 22, 14, 14, 14, 24, 18, 14, 14, 14, 14, 14, 14, 14, 22, 18};
+        int[] widths = {
+            16, 20, 22, 14, 14, 14, 24, 18, 22,
+            14, 20, 14, 20, 14, 20, 14, 20,
+            14, 22, 18
+        };
         for (int index = 0; index < widths.length; index++) {
             sheet.setColumnWidth(index, widths[index] * 256);
         }
@@ -126,20 +133,23 @@ class SyuSavedVerificationExcelWriter {
         set(row.createCell(5), result.excludedCourseCount(), styles.integer);
         set(row.createCell(6), summary.convertedScoreTimesCreditsSum(), styles.decimal);
         set(row.createCell(7), summary.totalIncludedCredits(), styles.decimal);
-        set(row.createCell(8), summary.semester11(), styles.decimal);
-        set(row.createCell(9), summary.semester12(), styles.decimal);
-        set(row.createCell(10), summary.semester21(), styles.decimal);
-        set(row.createCell(11), summary.semester22(), styles.decimal);
-        set(row.createCell(12), summary.semester31(), styles.decimal);
-        set(row.createCell(13), summary.semester32(), styles.decimal);
-        set(row.createCell(14), result.averageGrade(), styles.decimal);
-        set(row.createCell(15), summary.baseScore(), styles.decimal);
-        set(row.createCell(16), result.finalScore(), styles.decimal);
+        set(row.createCell(8), summary.domainNames(), styles.text);
+        for (int index = 0; index < 4; index++) {
+            SyuScenarioExportSummary.SubjectDomainScore domain = summary.domain(index);
+            set(row.createCell(9 + index * 2), domain == null ? null : domain.domainName(), styles.text);
+            set(row.createCell(10 + index * 2), domain == null ? null : domain.score(), styles.decimal);
+        }
+        set(row.createCell(17), result.averageGrade(), styles.decimal);
+        set(row.createCell(18), summary.baseScore(), styles.decimal);
+        set(row.createCell(19), result.finalScore(), styles.decimal);
     }
 
     private SyuScenarioExportSummary exportSummary(ScenarioExportProjection result) {
         if (result.exportSummaryJson() != null && !result.exportSummaryJson().isBlank()) {
-            return objectMapper.readValue(result.exportSummaryJson(), SyuScenarioExportSummary.class);
+            SyuScenarioExportSummary summary = objectMapper.readValue(
+                result.exportSummaryJson(), SyuScenarioExportSummary.class
+            );
+            if (summary.subjectDomains() != null) return summary;
         }
         GradeVerificationResponse verification = objectMapper.readValue(
             result.resultJson(), GradeVerificationResponse.class
