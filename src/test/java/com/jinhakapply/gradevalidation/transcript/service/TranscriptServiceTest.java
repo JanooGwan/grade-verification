@@ -12,7 +12,9 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import com.jinhakapply.gradevalidation.admission.repository.VerificationRunRepository;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
@@ -83,6 +85,8 @@ class TranscriptServiceTest {
     private UniversityRepository universityRepository;
     @Mock
     private TranscriptSnapshotReplacementService snapshotReplacementService;
+    @Mock
+    private VerificationRunRepository verificationRunRepository;
 
     private TranscriptService transcriptService;
     private University university;
@@ -114,8 +118,33 @@ class TranscriptServiceTest {
             gedSubjectScoreRepository,
             legacyGradeSummaryRepository,
             universityRepository,
-            snapshotReplacementService
+            snapshotReplacementService,
+            verificationRunRepository
         );
+    }
+
+    @Test
+    void reportsWhetherEachImportHasSavedVerificationResults() {
+        StudentTranscriptImport savedImport = StudentTranscriptImport.create(
+            university, 2026, "saved.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "saved", 10, 10, 0, "STANDARD_TRANSCRIPT_V1"
+        );
+        StudentTranscriptImport unsavedImport = StudentTranscriptImport.create(
+            university, 2026, "unsaved.xlsx", TranscriptImportMode.ALL_OR_NOTHING,
+            "unsaved", 10, 10, 0, "STANDARD_TRANSCRIPT_V1"
+        );
+        ReflectionTestUtils.setField(savedImport, "id", 21L);
+        ReflectionTestUtils.setField(unsavedImport, "id", 22L);
+        when(importRepository.findTop50ByUniversity_IdOrderByCreatedAtDesc(1L))
+            .thenReturn(List.of(unsavedImport, savedImport));
+        when(verificationRunRepository.findSourceImportIdsWithResults(List.of(22L, 21L)))
+            .thenReturn(Set.of(21L));
+
+        var result = transcriptService.findImports(1L);
+
+        assertThat(result).extracting(
+            response -> response.importId() + ":" + response.hasSavedVerificationResults()
+        ).containsExactly("22:false", "21:true");
     }
 
     @Test

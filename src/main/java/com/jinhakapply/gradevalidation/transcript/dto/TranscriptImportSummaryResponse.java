@@ -21,9 +21,13 @@ public record TranscriptImportSummaryResponse(
     TranscriptImportStatus status,
     String sourceFormat,
     String errorMessage,
+    boolean hasSavedVerificationResults,
     LocalDateTime createdAt
 ) {
-    public static TranscriptImportSummaryResponse from(StudentTranscriptImport transcriptImport) {
+    public static TranscriptImportSummaryResponse from(
+        StudentTranscriptImport transcriptImport,
+        boolean hasSavedVerificationResults
+    ) {
         return new TranscriptImportSummaryResponse(
             transcriptImport.getId(),
             transcriptImport.getUniversity().getId(),
@@ -39,6 +43,7 @@ public record TranscriptImportSummaryResponse(
             transcriptImport.getStatus(),
             transcriptImport.getSourceFormat(),
             transcriptImport.getErrorMessage(),
+            hasSavedVerificationResults,
             transcriptImport.getCreatedAt()
         );
     }

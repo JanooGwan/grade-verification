@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.jinhakapply.gradevalidation.admission.repository.VerificationRunRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
@@ -88,6 +89,7 @@ public class TranscriptService {
     private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
     private final UniversityRepository universityRepository;
     private final TranscriptSnapshotReplacementService snapshotReplacementService;
+    private final VerificationRunRepository verificationRunRepository;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
@@ -255,8 +257,19 @@ public class TranscriptService {
 
     @Transactional(readOnly = true)
     public List<TranscriptImportSummaryResponse> findImports(Long universityId) {
-        return importRepository.findTop50ByUniversity_IdOrderByCreatedAtDesc(requireUniversity(universityId).getId()).stream()
-            .map(TranscriptImportSummaryResponse::from)
+        List<StudentTranscriptImport> imports = importRepository.findTop50ByUniversity_IdOrderByCreatedAtDesc(
+            requireUniversity(universityId).getId()
+        );
+        if (imports.isEmpty()) return List.of();
+
+        Set<Long> savedResultImportIds = verificationRunRepository.findSourceImportIdsWithResults(
+            imports.stream().map(StudentTranscriptImport::getId).toList()
+        );
+        return imports.stream()
+            .map(transcriptImport -> TranscriptImportSummaryResponse.from(
+                transcriptImport,
+                savedResultImportIds.contains(transcriptImport.getId())
+            ))
             .toList();
     }
 
@@ -288,7 +301,10 @@ public class TranscriptService {
     @Transactional(readOnly = true)
     public TranscriptImportSummaryResponse findImport(Long importId) {
         return importRepository.findById(importId)
-            .map(TranscriptImportSummaryResponse::from)
+            .map(transcriptImport -> TranscriptImportSummaryResponse.from(
+                transcriptImport,
+                verificationRunRepository.existsBySourceImport_Id(transcriptImport.getId())
+            ))
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
     }
 
