@@ -144,6 +144,11 @@ class TranscriptValidationExcelWriterTest {
                         "교과", "영어", false, null, 6, new BigDecimal("18"),
                         new BigDecimal("72"), new BigDecimal("4"),
                         new BigDecimal("1692"), new BigDecimal("94")
+                    ),
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "학기", "3학년 1학기", true, 1, 7, new BigDecimal("21"),
+                        new BigDecimal("31.5"), new BigDecimal("1.5"),
+                        new BigDecimal("2079"), new BigDecimal("99")
                     )
                 ),
                 null
@@ -155,20 +160,22 @@ class TranscriptValidationExcelWriterTest {
             "경복대 성적검증 파일.xlsx", "KOREAN_MULTI_SHEET_V1", "경복대학교", 1, 2,
             List.of(), List.of(), List.of(), List.of(), batch
         );
-
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
                 .startsWith("경복대 교과성적 검증 결과");
             Sheet intermediate = workbook.getSheet("성적 산출 중간값");
             assertThat(intermediate).isNotNull();
-            assertThat(intermediate.getRow(2).getCell(11).getStringCellValue()).isEqualTo("평균등급");
+            assertThat(intermediate.getRow(2).getCell(12).getStringCellValue()).isEqualTo("평균등급");
             assertThat(intermediate.getRow(3).getCell(5).getStringCellValue()).isEqualTo("국어");
-            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("선택됨");
-            assertThat(intermediate.getRow(3).getCell(6).getCellStyle().getFillPattern())
+            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("5개 교과 중 우수 3개");
+            assertThat(intermediate.getRow(3).getCell(7).getStringCellValue()).isEqualTo("선택됨");
+            assertThat(intermediate.getRow(3).getCell(7).getCellStyle().getFillPattern())
                 .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
-            assertThat(intermediate.getRow(3).getCell(11).getNumericCellValue()).isEqualTo(2);
-            assertThat(intermediate.getRow(4).getCell(6).getStringCellValue()).isEqualTo("미선택");
+            assertThat(intermediate.getRow(3).getCell(12).getNumericCellValue()).isEqualTo(2);
+            assertThat(intermediate.getRow(4).getCell(7).getStringCellValue()).isEqualTo("미선택");
+            assertThat(intermediate.getRow(5).getCell(5).getStringCellValue()).isEqualTo("3학년 1학기");
+            assertThat(intermediate.getRow(5).getCell(6).getStringCellValue()).isEqualTo("5개 학기 중 우수 2개");
         }
     }
 

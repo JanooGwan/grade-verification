@@ -196,7 +196,7 @@ class TranscriptBatchVerificationService {
         List<GradeVerificationResponse.CourseCalculation> calculations,
         boolean bySubject
     ) {
-        Map<GroupKey, GroupAccumulator> groups = new LinkedHashMap<>();
+        Map<GroupKey, GroupAccumulator> groups = kbuCandidateGroups(rule, bySubject);
         for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
             if (calculation.effectiveGrade() == null || calculation.appliedCredits() == null
                 || calculation.appliedCredits().signum() <= 0) {
@@ -226,6 +226,29 @@ class TranscriptBatchVerificationService {
                 value.convertedScoreTimesCreditsSum(), value.averageConvertedScore()
             ))
             .toList();
+    }
+
+    private Map<GroupKey, GroupAccumulator> kbuCandidateGroups(EvaluationRule rule, boolean bySubject) {
+        Map<GroupKey, GroupAccumulator> groups = new LinkedHashMap<>();
+        if (bySubject) {
+            for (SubjectCategory category : List.of(
+                SubjectCategory.KOREAN,
+                SubjectCategory.MATH,
+                SubjectCategory.SOCIAL,
+                SubjectCategory.SCIENCE,
+                SubjectCategory.ENGLISH
+            )) {
+                groups.put(subjectGroupKey(rule, category), new GroupAccumulator());
+            }
+            return groups;
+        }
+        for (int schoolYear = 1; schoolYear <= 2; schoolYear++) {
+            for (int semester = 1; semester <= 2; semester++) {
+                groups.put(semesterGroupKey(schoolYear, semester), new GroupAccumulator());
+            }
+        }
+        groups.put(semesterGroupKey(3, 1), new GroupAccumulator());
+        return groups;
     }
 
     private GroupKey subjectGroupKey(EvaluationRule rule, SubjectCategory category) {
@@ -292,10 +315,10 @@ class TranscriptBatchVerificationService {
         }
 
         private GroupValue value(GroupKey key) {
-            BigDecimal averageGrade = gradeTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
-            BigDecimal averageConvertedScore = convertedScoreTimesCreditsSum.divide(
-                totalCredits, 8, RoundingMode.HALF_UP
-            );
+            BigDecimal averageGrade = totalCredits.signum() == 0 ? null
+                : gradeTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+            BigDecimal averageConvertedScore = totalCredits.signum() == 0 ? null
+                : convertedScoreTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
             return new GroupValue(
                 key, selected, courseCount, totalCredits, gradeTimesCreditsSum, averageGrade,
                 convertedScoreTimesCreditsSum, averageConvertedScore

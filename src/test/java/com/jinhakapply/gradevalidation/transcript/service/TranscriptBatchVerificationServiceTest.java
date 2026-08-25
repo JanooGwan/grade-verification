@@ -148,12 +148,19 @@ class TranscriptBatchVerificationServiceTest {
             service.buildKbuIntermediateCalculations(rule, verification);
 
         assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
-            .containsExactly("1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기");
+            .containsExactly("1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기", "3학년 1학기");
         assertThat(result).filteredOn(TranscriptBatchVerificationResult.IntermediateCalculation::selected)
             .extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
             .containsExactlyInAnyOrder("1학년 2학기", "2학년 1학기");
         assertThat(result).filteredOn(item -> item.groupName().equals("1학년 1학기"))
             .singleElement().satisfies(item -> assertThat(item.averageGrade()).isEqualByComparingTo("3"));
+        assertThat(result).filteredOn(item -> item.groupName().equals("3학년 1학기"))
+            .singleElement().satisfies(item -> {
+                assertThat(item.courseCount()).isZero();
+                assertThat(item.totalCredits()).isEqualByComparingTo("0");
+                assertThat(item.averageGrade()).isNull();
+                assertThat(item.selected()).isFalse();
+            });
     }
 
     @Test

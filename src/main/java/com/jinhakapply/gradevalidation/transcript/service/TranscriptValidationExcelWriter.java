@@ -47,7 +47,7 @@ class TranscriptValidationExcelWriter {
     };
     private static final String[] INTERMEDIATE_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명", "산출 구분", "교과·학기",
-        "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
+        "선택 기준", "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
         "평균등급", "환산점수×이수단위 합", "평균환산점수"
     };
 
@@ -224,7 +224,7 @@ class TranscriptValidationExcelWriter {
         title(
             sheet, styles,
             shortUniversityName(universityName)
-                + " 성적 산출 중간값 - 노란색 셀은 최종 계산에 선택된 교과·학기",
+                + " 성적 산출 중간값 - 일반학과 5개 학기 중 2개, 간호·보건 5개 교과 중 3개 선택",
             INTERMEDIATE_HEADERS.length - 1
         );
         header(sheet, styles, INTERMEDIATE_HEADERS);
@@ -240,17 +240,24 @@ class TranscriptValidationExcelWriter {
                 writeRow(row, new Object[] {
                     application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
                     application.recruitmentUnitName(), calculation.groupType(), calculation.groupName(),
-                    calculation.selected() ? "선택됨" : "미선택", calculation.selectionOrder(),
+                    selectionCriteria(calculation), calculation.selected() ? "선택됨" : "미선택",
+                    calculation.selectionOrder(),
                     calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
                     calculation.averageGrade(), calculation.convertedScoreTimesCreditsSum(),
                     calculation.averageConvertedScore()
                 }, styles, -1);
-                if (calculation.selected()) row.getCell(6).setCellStyle(styles.selected);
+                if (calculation.selected()) row.getCell(7).setCellStyle(styles.selected);
             }
         }
         finishTable(sheet, rowIndex - 3, INTERMEDIATE_HEADERS.length);
         sheet.createFreezePane(6, 3);
         setWidths(sheet, INTERMEDIATE_HEADERS, Set.of(2, 3));
+    }
+
+    private String selectionCriteria(TranscriptBatchVerificationResult.IntermediateCalculation calculation) {
+        return "학기".equals(calculation.groupType())
+            ? "5개 학기 중 우수 2개"
+            : "5개 교과 중 우수 3개";
     }
 
     private void createCourseComparisonSheet(
