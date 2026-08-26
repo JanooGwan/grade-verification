@@ -358,7 +358,7 @@ public class EvaluationService {
         if (course.studentCount() == null) {
             throw CustomException.of(INVALID_EVALUATION_RULE, "석차 환산에는 재적수가 필요합니다.");
         }
-        int scale = isTuk2027(rule) ? 2 : 5;
+        int scale = isTukGuidebookYear(rule) ? 2 : 5;
         return LegacyGradeConversionPolicy.rankPercentile(
             course.rankPosition(), course.tiedRankCount(), course.studentCount(), scale
         );
@@ -747,12 +747,12 @@ public class EvaluationService {
     }
 
     private BigDecimal appliedCredits(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
-        if (isTuk2027(rule) && course.careerSubject()) return BigDecimal.ONE;
+        if (isTukGuidebookYear(rule) && course.careerSubject()) return BigDecimal.ONE;
         return course.credits();
     }
 
-    private boolean isTuk2027(EvaluationRule rule) {
-        return rule.getAdmissionYear() == 2027
+    private boolean isTukGuidebookYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("한국공학");
     }
 
