@@ -53,7 +53,7 @@ class TranscriptValidationExcelWriter {
         "진로선택", "전문교과"
     };
     private static final String[] INTERMEDIATE_HEADERS = {
-        "지원정보 행", "수험번호", "전형명", "모집단위명", "산출 구분", "교과·학기",
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "최종 환산점수", "산출 구분", "교과·학기",
         "선택 기준", "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
         "환산점수×이수단위 합", "평균환산점수"
     };
@@ -251,17 +251,19 @@ class TranscriptValidationExcelWriter {
                 Row row = sheet.createRow(rowIndex++);
                 writeRow(row, new Object[] {
                     application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
-                    application.recruitmentUnitName(), calculation.groupType(), calculation.groupName(),
+                    application.recruitmentUnitName(), success.verification().finalScore(),
+                    calculation.groupType(), calculation.groupName(),
                     selectionCriteria(calculation), calculation.selected() ? "선택됨" : "미선택",
                     calculation.selectionOrder(),
                     calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
                     calculation.convertedScoreTimesCreditsSum(), calculation.averageConvertedScore()
                 }, styles, -1);
-                if (calculation.selected()) row.getCell(7).setCellStyle(styles.selected);
+                row.getCell(4).setCellStyle(styles.finalScore);
+                if (calculation.selected()) row.getCell(8).setCellStyle(styles.selected);
             }
         }
         finishTable(sheet, rowIndex - 3, INTERMEDIATE_HEADERS.length);
-        sheet.createFreezePane(6, 3);
+        sheet.createFreezePane(7, 3);
         setWidths(sheet, INTERMEDIATE_HEADERS, Set.of(2, 3));
     }
 
@@ -539,6 +541,7 @@ class TranscriptValidationExcelWriter {
         private final CellStyle error;
         private final CellStyle success;
         private final CellStyle selected;
+        private final CellStyle finalScore;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, "174A37", IndexedColors.WHITE.getIndex(), true, 16);
@@ -560,6 +563,8 @@ class TranscriptValidationExcelWriter {
             error.setWrapText(true);
             success = bordered(workbook, "E5F3E8", IndexedColors.DARK_GREEN.getIndex(), true);
             selected = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
+            finalScore = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
+            finalScore.setDataFormat(workbook.createDataFormat().getFormat("0.######"));
         }
 
         private static CellStyle style(

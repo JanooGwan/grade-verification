@@ -184,22 +184,26 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getSheet("검증 요약")).isNull();
             Sheet intermediate = workbook.getSheet("학생별 검증 결과");
             assertThat(intermediate).isNotNull();
-            assertThat(intermediate.getRow(2).getLastCellNum()).isEqualTo((short) 14);
+            assertThat(intermediate.getRow(2).getLastCellNum()).isEqualTo((short) 15);
             assertThat(intermediate.getRow(2)).noneMatch(cell ->
                 "평균등급".equals(cell.getStringCellValue())
             );
-            assertThat(intermediate.getRow(2).getCell(12).getStringCellValue())
-                .isEqualTo("환산점수×이수단위 합");
-            assertThat(intermediate.getRow(2).getCell(13).getStringCellValue()).isEqualTo("평균환산점수");
-            assertThat(intermediate.getRow(3).getCell(5).getStringCellValue()).isEqualTo("국어");
-            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("5개 교과 중 우수 3개");
-            assertThat(intermediate.getRow(3).getCell(7).getStringCellValue()).isEqualTo("선택됨");
-            assertThat(intermediate.getRow(3).getCell(7).getCellStyle().getFillPattern())
+            assertThat(intermediate.getRow(2).getCell(4).getStringCellValue()).isEqualTo("최종 환산점수");
+            assertThat(intermediate.getRow(3).getCell(4).getNumericCellValue()).isEqualTo(530.36);
+            assertThat(intermediate.getRow(3).getCell(4).getCellStyle().getFillPattern())
                 .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
-            assertThat(intermediate.getRow(3).getCell(13).getNumericCellValue()).isEqualTo(98);
-            assertThat(intermediate.getRow(4).getCell(7).getStringCellValue()).isEqualTo("미선택");
-            assertThat(intermediate.getRow(5).getCell(5).getStringCellValue()).isEqualTo("3학년 1학기");
-            assertThat(intermediate.getRow(5).getCell(6).getStringCellValue()).isEqualTo("5개 학기 중 우수 2개");
+            assertThat(intermediate.getRow(2).getCell(13).getStringCellValue())
+                .isEqualTo("환산점수×이수단위 합");
+            assertThat(intermediate.getRow(2).getCell(14).getStringCellValue()).isEqualTo("평균환산점수");
+            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("국어");
+            assertThat(intermediate.getRow(3).getCell(7).getStringCellValue()).isEqualTo("5개 교과 중 우수 3개");
+            assertThat(intermediate.getRow(3).getCell(8).getStringCellValue()).isEqualTo("선택됨");
+            assertThat(intermediate.getRow(3).getCell(8).getCellStyle().getFillPattern())
+                .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            assertThat(intermediate.getRow(3).getCell(14).getNumericCellValue()).isEqualTo(98);
+            assertThat(intermediate.getRow(4).getCell(8).getStringCellValue()).isEqualTo("미선택");
+            assertThat(intermediate.getRow(5).getCell(6).getStringCellValue()).isEqualTo("3학년 1학기");
+            assertThat(intermediate.getRow(5).getCell(7).getStringCellValue()).isEqualTo("5개 학기 중 우수 2개");
 
             Sheet comparison = workbook.getSheet("학생별 과목 비교");
             assertThat(comparison.getRow(2).getLastCellNum()).isEqualTo((short) 18);
