@@ -52,6 +52,8 @@ class TransferImportServiceTest {
             .isEqualTo("수시 일반고");
         assertThat(TransferImportService.canonicalKbuAdmissionType("수시2차", "기회균형선발"))
             .isEqualTo("수시 기회균형");
+        assertThat(TransferImportService.canonicalKbuAdmissionType("수시1차", "수시 기회균형선발"))
+            .isEqualTo("수시 기회균형");
         assertThat(TransferImportService.canonicalKbuAdmissionType("정시", "일반"))
             .isEqualTo("정시 일반(학생부)");
     }

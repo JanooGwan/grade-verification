@@ -157,6 +157,22 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
+    void rejectsTukGedApplicantsFromRestrictedStudentRecordTracksBeforeScoring() {
+        for (String admissionTrack : List.of("학생부교과(지역균형)", "학생부교과(특성화고교졸업자)")) {
+            var result = calculator.calculate(
+                rule("TUK", "한국공학대학교", 2027, "5", Map.of()),
+                admissionTrack, null, request(null),
+                common(EducationBackground.GED, "100", 0, 0)
+            );
+
+            assertThat(result.status()).isEqualTo(ApplicationScoreStatus.INELIGIBLE);
+            assertThat(result.academicScore()).isEqualByComparingTo("0.00");
+            assertThat(result.finalScore()).isNull();
+            assertThat(result.ineligibilityReasons()).singleElement().asString().contains("검정고시");
+        }
+    }
+
+    @Test
     void appliesTuk2026ViolenceTableWithSourceLimitationWarning() {
         var result = calculator.calculate(
             rule("TUK", "한국공학대학교", 2026, "5", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),

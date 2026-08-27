@@ -54,9 +54,10 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         List<String> warnings = new ArrayList<>();
         List<ScoreCalculationStep> steps = new ArrayList<>();
 
-        BigDecimal baseScore = resolveBaseScore(
-            rule, university, track, gradeVerification, commonData, request, pending, warnings, steps
-        );
+        validateTukEligibility(university, track, commonData, ineligible);
+        BigDecimal baseScore = ineligible.isEmpty()
+            ? resolveBaseScore(rule, university, track, gradeVerification, commonData, request, pending, warnings, steps)
+            : ZERO;
         BigDecimal academicScore = baseScore == null ? ZERO : score(baseScore.multiply(rule.getScoreMultiplier()));
         BigDecimal attendanceScore = null;
         Integer equivalentAbsenceDays = null;
@@ -223,6 +224,22 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
                 "검정고시 지원자는 모집요강 가중치를 적용한 전 과목 평균점수가 필요합니다.");
         }
         return commonData.gedAverageScore();
+    }
+
+    private void validateTukEligibility(
+        String university,
+        String track,
+        StudentCommonEvaluationSnapshot commonData,
+        List<String> ineligible
+    ) {
+        if (!university.contains("한국공학") || commonData.educationBackground() != EducationBackground.GED) {
+            return;
+        }
+        if (track.contains("지역균형")) {
+            ineligible.add("한국공학대학교 지역균형전형은 검정고시 출신자가 지원할 수 없습니다.");
+        } else if (track.contains("특성화고교졸업자") || track.contains("특성화고졸업자")) {
+            ineligible.add("한국공학대학교 특성화고교졸업자전형은 검정고시 출신자가 지원할 수 없습니다.");
+        }
     }
 
     private int mjcGedGrade(BigDecimal score) {

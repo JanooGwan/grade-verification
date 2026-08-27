@@ -312,8 +312,8 @@ class TransferImportService {
 
     static String canonicalKbuAdmissionType(String periodName, String admissionTrackName) {
         String track = admissionTrackName == null ? "" : admissionTrackName.trim();
+        track = track.replace("기회균형선발", "기회균형");
         String normalizedTrack = TextNormalizer.normalizePolicyText(track);
-        if (normalizedTrack.equals("기회균형선발")) track = "기회균형";
         if (normalizedTrack.startsWith("수시") || normalizedTrack.startsWith("정시")) return track;
 
         String period = TextNormalizer.normalizePolicyText(periodName);

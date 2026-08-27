@@ -1,11 +1,14 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -83,6 +86,21 @@ class SyuScenarioVerificationPersistenceServiceTest {
         assertThat(rowsCaptor.getValue())
             .extracting(BatchVerificationRunRepository.ScenarioVerificationRow::exportSummaryJson)
             .containsExactly("{summary}", "{summary}");
+    }
+
+    @Test
+    void leavesRollbackToTheSingleReplacementTransactionWhenVerificationFails() {
+        when(transcriptImport.getId()).thenReturn(80L);
+        when(batchWriter.deleteAll(80L)).thenReturn(3);
+        RuntimeException failure = new RuntimeException("scenario verification failed");
+        when(scoreExcelWriter.verifyScenarios(
+            eq(transcriptImport), eq(List.of(rule)), org.mockito.ArgumentMatchers.any()
+        )).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.persist(transcriptImport, List.of(rule))).isSameAs(failure);
+
+        verify(batchWriter, times(1)).deleteAll(80L);
+        verify(batchWriter, never()).insert(eq(80L), anyList());
     }
 
     private void stubExportSummary(GradeVerificationResponse result) {

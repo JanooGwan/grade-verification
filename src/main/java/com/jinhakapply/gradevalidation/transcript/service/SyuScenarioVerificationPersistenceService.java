@@ -10,7 +10,6 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
@@ -24,7 +23,7 @@ class SyuScenarioVerificationPersistenceService {
     private final SyuScenarioVerificationBatchWriter batchWriter;
     private final ObjectMapper objectMapper;
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional
     public StoredVerificationPersistenceResponse persist(
         StudentTranscriptImport transcriptImport,
         List<EvaluationRule> rules
@@ -34,35 +33,30 @@ class SyuScenarioVerificationPersistenceService {
         List<ScenarioVerificationRow> insertBuffer = new ArrayList<>(INSERT_BATCH_SIZE);
         int[] savedResults = {0};
 
-        try {
-            SyuImportScoreExcelWriter.ScenarioVerificationSummary summary = scoreExcelWriter.verifyScenarios(
-                transcriptImport,
-                rules,
-                (studentId, result) -> {
-                    insertBuffer.add(new ScenarioVerificationRow(
-                        studentId,
-                        result,
-                        objectMapper.writeValueAsString(result),
-                        objectMapper.writeValueAsString(SyuScenarioExportSummary.from(result))
-                    ));
-                    if (insertBuffer.size() >= INSERT_BATCH_SIZE) {
-                        savedResults[0] += flush(sourceImportId, insertBuffer);
-                    }
+        SyuImportScoreExcelWriter.ScenarioVerificationSummary summary = scoreExcelWriter.verifyScenarios(
+            transcriptImport,
+            rules,
+            (studentId, result) -> {
+                insertBuffer.add(new ScenarioVerificationRow(
+                    studentId,
+                    result,
+                    objectMapper.writeValueAsString(result),
+                    objectMapper.writeValueAsString(SyuScenarioExportSummary.from(result))
+                ));
+                if (insertBuffer.size() >= INSERT_BATCH_SIZE) {
+                    savedResults[0] += flush(sourceImportId, insertBuffer);
                 }
-            );
-            savedResults[0] += flush(sourceImportId, insertBuffer);
-            return new StoredVerificationPersistenceResponse(
-                sourceImportId,
-                summary.totalScenarios(),
-                savedResults[0],
-                summary.failedScenarios(),
-                replacedResults,
-                LocalDateTime.now()
-            );
-        } catch (RuntimeException exception) {
-            batchWriter.deleteAll(sourceImportId);
-            throw exception;
-        }
+            }
+        );
+        savedResults[0] += flush(sourceImportId, insertBuffer);
+        return new StoredVerificationPersistenceResponse(
+            sourceImportId,
+            summary.totalScenarios(),
+            savedResults[0],
+            summary.failedScenarios(),
+            replacedResults,
+            LocalDateTime.now()
+        );
     }
 
     private int flush(Long sourceImportId, List<ScenarioVerificationRow> buffer) {

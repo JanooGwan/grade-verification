@@ -15,12 +15,12 @@ class SyuScenarioVerificationBatchWriter {
 
     private final BatchVerificationRunRepository verificationRunRepository;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.MANDATORY)
     public int deleteAll(Long sourceImportId) {
         return verificationRunRepository.deleteAllBySourceImportId(sourceImportId);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.MANDATORY)
     public int insert(Long sourceImportId, List<ScenarioVerificationRow> rows) {
         return verificationRunRepository.insertScenarios(sourceImportId, rows);
     }
