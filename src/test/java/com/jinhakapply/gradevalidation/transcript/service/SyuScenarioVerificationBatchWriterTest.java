@@ -21,13 +21,13 @@ class SyuScenarioVerificationBatchWriterTest {
     @Mock BatchVerificationRunRepository repository;
 
     @Test
-    void insertsEachBatchInANewTransaction() throws NoSuchMethodException {
+    void requiresAnEnclosingTransactionForEachBatch() throws NoSuchMethodException {
         Method method = SyuScenarioVerificationBatchWriter.class.getMethod(
             "insert", Long.class, List.class
         );
 
         assertThat(method.getAnnotation(Transactional.class).propagation())
-            .isEqualTo(Propagation.REQUIRES_NEW);
+            .isEqualTo(Propagation.MANDATORY);
     }
 
     @Test

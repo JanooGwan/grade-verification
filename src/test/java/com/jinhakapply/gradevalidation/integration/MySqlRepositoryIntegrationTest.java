@@ -233,9 +233,9 @@ class MySqlRepositoryIntegrationTest {
         );
 
         assertThat(comments).containsExactlyInAnyOrderEntriesOf(Map.of(
-            "admission_track", "대학·입학연도별 전형 카탈로그와 사용 여부를 관리한다.",
-            "student_attendance", "지원자의 학년별 미인정 결석·지각·조퇴·결과 원천데이터를 관리한다.",
-            "student_school_violence_action", "지원자의 학교폭력 조치호수·조치일·유효 여부와 비고를 관리한다."
+            "admission_track", "대학과 모집연도에 개설된 전형명 및 사용 여부를 관리하는 전형 기준정보이다.",
+            "student_attendance", "지원자의 학년별 미인정 결석·지각·조퇴·결과 횟수를 관리한다.",
+            "student_school_violence_action", "지원자의 학교폭력 조치호수와 조치일, 현재 적용 여부를 관리한다."
         ));
     }
 
