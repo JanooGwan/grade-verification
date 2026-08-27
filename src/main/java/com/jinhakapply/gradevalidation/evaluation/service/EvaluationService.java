@@ -6,6 +6,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INSUFF
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE_STATUS;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -448,10 +449,6 @@ public class EvaluationService {
                 "삼육대학교 해당 전형은 반영 교과영역의 성적이 "
                     + requiredSemesters + "개 학기 이상 있어야 합니다.");
         }
-    }
-
-    private String normalizePolicyText(String value) {
-        return value == null ? "" : value.replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private Set<Integer> selectTopCoursesPerSubject(EvaluationRule rule, List<Candidate> eligible) {

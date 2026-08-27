@@ -8,11 +8,13 @@ import com.jinhakapply.gradevalidation.admission.dto.UpdateAdmissionTrackRequest
 import com.jinhakapply.gradevalidation.admission.dto.UpdateRecruitmentUnitRequest;
 import com.jinhakapply.gradevalidation.assistant.config.AssistantProperties;
 import com.jinhakapply.gradevalidation.assistant.dto.AssistantMessageRequest;
+import com.jinhakapply.gradevalidation.evaluation.dto.CreateEvaluationRuleRequest;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 class RequestValidationTest {
 
@@ -74,5 +76,30 @@ class RequestValidationTest {
         assertThat(VALIDATOR.validate(properties))
             .extracting(violation -> violation.getPropertyPath().toString())
             .containsExactlyInAnyOrder("query.maxRows", "query.timeoutSeconds");
+    }
+
+    @Test
+    void requiresExplicitGradeWeightApplicationValue() throws Exception {
+        CreateEvaluationRuleRequest request = new ObjectMapper().readValue(
+            """
+                {
+                  "admissionYear": 2027,
+                  "version": 1,
+                  "selectionCount": 0,
+                  "achievementSelectionCount": 0,
+                  "minimumCourseCount": 0,
+                  "includeThirdYearSecondSemester": false,
+                  "includeThirdYearSecondSemesterForGraduates": false,
+                  "includeProfessionalCourses": false,
+                  "normalizeGradeWeights": false,
+                  "intermediateScale": 0,
+                  "finalScale": 0
+                }
+                """, CreateEvaluationRuleRequest.class
+        );
+
+        assertThat(VALIDATOR.validate(request))
+            .extracting(violation -> violation.getPropertyPath().toString())
+            .contains("applyGradeWeights");
     }
 }

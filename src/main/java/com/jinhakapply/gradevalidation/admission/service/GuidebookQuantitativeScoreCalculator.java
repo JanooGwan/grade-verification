@@ -224,7 +224,12 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     }
 
     private BigDecimal scoreForGrade(EvaluationRule rule, int grade) {
-        return rule.getGradeScores().get(grade);
+        BigDecimal convertedScore = rule.getGradeScores().get(grade);
+        if (convertedScore == null) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                "적용 규칙에 " + grade + "등급 환산점수가 없습니다.");
+        }
+        return convertedScore;
     }
 
     private BigDecimal scoreForAverageGrade(EvaluationRule rule, BigDecimal grade) {
@@ -324,6 +329,10 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         int action,
         List<String> ineligible
     ) {
+        if (action < 0 || action > 9) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                "학교폭력 조치호수는 0호 이상 9호 이하여야 합니다.");
+        }
         if (action == 0) return ZERO;
         if (university.contains("한국공학")) {
             if (track.contains("지역균형")) {
