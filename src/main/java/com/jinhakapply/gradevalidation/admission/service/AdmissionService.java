@@ -213,6 +213,7 @@ public class AdmissionService {
             candidates.getFirst().getId(),
             application.getStudent().getGraduationStatus()
                 == com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus.GRADUATE,
+            application.getStudent().getHighSchoolType(),
             courses.stream().map(this::toCourseGrade).toList()
         );
         EvaluationRule rule = candidates.getFirst();

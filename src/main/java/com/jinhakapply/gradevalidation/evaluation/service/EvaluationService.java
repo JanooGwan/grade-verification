@@ -5,6 +5,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.DUPLIC
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE_STATUS;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -351,10 +352,6 @@ public class EvaluationService {
         String admissionType = normalizePolicyText(rule.getAdmissionType());
         return admissionType.contains("특성화고교졸업자")
             || admissionType.contains("특성화고졸업자");
-    }
-
-    private String normalizePolicyText(String value) {
-        return value == null ? "" : value.replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private Set<Integer> selectTopCoursesPerSubject(EvaluationRule rule, List<Candidate> eligible) {

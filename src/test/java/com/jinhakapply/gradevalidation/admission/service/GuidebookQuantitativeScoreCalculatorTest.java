@@ -35,6 +35,26 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
+    void rejectsMissingConvertedGradeScoreInsteadOfCompletingWithZero() {
+        assertThatThrownBy(() -> calculator.calculate(
+            rule("TUK", "한국공학대학교", 2027, "5", Map.of()),
+            "학생부교과(교과우수자)", null, request(null),
+            common(EducationBackground.GED, "100", 0, 0)
+        )).isInstanceOfSatisfying(CustomException.class,
+            exception -> assertThat(exception.getDetail()).contains("3등급 환산점수"));
+    }
+
+    @Test
+    void rejectsSchoolViolenceActionOutsideSupportedRange() {
+        assertThatThrownBy(() -> calculator.calculate(
+            rule("TUK", "한국공학대학교", 2027, "5", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
+            "학생부교과(교과우수자)", verification("98"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 10)
+        )).isInstanceOfSatisfying(CustomException.class,
+            exception -> assertThat(exception.getDetail()).contains("0호 이상 9호 이하"));
+    }
+
+    @Test
     void makesTukRegionalApplicantWithViolenceActionIneligible() {
         var result = calculator.calculate(rule("TUK", "한국공학대학교", 2027, "5", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
             "학생부교과(지역균형)", verification("98"), request(null),

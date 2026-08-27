@@ -62,6 +62,16 @@ class ReadOnlySqlValidatorTest {
     }
 
     @Test
+    void allowsCommentMarkersAndSeparatorsInsideStringLiterals() {
+        Set<String> tables = validator.validate(
+            "SELECT 'memo; -- text' AS label, s.id FROM student s",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
+    }
+
+    @Test
     void rejectsWildcardProjection() {
         assertThatThrownBy(() -> validator.validate("SELECT * FROM student", allowedTables))
             .isInstanceOf(IllegalArgumentException.class);
