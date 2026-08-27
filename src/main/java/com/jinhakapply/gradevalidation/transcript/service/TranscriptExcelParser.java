@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +18,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,8 +99,43 @@ class TranscriptExcelParser {
                 errors.add(new TranscriptImportRowError(index + 1, exception.getMessage()));
             }
         }
-        return new TranscriptExcelParseResult(totalRows, List.copyOf(rows), List.copyOf(errors));
+        CourseDeduplication deduplication = deduplicateCourses(rows);
+        return new TranscriptExcelParseResult(
+            totalRows, deduplication.rows(), List.copyOf(errors), deduplication.skipped()
+        );
     }
+
+    private CourseDeduplication deduplicateCourses(List<TranscriptExcelRow> rows) {
+        Map<CourseIdentity, TranscriptExcelRow> unique = new LinkedHashMap<>();
+        List<TranscriptImportRowError> skipped = new ArrayList<>();
+        for (TranscriptExcelRow row : rows) {
+            TranscriptExcelRow replaced = unique.put(new CourseIdentity(
+                row.applicantNumber(), row.schoolYear(), row.semester(), normalizeCourseName(row.courseName())
+            ), row);
+            if (replaced != null) {
+                skipped.add(new TranscriptImportRowError(
+                    replaced.rowNumber(), "동일 과목 중복으로 뒤쪽 행을 사용했습니다: " + row.courseName()
+                ));
+            }
+        }
+        return new CourseDeduplication(List.copyOf(unique.values()), List.copyOf(skipped));
+    }
+
+    private String normalizeCourseName(String value) {
+        return TextNormalizer.normalizeCourseName(value);
+    }
+
+    private record CourseIdentity(
+        String applicantNumber,
+        int schoolYear,
+        int semester,
+        String normalizedCourseName
+    ) {}
+
+    private record CourseDeduplication(
+        List<TranscriptExcelRow> rows,
+        List<TranscriptImportRowError> skipped
+    ) {}
 
     private Map<String, Integer> readHeaders(
         Row headerRow,

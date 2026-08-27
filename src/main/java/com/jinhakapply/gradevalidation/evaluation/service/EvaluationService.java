@@ -29,6 +29,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.BulkCreateEvaluationRuleRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.CreateEvaluationRuleRequest;
+import com.jinhakapply.gradevalidation.evaluation.dto.ConfigureSelectionPolicyRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
@@ -36,6 +37,9 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CalculationSummary;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine.CourseCandidate;
+import com.jinhakapply.gradevalidation.evaluation.policy.SelectionPolicyValidator;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -51,6 +55,7 @@ public class EvaluationService {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private final EvaluationRuleRepository ruleRepository;
     private final UniversityRepository universityRepository;
+    private final DeclarativeSelectionPolicyEngine selectionPolicyEngine;
 
     @Transactional
     public EvaluationRuleResponse createRule(CreateEvaluationRuleRequest request) {
@@ -133,6 +138,21 @@ public class EvaluationService {
         return EvaluationRuleResponse.from(rule);
     }
 
+    @Transactional
+    public EvaluationRuleResponse configureSelectionPolicy(Long ruleId, ConfigureSelectionPolicyRequest request) {
+        EvaluationRule rule = findRule(ruleId);
+        if (rule.getStatus() != EvaluationRuleStatus.DRAFT) {
+            throw CustomException.of(INVALID_EVALUATION_RULE_STATUS,
+                "선언형 선택 정책은 초안 상태에서만 변경할 수 있습니다.");
+        }
+        List<String> errors = SelectionPolicyValidator.validate(request.policy());
+        if (!errors.isEmpty()) {
+            throw CustomException.of(INVALID_EVALUATION_RULE, String.join(" ", errors));
+        }
+        rule.configureSelectionPolicy(request.policy());
+        return EvaluationRuleResponse.from(rule);
+    }
+
     public GradeVerificationResponse verify(VerifyGradeRequest request) {
         EvaluationRule rule = findRule(request.ruleId());
         return verify(rule, request);
@@ -145,10 +165,11 @@ public class EvaluationService {
         }
         EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType(), request.graduationYear());
         List<Candidate> candidates = prepareCandidates(
-            rule, request.courses(), request.graduated(), scope.includeProfessionalCourses(),
+            rule, request.courses(), request.graduated(), includesProfessionalCourses(rule, scope),
             scope.includeAllSubjectCategories(), request.highSchoolType()
         );
         validateSyuMinimumSemesters(rule, candidates);
+        validateKbuSelectionGroups(rule, scope.selectionStrategy(), candidates);
         CourseSelection selection = selectCourses(
             rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
         );
@@ -248,6 +269,7 @@ public class EvaluationService {
         boolean graduated, boolean includeProfessionalCourses, boolean includeAllSubjectCategories,
         HighSchoolType highSchoolType) {
         List<Candidate> candidates = new ArrayList<>();
+        HighSchoolType resolvedHighSchoolType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
         for (int index = 0; index < courses.size(); index++) {
             VerifyGradeRequest.CourseGrade course = courses.get(index);
             String exclusionReason = null;
@@ -258,11 +280,14 @@ public class EvaluationService {
             else if (course.schoolYear() == 3 && course.semester() == 2
                 && !includesThirdYearSecondSemester(rule, graduated))
                 exclusionReason = "3학년 2학기는 이 규칙의 반영 범위가 아닙니다.";
-            else if (isMjcTwoYear(rule, highSchoolType)
+            else if (isMjcTwoYear(rule, resolvedHighSchoolType)
                 && (course.schoolYear() > 2 || (course.schoolYear() == 2 && course.semester() > 1)))
                 exclusionReason = "2년제 고등학교는 1학년 1·2학기와 2학년 1학기만 반영합니다.";
-            else if (isSyu2027(rule) && Integer.valueOf(1).equals(course.studentCount()))
+            else if (isSyuGuidebookYear(rule) && Integer.valueOf(1).equals(course.studentCount()))
                 exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
+            else if (isKbu2026(rule) && resolvedHighSchoolType == HighSchoolType.GENERAL
+                && course.schoolYear() == 3 && course.professionalCourse())
+                exclusionReason = "경복대학교는 일반계 고교의 3학년 직업과정 성적을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
             else if (course.careerSubject() && rule.getAchievementConversion() == AchievementConversion.EXCLUDE)
@@ -363,20 +388,47 @@ public class EvaluationService {
     private CourseSelection selectCourses(EvaluationRule rule, SelectionStrategy selectionStrategy,
         List<Candidate> eligible) {
         if (eligible.isEmpty()) return CourseSelection.empty();
+        if (rule.getSelectionPolicy() != null) {
+            Set<Integer> selected = selectionPolicyEngine.select(rule.getSelectionPolicy(), eligible.stream()
+                .map(candidate -> new CourseCandidate(
+                    candidate.index(), candidate.course().schoolYear(), candidate.course().semester(),
+                    candidate.course().subjectCategory(), candidate.course().careerSubject(),
+                    candidate.course().professionalCourse(), candidate.course().credits(),
+                    candidate.effectiveGrade(), candidate.convertedScore()
+                ))
+                .toList());
+            return CourseSelection.of(selected);
+        }
         return switch (selectionStrategy) {
             case ALL_COURSES -> CourseSelection.of(indexesOf(eligible));
             case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
             case TOP_N_COURSES_PER_SUBJECT -> CourseSelection.of(selectTopCoursesPerSubject(rule, eligible));
             case CORE_SCIENCE_TOP_N -> selectCoreScienceSubjects(rule, eligible);
             case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible);
-            case TOP_N_SEMESTERS -> CourseSelection.of(selectTopGroups(rule, eligible,
-                candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(), rule.getSelectionCount(), null));
-            case TOP_N_SUBJECTS -> isSyu2027(rule)
+            case TOP_N_SEMESTERS -> isKbu2026(rule)
+                ? CourseSelection.of(selectKbuTopGroups(eligible,
+                    candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(),
+                    rule.getSelectionCount(), null, true))
+                : CourseSelection.of(selectTopGroups(rule, eligible,
+                    candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(),
+                    rule.getSelectionCount(), null));
+            case TOP_N_SUBJECTS -> isSyuGuidebookYear(rule)
                 ? selectSyuTopDomains(rule, eligible)
-                : CourseSelection.of(selectTopGroups(rule, eligible, candidate -> candidate.course().subjectCategory(),
-                    rule.getSelectionCount(), rule.getSubjectPriorities()));
+                : (isKbu2026(rule)
+                    ? CourseSelection.of(selectKbuTopGroups(eligible,
+                        candidate -> candidate.course().subjectCategory(), rule.getSelectionCount(),
+                        rule.getSubjectPriorities(), false))
+                    : CourseSelection.of(selectTopGroups(rule, eligible,
+                        candidate -> candidate.course().subjectCategory(), rule.getSelectionCount(),
+                        rule.getSubjectPriorities())));
             case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
+    }
+
+    private boolean includesProfessionalCourses(EvaluationRule rule, EvaluationScope scope) {
+        return scope.includeProfessionalCourses()
+            || (rule.getSelectionPolicy() != null
+                && rule.getSelectionPolicy().filter().includeProfessionalCourses());
     }
 
     private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType,
@@ -399,8 +451,8 @@ public class EvaluationService {
             && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
     }
 
-    private boolean isSyu2027(EvaluationRule rule) {
-        return rule.getAdmissionYear() == 2027
+    private boolean isSyuGuidebookYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("삼육");
     }
 
@@ -411,6 +463,11 @@ public class EvaluationService {
 
     private boolean isKbuLegacyAnnualPolicy(EvaluationRule rule, Integer graduationYear) {
         return graduationYear != null && graduationYear <= 2001 && rule.getAdmissionYear() == 2026
+            && normalizePolicyText(rule.getUniversity().getName()).contains("경복");
+    }
+
+    private boolean isKbu2026(EvaluationRule rule) {
+        return rule.getAdmissionYear() == 2026
             && normalizePolicyText(rule.getUniversity().getName()).contains("경복");
     }
 
@@ -435,7 +492,7 @@ public class EvaluationService {
     }
 
     private void validateSyuMinimumSemesters(EvaluationRule rule, List<Candidate> candidates) {
-        if (!isSyu2027(rule)) return;
+        if (!isSyuGuidebookYear(rule)) return;
         String admissionType = normalizePolicyText(rule.getAdmissionType());
         int requiredSemesters = admissionType.contains("특성화고교")
             || admissionType.contains("특성화고졸재직자") ? 1 : 3;
@@ -448,6 +505,30 @@ public class EvaluationService {
             throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
                 "삼육대학교 해당 전형은 반영 교과영역의 성적이 "
                     + requiredSemesters + "개 학기 이상 있어야 합니다.");
+        }
+    }
+
+    private void validateKbuSelectionGroups(EvaluationRule rule, SelectionStrategy selectionStrategy,
+        List<Candidate> candidates) {
+        if (!isKbu2026(rule)) return;
+        List<Candidate> eligible = candidates.stream().filter(Candidate::eligible).toList();
+        if (selectionStrategy == SelectionStrategy.TOP_N_SEMESTERS) {
+            long semesters = eligible.stream()
+                .map(candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester())
+                .distinct().count();
+            if (semesters < rule.getSelectionCount()) {
+                throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
+                    "경복대학교 일반학과는 반영 가능한 교과성적이 "
+                        + rule.getSelectionCount() + "개 학기 이상 있어야 합니다.");
+            }
+        }
+        if (selectionStrategy == SelectionStrategy.TOP_N_SUBJECTS) {
+            long subjects = eligible.stream().map(candidate -> candidate.course().subjectCategory()).distinct().count();
+            if (subjects < rule.getSelectionCount()) {
+                throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
+                    "경복대학교 간호·보건계열은 반영 가능한 교과성적이 "
+                        + rule.getSelectionCount() + "개 교과 이상 있어야 합니다.");
+            }
         }
     }
 
@@ -580,6 +661,34 @@ public class EvaluationService {
         if (priorities != null) comparator = comparator.thenComparing(entry -> priorities.getOrDefault(entry.getKey(), Integer.MAX_VALUE));
         return groups.entrySet().stream().sorted(comparator).limit(count).flatMap(entry -> entry.getValue().stream())
             .map(Candidate::index).collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private <K> Set<Integer> selectKbuTopGroups(List<Candidate> eligible,
+        Function<Candidate, K> classifier, int count, Map<K, Integer> priorities, boolean preferRecentSemester) {
+        Map<K, List<Candidate>> groups = eligible.stream().collect(Collectors.groupingBy(classifier));
+        Comparator<Map.Entry<K, List<Candidate>>> comparator = Comparator
+            .comparing((Map.Entry<K, List<Candidate>> entry) -> groupAverageGrade(entry.getValue()))
+            .thenComparing(entry -> groupCredits(entry.getValue()), Comparator.reverseOrder());
+        if (priorities != null) {
+            comparator = comparator.thenComparing(entry -> priorities.getOrDefault(entry.getKey(), Integer.MAX_VALUE));
+        }
+        if (preferRecentSemester) {
+            comparator = comparator.thenComparing(
+                entry -> latestSemester(entry.getValue()), Comparator.reverseOrder());
+        }
+        return groups.entrySet().stream().sorted(comparator).limit(count)
+            .flatMap(entry -> entry.getValue().stream()).map(Candidate::index)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private BigDecimal groupCredits(List<Candidate> candidates) {
+        return candidates.stream().map(candidate -> candidate.course().credits())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private int latestSemester(List<Candidate> candidates) {
+        return candidates.stream().mapToInt(candidate ->
+            candidate.course().schoolYear() * 10 + candidate.course().semester()).max().orElse(0);
     }
 
     private Set<Integer> selectBestSemesterPerGrade(List<Candidate> eligible) {

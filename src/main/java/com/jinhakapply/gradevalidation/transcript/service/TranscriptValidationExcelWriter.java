@@ -5,7 +5,6 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -35,16 +34,20 @@ class TranscriptValidationExcelWriter {
     private static final String[] RESULT_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-        "평균등급(고정밀도)", "평균등급(규칙 반올림)", "기준 환산점수", "전형별 교과 배율",
-        "교과 반영점수(반올림 전)", "교과 반영점수"
+        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
+        "교과성적(1,000점 만점)"
+    };
+    private static final String[] ALL_COURSE_HEADERS = {
+        "원본 성적 행", "수험번호", "학생명", "고교코드", "고교명", "졸업연도",
+        "학년", "학기", "교과", "과목명", "석차등급", "등급제", "성취도",
+        "원점수", "과목평균", "표준편차", "수강자수", "석차", "동석차",
+        "성취평가", "이수단위", "진로선택", "전문교과"
     };
     private static final String[] SELECTED_COURSE_HEADERS = {
-        "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명", "졸업연도",
-        "선택순번", "원본 성적 행", "고교코드", "고교명", "학년", "학기",
-        "원본 교과", "적용 교과", "과목명", "석차등급", "성취도", "이수단위",
-        "유효등급", "환산점수", "반영 이수단위", "적용 가중치", "가중점수",
-        "진로선택", "전문교과", "석차", "동석차", "수강자수",
-        "학력구분", "적용 고교유형", "원본 고교타입", "원본 고교구분", "지원자 고교구분코드"
+        "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
+        "선택순번", "원본 성적 행", "학년", "학기", "과목명",
+        "석차등급", "성취도", "이수단위", "환산점수", "가중점수",
+        "진로선택", "전문교과", "수강자수", "원본 고교구분", "지원자 고교구분코드"
     };
 
     byte[] write(
@@ -63,6 +66,7 @@ class TranscriptValidationExcelWriter {
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
             createVerificationResultSheet(workbook, styles, verification);
+            createAllCourseSheet(workbook, styles, courses);
             createSelectedCourseSheet(workbook, styles, verification);
             createSummarySheet(
                 workbook, styles, originalFileName, sourceFormat, applicationRows,
@@ -188,15 +192,12 @@ class TranscriptValidationExcelWriter {
             TransferApplicationRow application = success.application();
             GradeVerificationResponse result = success.verification();
             GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
-            BigDecimal preciseAverage = divide(
-                summary.gradeTimesCreditsSum(), summary.totalIncludedCredits()
-            );
             Object[] values = {
                 application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
                 application.recruitmentUnitName(), summary.gradeTimesCreditsSum(),
                 summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
-                preciseAverage, result.averageGrade(), result.baseScore(), summary.scoreMultiplier(),
-                summary.scoreBeforeFinalRounding(), result.finalScore()
+                result.baseScore(), summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(),
+                result.finalScore(), thousandPointScore(result)
             };
             writeRow(row, values, styles, -1);
         }
@@ -233,28 +234,57 @@ class TranscriptValidationExcelWriter {
                 writeRow(sheet.createRow(rowIndex++), new Object[] {
                     application.rowNumber(), application.applicantNumber(), success.studentName(),
                     application.admissionTrackName(), application.recruitmentUnitName(),
-                    schoolInfo == null || schoolInfo.graduationYear() == null
-                        ? application.graduationYear() : schoolInfo.graduationYear(),
                     index + 1, source.rowNumber(),
-                    schoolInfo == null ? source.highSchoolCode() : schoolInfo.highSchoolCode(),
-                    schoolInfo == null ? source.highSchoolName() : schoolInfo.highSchoolName(),
                     source.schoolYear(), source.semester(),
-                    source.subjectCategory(), calculation.appliedSubjectCategory(), source.courseName(),
-                    source.grade(), source.achievement(), source.credits(), calculation.effectiveGrade(),
-                    calculation.convertedScore(), calculation.appliedCredits(), calculation.appliedWeight(),
-                    calculation.weightedScore(), source.careerSubject() ? "Y" : "N",
-                    source.professionalCourse() ? "Y" : "N", source.rankPosition(),
-                    source.tiedRankCount(), source.studentCount(),
-                    schoolInfo == null ? "DOMESTIC_HIGH_SCHOOL" : schoolInfo.educationBackground(),
-                    schoolInfo == null ? "GENERAL" : schoolInfo.highSchoolType(),
-                    schoolInfo == null ? null : schoolInfo.sourceHighSchoolType(),
+                    source.courseName(), source.grade(), source.achievement(), source.credits(),
+                    calculation.convertedScore(), calculation.weightedScore(),
+                    source.careerSubject() ? "Y" : "N", source.professionalCourse() ? "Y" : "N",
+                    source.studentCount(),
                     schoolInfo == null ? null : schoolInfo.sourceHighSchoolCategory(),
                     schoolInfo == null ? null : schoolInfo.applicantHighSchoolCategoryCode()
                 }, styles, -1);
             }
         }
         finishTable(sheet, rowIndex - 3, SELECTED_COURSE_HEADERS.length);
-        setWidths(sheet, SELECTED_COURSE_HEADERS, Set.of(3, 4, 9, 14));
+        setWidths(sheet, SELECTED_COURSE_HEADERS, Set.of(3, 4, 9));
+        sheet.setColumnWidth(2, 24 * 256);
+    }
+
+    private void createAllCourseSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        List<TranscriptExcelRow> courses
+    ) {
+        Sheet sheet = workbook.createSheet("학생별 전체 과목");
+        sheet.setDisplayGridlines(false);
+        title(
+            sheet, styles,
+            "학생별 전체 과목 원본 - 수험번호와 원본 성적 행으로 선택 과목 시트와 비교",
+            ALL_COURSE_HEADERS.length - 1
+        );
+        header(sheet, styles, ALL_COURSE_HEADERS);
+
+        List<TranscriptExcelRow> sortedCourses = new ArrayList<>(courses);
+        sortedCourses.sort(Comparator
+            .comparing(TranscriptExcelRow::applicantNumber, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparingInt(TranscriptExcelRow::schoolYear)
+            .thenComparingInt(TranscriptExcelRow::semester)
+            .thenComparingInt(TranscriptExcelRow::rowNumber));
+
+        int rowIndex = 3;
+        for (TranscriptExcelRow course : sortedCourses) {
+            writeRow(sheet.createRow(rowIndex++), new Object[] {
+                course.rowNumber(), course.applicantNumber(), course.studentName(),
+                course.highSchoolCode(), course.highSchoolName(), course.graduationYear(),
+                course.schoolYear(), course.semester(), course.subjectCategory(), course.courseName(),
+                course.grade(), course.gradeScale(), course.achievement(), course.rawScore(),
+                course.meanScore(), course.standardDeviation(), course.studentCount(),
+                course.rankPosition(), course.tiedRankCount(), course.legacyAchievement(), course.credits(),
+                course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N"
+            }, styles, -1);
+        }
+        finishTable(sheet, sortedCourses.size(), ALL_COURSE_HEADERS.length);
+        setWidths(sheet, ALL_COURSE_HEADERS, Set.of(4, 9));
         sheet.setColumnWidth(2, 24 * 256);
     }
 
@@ -308,9 +338,11 @@ class TranscriptValidationExcelWriter {
         }
     }
 
-    private BigDecimal divide(BigDecimal numerator, BigDecimal denominator) {
-        if (numerator == null || denominator == null || denominator.signum() == 0) return null;
-        return numerator.divide(denominator, 12, RoundingMode.HALF_UP).stripTrailingZeros();
+    private BigDecimal thousandPointScore(GradeVerificationResponse result) {
+        if (result.baseScore() == null) return null;
+        GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
+        return result.baseScore().multiply(BigDecimal.TEN)
+            .setScale(summary.finalScale(), summary.finalRounding());
     }
 
     private void title(Sheet sheet, Styles styles, String value, int lastColumn) {

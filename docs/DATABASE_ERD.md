@@ -1,8 +1,8 @@
 # Grade Validation Database ERD
 
-이 문서는 Flyway 마이그레이션 `V1`~`V31`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
+이 문서는 Flyway 마이그레이션 `V1`~`V40`을 기준으로 작성한 현재 MySQL 물리 스키마 ERD다.
 
-- 전체 테이블: 21개
+- 전체 테이블: 24개
 - 관계 표기: 실제 외래 키 제약조건 기준
 - `PK`: 기본 키, `FK`: 외래 키, `UK`: 유일 키
 - 컬럼 설명의 `nullable`은 `NULL` 허용 컬럼을 뜻한다.
@@ -13,6 +13,8 @@
 | 도메인 | 테이블 | 역할 |
 |---|---|---|
 | 대학 | `university` | 대학 기본정보와 사용 여부 |
+| 대학 | `university_import_profile` | 대학별 입력 양식 버전·헤더 매핑·교체 정책 |
+| 대학 | `university_export_profile` | 대학별 결과 파일 칼럼 정의 |
 | 입학 카탈로그 | `admission_track` | 대학·입학연도별 전형 |
 | 입학 카탈로그 | `recruitment_unit` | 전형별 모집단위 |
 | 지원 | `student_application` | 지원자와 모집단위의 연결 |
@@ -23,6 +25,7 @@
 | 구교육과정 | `student_legacy_grade_summary` | 학기·학년별 석차 요약 |
 | 검정고시 | `student_ged_subject_score` | 검정고시 과목별 원점수 |
 | 가져오기 | `student_transcript_import` | 학생부 파일 가져오기 작업 이력 |
+| 가져오기 | `student_transcript_import_course` | 가져오기 작업별 과목 성적 불변 스냅샷 |
 | 평가 규칙 | `evaluation_rule` | 대학별 성적 반영 규칙과 버전·생명주기 |
 | 평가 규칙 | `evaluation_rule_grade_score` | 석차등급별 환산점수 |
 | 평가 규칙 | `evaluation_rule_achievement_grade` | 성취도별 환산등급 |
@@ -70,6 +73,7 @@ erDiagram
     STUDENT_APPLICATION {
         BIGINT id PK "지원 식별자"
         BIGINT student_id FK "지원자 식별자"
+        BIGINT source_import_id FK "소유 가져오기 작업, nullable"
         BIGINT recruitment_unit_id FK "모집단위 식별자"
         DATETIME created_at "등록 일시"
         DATETIME updated_at "수정 일시"
@@ -77,8 +81,9 @@ erDiagram
 
     STUDENT {
         BIGINT id PK "지원자 식별자"
-        INT admission_year "입학연도, 수험번호와 복합 UK"
-        VARCHAR applicant_number "수험번호, 입학연도와 복합 UK"
+        BIGINT university_id FK "대학 식별자, 입학연도·수험번호와 복합 UK"
+        INT admission_year "입학연도, 대학·수험번호와 복합 UK"
+        VARCHAR applicant_number "수험번호, 대학·입학연도와 복합 UK"
         VARCHAR name "지원자명"
         VARCHAR high_school_code "출신고교 코드, nullable"
         VARCHAR high_school_name "출신고교명, nullable"
@@ -94,10 +99,12 @@ erDiagram
     STUDENT_TRANSCRIPT_COURSE {
         BIGINT id PK "과목 성적 식별자"
         BIGINT student_id FK "지원자 식별자"
+        BIGINT source_import_id FK "소유 가져오기 작업, nullable"
         INT school_year "학년"
         INT semester "학기"
         VARCHAR subject_category "교과군"
         VARCHAR course_name "과목명"
+        VARCHAR course_name_normalized UK "과목명 정규화 키"
         INT grade_value "석차등급, nullable"
         VARCHAR grade_scale "등급 체계"
         VARCHAR achievement "성취도, nullable"
@@ -120,6 +127,7 @@ erDiagram
     STUDENT_ATTENDANCE {
         BIGINT id PK "출결 식별자"
         BIGINT student_id FK "지원자 식별자"
+        BIGINT source_import_id FK "소유 가져오기 작업, nullable"
         INT school_year "학년"
         INT unexcused_absence_days "미인정 결석일수"
         INT unexcused_tardy_count "미인정 지각 횟수"
@@ -168,15 +176,54 @@ erDiagram
 
     STUDENT_TRANSCRIPT_IMPORT {
         BIGINT id PK "가져오기 작업 식별자"
+        BIGINT university_id FK "대학 식별자"
         INT admission_year "입학연도"
         VARCHAR original_file_name "원본 파일명"
+        VARCHAR temporary_file_path "처리 중 임시 파일 경로, nullable"
         VARCHAR import_mode "처리 방식"
         CHAR file_sha256 "파일 해시, nullable"
+        VARCHAR source_format "원천 파일 형식"
         INT total_rows "전체 행 수"
         INT imported_rows "성공 행 수"
         INT failed_rows "실패 행 수"
         VARCHAR status "처리 상태"
+        VARCHAR error_message "실패 또는 경고 요약, nullable"
         DATETIME created_at "작업 일시"
+        DATETIME updated_at "진행 갱신 일시"
+    }
+
+    STUDENT_TRANSCRIPT_IMPORT_COURSE {
+        BIGINT import_id PK, FK "가져오기 작업 식별자"
+        INT source_row_number PK "원본 행 번호"
+        VARCHAR applicant_number "수험번호"
+        INT school_year "학년"
+        INT semester "학기"
+        VARCHAR subject_category "교과군"
+        VARCHAR course_name "과목명"
+        INT grade_value "석차등급, nullable"
+        VARCHAR grade_scale "등급 체계"
+        VARCHAR achievement "성취도, nullable"
+        DECIMAL credits "이수단위"
+        DATETIME created_at "스냅샷 일시"
+    }
+
+    UNIVERSITY_IMPORT_PROFILE {
+        BIGINT id PK "입력 프로필 식별자"
+        BIGINT university_id FK "대학 식별자"
+        VARCHAR source_format UK "입력 양식 코드"
+        VARCHAR schema_version UK "양식 버전"
+        LONGTEXT column_mapping "헤더 매핑 JSON, nullable"
+        BOOLEAN replaces_previous_data "이전 데이터 교체 여부"
+        BOOLEAN active "사용 여부"
+    }
+
+    UNIVERSITY_EXPORT_PROFILE {
+        BIGINT id PK "출력 프로필 식별자"
+        BIGINT university_id FK "대학 식별자"
+        VARCHAR export_format UK "출력 양식 코드"
+        VARCHAR schema_version UK "양식 버전"
+        LONGTEXT column_definition "칼럼 정의 JSON"
+        BOOLEAN active "사용 여부"
     }
 
     EVALUATION_RULE {
@@ -198,6 +245,7 @@ erDiagram
         DECIMAL science_weight "과학 가중치"
         DECIMAL other_weight "기타 교과 가중치"
         VARCHAR selection_strategy "과목 선택 방식"
+        LONGTEXT selection_policy "선언형 과목 선택 정책 JSON, nullable"
         INT selection_count "일반 과목 선택 수"
         INT achievement_selection_count "성취도 과목 선택 수"
         INT minimum_course_count "최소 반영 과목 수"
@@ -334,6 +382,10 @@ erDiagram
     }
 
     UNIVERSITY ||--o{ ADMISSION_TRACK : "전형을 운영"
+    UNIVERSITY ||--o{ STUDENT : "지원자를 구분"
+    UNIVERSITY ||--o{ STUDENT_TRANSCRIPT_IMPORT : "가져오기를 구분"
+    UNIVERSITY ||--o{ UNIVERSITY_IMPORT_PROFILE : "입력 양식 정의"
+    UNIVERSITY ||--o{ UNIVERSITY_EXPORT_PROFILE : "출력 양식 정의"
     ADMISSION_TRACK ||--o{ RECRUITMENT_UNIT : "모집단위를 포함"
     RECRUITMENT_UNIT ||--o{ STUDENT_APPLICATION : "지원을 접수"
     STUDENT ||--o{ STUDENT_APPLICATION : "지원"
@@ -343,6 +395,10 @@ erDiagram
     STUDENT ||--o{ STUDENT_SCHOOL_VIOLENCE_ACTION : "조치 내역 보유"
     STUDENT ||--o{ STUDENT_GED_SUBJECT_SCORE : "검정고시 점수 보유"
     STUDENT ||--o{ STUDENT_LEGACY_GRADE_SUMMARY : "구교육과정 석차 보유"
+    STUDENT_TRANSCRIPT_IMPORT ||--o{ STUDENT_TRANSCRIPT_IMPORT_COURSE : "작업별 과목 스냅샷 보유"
+    STUDENT_TRANSCRIPT_IMPORT o|--o{ STUDENT_TRANSCRIPT_COURSE : "현재 과목 데이터 소유"
+    STUDENT_TRANSCRIPT_IMPORT o|--o{ STUDENT_ATTENDANCE : "현재 출결 데이터 소유"
+    STUDENT_TRANSCRIPT_IMPORT o|--o{ STUDENT_APPLICATION : "현재 지원 데이터 소유"
 
     UNIVERSITY ||--o{ EVALUATION_RULE : "평가 규칙 정의"
     EVALUATION_RULE ||--o{ EVALUATION_RULE_GRADE_SCORE : "등급 환산"
@@ -373,8 +429,11 @@ erDiagram
 | `admission_track` | `university_id`, `admission_year`, `name` |
 | `recruitment_unit` | (`admission_track_id`, `name`), (`admission_track_id`, `code`) |
 | `student_application` | `student_id`, `recruitment_unit_id` |
-| `student` | `admission_year`, `applicant_number` |
-| `student_transcript_course` | `student_id`, `school_year`, `semester`, `subject_category`, `course_name` |
+| `student` | `university_id`, `admission_year`, `applicant_number` |
+| `student_transcript_course` | `student_id`, `school_year`, `semester`, `course_name_normalized` |
+| `student_transcript_import_course` | `import_id`, `source_row_number` |
+| `university_import_profile` | `university_id`, `source_format`, `schema_version` |
+| `university_export_profile` | `university_id`, `export_format`, `schema_version` |
 | `student_attendance` | `student_id`, `school_year` |
 | `student_ged_subject_score` | `student_id`, `subject_name` |
 | `student_legacy_grade_summary` | `student_id`, `summary_type`, `school_year`, `semester_key` |
@@ -389,10 +448,10 @@ erDiagram
 - 평가 규칙 삭제 시 등급·성취도·평어 환산표와 교과 우선순위가 함께 삭제된다.
 - 규칙 추출 결과 삭제 시 추출 근거가 함께 삭제된다.
 - 지원 정보 삭제 시 `verification_run.application_id`는 `NULL`이 되고, `application_score_run`은 함께 삭제된다.
-- `student_transcript_import`는 다른 테이블과 외래 키로 연결되지 않은 독립적인 작업 이력이다.
+- `student_transcript_import`는 작업별 결과 재현용 과목 스냅샷을 소유하며, 현재 반영된 과목·출결·지원 데이터는 `source_import_id`로 정확한 소유 작업을 추적한다.
 
 ## 스키마 근거
 
-- DDL: `src/main/resources/db/migration/V1__create_university.sql`부터 `V31__align_catalog_with_published_rules.sql`까지
+- DDL: `src/main/resources/db/migration/V1__create_university.sql`부터 `V40__document_all_application_columns.sql`까지
 - JPA 매핑: `src/main/java/com/jinhakapply/gradevalidation/**/domain`
 - 구교육과정 상세 모델: [LEGACY_ACADEMIC_DATA_MODEL.md](LEGACY_ACADEMIC_DATA_MODEL.md)

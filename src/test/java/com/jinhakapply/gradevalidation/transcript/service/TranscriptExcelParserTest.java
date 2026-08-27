@@ -143,6 +143,37 @@ class TranscriptExcelParserTest {
         }
     }
 
+    @Test
+    void mergesNormalizedDuplicateCourseNamesAndKeepsTheLastRow() throws Exception {
+        String[] headers = {
+            "applicantNumber", "studentName", "schoolYear", "semester", "subjectCategory",
+            "courseName", "grade", "credits"
+        };
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("transcript");
+            writeRow(sheet.createRow(0), headers);
+            writeRow(sheet.createRow(1), new Object[] {
+                "A-001", "학생", 1, 1, "사회", "사회 · 문화", 5, 3
+            });
+            writeRow(sheet.createRow(2), new Object[] {
+                "A-001", "학생", 1, 1, "사회", "사회문화", 2, 4
+            });
+
+            TranscriptExcelParseResult result = parser.parse(file(workbook));
+
+            assertThat(result.totalRows()).isEqualTo(2);
+            assertThat(result.errors()).isEmpty();
+            assertThat(result.skipped()).singleElement().satisfies(skipped ->
+                assertThat(skipped.reason()).contains("동일 과목 중복"));
+            assertThat(result.rows()).singleElement().satisfies(row -> {
+                assertThat(row.rowNumber()).isEqualTo(3);
+                assertThat(row.courseName()).isEqualTo("사회문화");
+                assertThat(row.grade()).isEqualTo(2);
+                assertThat(row.credits()).isEqualByComparingTo("4");
+            });
+        }
+    }
+
     private MockMultipartFile file(XSSFWorkbook workbook) throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         workbook.write(output);

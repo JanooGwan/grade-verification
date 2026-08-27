@@ -66,15 +66,23 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             maximumTotal = new BigDecimal("1000.00");
         }
         if (university.contains("경복")) {
-            BigDecimal allowedBonus = isKbuHealthTrack(track) ? new BigDecimal("5") : new BigDecimal("10");
+            BigDecimal academicMaximum = maximumTotal;
+            BigDecimal allowedBonus = kbuAllowedBonus(track);
             BigDecimal requestedBonus = request.bonusScore() == null ? BigDecimal.ZERO : request.bonusScore();
-            if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0) {
+            if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0
+                || requestedBonus.remainder(new BigDecimal("5")).signum() != 0) {
                 throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
-                    "경복대학교 해당 모집단위의 KBU입시드림포인트는 0점 이상 " + allowedBonus + "점 이하여야 합니다.");
+                    "경복대학교 해당 모집단위의 KBU입시드림포인트는 0점 이상 " + allowedBonus
+                        + "점 이하에서 5점 단위로 입력해야 합니다.");
             }
             additionalScore = score(requestedBonus);
             maximumTotal = score(new BigDecimal("100").add(allowedBonus));
-            maximumQuantitative = maximumTotal;
+            maximumQuantitative = score(academicMaximum.add(allowedBonus));
+            if (isKbuInterviewTrack(track)) {
+                pending.add("면접 정성평가 60점");
+            } else if (isKbuPracticalTrack(track)) {
+                pending.add("실기고사 80점");
+            }
         }
         if (university.contains("삼육") && isSyuAthleticTalent(admissionTrack, recruitmentUnit)) {
             equivalentAbsenceDays = equivalentAbsenceDays(commonData);
@@ -166,16 +174,16 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             }
         }
         if (university.contains("경복") && commonData.educationBackground() == EducationBackground.GED) {
-            if (!commonData.gedSubjectScores().isEmpty()) {
-                BigDecimal averageGrade = weightedGedAverageGrade(
-                    commonData, this::kbuGedGrade, false, "KBU_GED_AVERAGE", steps);
-                BigDecimal grade = averageGrade.setScale(1, RoundingMode.DOWN);
-                steps.add(step("KBU_GED_TRUNCATION", "경복대 검정고시 평균등급 절사",
-                    "평균등급을 소수 첫째 자리까지 절사", Map.of("절사전평균등급", averageGrade), grade));
-                return scoreForAverageGrade(rule, grade);
+            if (commonData.gedSubjectScores().isEmpty()) {
+                throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                    "경복대학교 검정고시 환산에는 필수 6개 과목의 과목별 점수가 필요합니다.");
             }
-            warnings.add("과목별 검정고시 점수가 없어 기존 전 과목 평균점수로 임시 환산했습니다.");
-            return scoreForGrade(rule, kbuGedGrade(requiredGedAverage(commonData)));
+            BigDecimal averageGrade = weightedGedAverageGrade(
+                commonData, this::kbuGedGrade, false, "KBU_GED_AVERAGE", steps);
+            BigDecimal grade = averageGrade.setScale(1, RoundingMode.DOWN);
+            steps.add(step("KBU_GED_TRUNCATION", "경복대 검정고시 평균등급 절사",
+                "평균등급을 소수 첫째 자리까지 절사", Map.of("절사전평균등급", averageGrade), grade));
+            return scoreForAverageGrade(rule, grade);
         }
         pending.add("모집요강상 별도 심의 또는 제출서류 확인이 필요한 비교내신");
         return BigDecimal.ZERO;
@@ -259,6 +267,14 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         if (!available.containsAll(required)) {
             throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
                 "검정고시 환산에는 국어·영어·수학·한국사·사회·과학 점수가 모두 필요합니다.");
+        }
+        if (!useMjcWeights) {
+            boolean duplicateRequiredSubject = required.stream().anyMatch(type -> data.gedSubjectScores().stream()
+                .filter(subject -> subject.subjectType() == type).count() != 1);
+            if (duplicateRequiredSubject) {
+                throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                    "경복대학교 검정고시 필수과목은 과목별로 정확히 1개 점수만 등록해야 합니다.");
+            }
         }
         BigDecimal gradeTimesUnits = BigDecimal.ZERO;
         BigDecimal units = BigDecimal.ZERO;
@@ -392,6 +408,24 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     private boolean isKbuHealthTrack(String track) {
         return track.contains("간호") || track.contains("치위생") || track.contains("작업치료")
             || track.contains("임상병리") || track.contains("물리치료");
+    }
+
+    private BigDecimal kbuAllowedBonus(String track) {
+        boolean susiBalanceOpportunity = track.contains("수시")
+            && (track.contains("기회균형") || track.contains("기초생활")
+                || track.contains("차상위") || track.contains("한부모"));
+        boolean noBonusCollegeGraduateHealth = track.contains("전문대학이상졸업자")
+            && (track.contains("간호") || track.contains("임상병리") || track.contains("물리치료"));
+        if (susiBalanceOpportunity || noBonusCollegeGraduateHealth) return BigDecimal.ZERO;
+        return isKbuHealthTrack(track) ? new BigDecimal("5") : new BigDecimal("10");
+    }
+
+    private boolean isKbuInterviewTrack(String track) {
+        return track.contains("항공서비스") || track.contains("준오헤어디자인");
+    }
+
+    private boolean isKbuPracticalTrack(String track) {
+        return track.contains("실용음악") || track.contains("공연예술");
     }
 
     private boolean isSyuAthleticTalent(String admissionTrack, String recruitmentUnit) {

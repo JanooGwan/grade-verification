@@ -9,6 +9,8 @@ import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 
 public record StudentSummaryResponse(
     Long studentId,
+    Long universityId,
+    String universityName,
     int admissionYear,
     String applicantNumber,
     String name,
@@ -28,6 +30,8 @@ public record StudentSummaryResponse(
     ) {
         return new StudentSummaryResponse(
             student.getId(),
+            student.getUniversity().getId(),
+            student.getUniversity().getName(),
             student.getAdmissionYear(),
             student.getApplicantNumber(),
             student.getName(),

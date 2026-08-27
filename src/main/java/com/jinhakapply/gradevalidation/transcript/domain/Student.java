@@ -5,6 +5,7 @@ import static lombok.AccessLevel.PROTECTED;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 
+import com.jinhakapply.gradevalidation.university.domain.University;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,6 +13,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
@@ -22,8 +25,8 @@ import lombok.NoArgsConstructor;
 @Table(
     name = "student",
     uniqueConstraints = @UniqueConstraint(
-        name = "uk_student_admission_applicant",
-        columnNames = {"admission_year", "applicant_number"}
+        name = "uk_student_university_admission_applicant",
+        columnNames = {"university_id", "admission_year", "applicant_number"}
     )
 )
 @NoArgsConstructor(access = PROTECTED)
@@ -32,6 +35,10 @@ public class Student {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY, optional = false)
+    @JoinColumn(name = "university_id", nullable = false)
+    private University university;
 
     @Column(name = "admission_year", nullable = false)
     private int admissionYear;
@@ -59,6 +66,9 @@ public class Student {
     @Column(name = "high_school_type", nullable = false, length = 40)
     private HighSchoolType highSchoolType;
 
+    @Column(name = "applicant_high_school_category_code", length = 50)
+    private String applicantHighSchoolCategoryCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "graduation_status", nullable = false, length = 30)
     private GraduationStatus graduationStatus;
@@ -73,6 +83,7 @@ public class Student {
     private LocalDateTime updatedAt;
 
     private Student(
+        University university,
         int admissionYear,
         String applicantNumber,
         String name,
@@ -80,6 +91,7 @@ public class Student {
         String highSchoolName,
         Integer graduationYear
     ) {
+        this.university = university;
         this.admissionYear = admissionYear;
         this.applicantNumber = applicantNumber;
         updateProfile(name, highSchoolCode, highSchoolName, graduationYear);
@@ -90,6 +102,7 @@ public class Student {
     }
 
     public static Student create(
+        University university,
         int admissionYear,
         String applicantNumber,
         String name,
@@ -98,12 +111,30 @@ public class Student {
         Integer graduationYear
     ) {
         return new Student(
+            university,
             admissionYear,
             applicantNumber,
             name,
             highSchoolCode,
             highSchoolName,
             graduationYear
+        );
+    }
+
+    /**
+     * Kept only for isolated domain tests. Persisted students must be created
+     * with their owning university.
+     */
+    public static Student create(
+        int admissionYear,
+        String applicantNumber,
+        String name,
+        String highSchoolCode,
+        String highSchoolName,
+        Integer graduationYear
+    ) {
+        return new Student(
+            null, admissionYear, applicantNumber, name, highSchoolCode, highSchoolName, graduationYear
         );
     }
 
@@ -136,6 +167,13 @@ public class Student {
         this.highSchoolType = highSchoolType;
         this.graduationStatus = graduationStatus;
         this.gedAverageScore = gedAverageScore;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateApplicantHighSchoolCategoryCode(String applicantHighSchoolCategoryCode) {
+        this.applicantHighSchoolCategoryCode = applicantHighSchoolCategoryCode == null
+            || applicantHighSchoolCategoryCode.isBlank()
+            ? null : applicantHighSchoolCategoryCode.trim();
         this.updatedAt = LocalDateTime.now();
     }
 

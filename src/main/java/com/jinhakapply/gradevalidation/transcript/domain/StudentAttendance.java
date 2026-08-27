@@ -27,6 +27,8 @@ public class StudentAttendance {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = LAZY, optional = false) @JoinColumn(name = "student_id", nullable = false)
     private Student student;
+    @ManyToOne(fetch = LAZY) @JoinColumn(name = "source_import_id")
+    private StudentTranscriptImport sourceImport;
     @Column(name = "school_year", nullable = false) private int schoolYear;
     @Column(name = "unexcused_absence_days", nullable = false) private int unexcusedAbsenceDays;
     @Column(name = "unexcused_tardy_count", nullable = false) private int unexcusedTardyCount;
@@ -50,5 +52,9 @@ public class StudentAttendance {
         this.unexcusedEarlyLeaveCount = earlyLeaveCount;
         this.unexcusedClassAbsenceCount = classAbsenceCount;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void attachSourceImport(StudentTranscriptImport transcriptImport) {
+        this.sourceImport = transcriptImport;
     }
 }

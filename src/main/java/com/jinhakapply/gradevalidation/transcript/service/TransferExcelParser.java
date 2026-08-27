@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -21,6 +22,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.apache.poi.openxml4j.opc.OPCPackage;
@@ -95,6 +97,7 @@ class TransferExcelParser {
         Map<Integer, CourseSourceMetadata> courseMetadata = new HashMap<>();
         int[] invalidRows = {0};
         int[] skippedRows = {0};
+        int[] duplicateRows = {0};
         int[] missingAssessmentRows = {0};
         Path temporaryFile = null;
         try {
@@ -161,19 +164,58 @@ class TransferExcelParser {
             boolean professionalCourse = isNonOrdinaryCourse(metadata);
             courses.set(index, withProfessionalCourse(course, professionalCourse));
         }
-        if (courses.isEmpty()) {
+        List<TranscriptExcelRow> deduplicatedCourses = deduplicateCourses(
+            courses, skipped, skippedRows, duplicateRows
+        );
+        if (deduplicatedCourses.isEmpty()) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "가져올 과목 성적이 없습니다.");
+        }
+        List<String> warnings = new ArrayList<>(warnings(missingAssessmentRows[0]));
+        if (duplicateRows[0] > 0) {
+            warnings.add("공백·가운뎃점을 제외한 과목명이 같은 중복 행 %,d건은 마지막 행으로 통합했습니다."
+                .formatted(duplicateRows[0]));
         }
         return new TransferExcelParseResult(
             "HANSHIN_MULTI_SHEET_V1",
             List.copyOf(applications),
-            List.copyOf(courses),
+            deduplicatedCourses,
             invalidRows[0],
             skippedRows[0],
             List.copyOf(skipped),
             List.copyOf(errors),
-            warnings(missingAssessmentRows[0])
+            List.copyOf(warnings)
         );
+    }
+
+    private List<TranscriptExcelRow> deduplicateCourses(
+        List<TranscriptExcelRow> courses,
+        List<TranscriptImportRowError> skipped,
+        int[] skippedRows,
+        int[] duplicateRows
+    ) {
+        Map<CourseIdentity, TranscriptExcelRow> unique = new LinkedHashMap<>();
+        for (TranscriptExcelRow course : courses) {
+            CourseIdentity identity = new CourseIdentity(
+                course.applicantNumber(), course.schoolYear(), course.semester(),
+                normalizeCourseName(course.courseName())
+            );
+            TranscriptExcelRow replaced = unique.put(identity, course);
+            if (replaced != null) {
+                skippedRows[0]++;
+                duplicateRows[0]++;
+                if (skipped.size() < MAX_REPORTED_ERRORS) {
+                    skipped.add(new TranscriptImportRowError(
+                        replaced.rowNumber(),
+                        "동일 과목 중복으로 뒤쪽 행을 사용했습니다: " + course.courseName()
+                    ));
+                }
+            }
+        }
+        return List.copyOf(unique.values());
+    }
+
+    private String normalizeCourseName(String value) {
+        return TextNormalizer.normalizeCourseName(value);
     }
 
     private void deleteTemporaryFile(Path path) {
@@ -343,6 +385,13 @@ class TransferExcelParser {
     }
 
     private record CourseSourceMetadata(String organizationName) {}
+
+    private record CourseIdentity(
+        String applicantNumber,
+        int schoolYear,
+        int semester,
+        String normalizedCourseName
+    ) {}
 
     private AchievementLevel achievement(String value) {
         if (value == null) return null;

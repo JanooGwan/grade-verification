@@ -9,6 +9,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.security.MessageDigest;
@@ -25,6 +26,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
@@ -36,12 +38,12 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentGedSubjectScore;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentLegacyGradeSummary;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
-import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
@@ -53,6 +55,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCo
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
+import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -73,8 +77,8 @@ public class TranscriptService {
     private final TransferExcelParser transferExcelParser;
     private final ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
     private final TransferImportService transferImportService;
-    private final TranscriptValidationExcelWriter validationExcelWriter;
-    private final TranscriptBatchVerificationService batchVerificationService;
+    private final TranscriptImportResultExcelWriter importResultExcelWriter;
+    private final SyuImportScoreExcelWriter syuImportScoreExcelWriter;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
@@ -82,6 +86,8 @@ public class TranscriptService {
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
     private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
     private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
+    private final UniversityRepository universityRepository;
+    private final TranscriptSnapshotReplacementService snapshotReplacementService;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
@@ -112,6 +118,7 @@ public class TranscriptService {
         MultipartFile schoolInfoFile
     ) {
         validateFile(admissionYear, file);
+        University university = requireUniversity(universityId);
         if (transferExcelParser.supports(file)) {
             ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
             return transferImportService.importExcel(
@@ -119,6 +126,7 @@ public class TranscriptService {
             );
         }
         String originalFileName = safeFileName(file.getOriginalFilename());
+        String sourceFormat = "STANDARD_TRANSCRIPT_V1";
         TranscriptExcelParseResult parseResult = excelParser.parse(file);
         if (parseResult.totalRows() == 0) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "업로드할 성적 행이 없습니다.");
@@ -129,13 +137,36 @@ public class TranscriptService {
                     .formatted(parseResult.errors().size()));
         }
 
+        StudentTranscriptImport previousImport = importRepository
+            .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+                university.getId(), admissionYear, completedImportStatuses()
+            ).orElse(null);
+        if (previousImport != null && !parseResult.errors().isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "기존 저장본을 지우지 않도록 오류가 있는 파일은 재업로드할 수 없습니다. 오류를 모두 수정한 뒤 다시 저장해 주세요.");
+        }
+        TranscriptSnapshotReplacementService.SnapshotScope snapshot = snapshotReplacementService.clear(
+            university.getId(), admissionYear, false
+        );
+        StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
+            university,
+            admissionYear,
+            originalFileName,
+            mode,
+            sha256(file),
+            parseResult.totalRows(),
+            parseResult.rows().size(),
+            parseResult.errors().size(),
+            sourceFormat
+        ));
+
         Map<String, TranscriptExcelRow> firstRowByApplicant = parseResult.rows().stream().collect(Collectors.toMap(
             TranscriptExcelRow::applicantNumber,
             Function.identity(),
             (first, ignored) -> first
         ));
-        Map<String, Student> studentCache = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
-            admissionYear,
+        Map<String, Student> studentCache = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            university.getId(), admissionYear,
             firstRowByApplicant.keySet()
         ).stream().collect(Collectors.toMap(Student::getApplicantNumber, Function.identity()));
         Set<String> createdApplicants = new HashSet<>();
@@ -143,6 +174,7 @@ public class TranscriptService {
         firstRowByApplicant.forEach((applicantNumber, row) -> {
             if (!studentCache.containsKey(applicantNumber)) {
                 Student created = studentRepository.save(Student.create(
+                    university,
                     admissionYear,
                     applicantNumber,
                     row.studentName(),
@@ -154,15 +186,8 @@ public class TranscriptService {
                 createdApplicants.add(applicantNumber);
             }
         });
-        List<Long> studentIds = studentCache.values().stream().map(Student::getId).toList();
-        Map<CourseKey, StudentTranscriptCourse> courseCache = studentIds.isEmpty()
-            ? new HashMap<>()
-            : courseRepository.findAllByStudent_IdIn(studentIds).stream().collect(Collectors.toMap(
-                CourseKey::from,
-                Function.identity()
-            ));
+        studentCache.values().forEach(student -> TransferImportService.applySchoolInfo(student, null));
         int createdCourses = 0;
-        int updatedCourses = 0;
 
         for (TranscriptExcelRow row : parseResult.rows()) {
             Student student = studentCache.get(row.applicantNumber());
@@ -172,21 +197,14 @@ public class TranscriptService {
                 row.highSchoolName(),
                 row.graduationYear()
             );
-
-            CourseKey courseKey = CourseKey.from(row);
-            StudentTranscriptCourse course = courseCache.get(courseKey);
-            boolean created = false;
-            if (course == null) {
-                course = StudentTranscriptCourse.create(
-                    student,
-                    row.schoolYear(),
-                    row.semester(),
-                    row.subjectCategory(),
-                    row.courseName()
-                );
-                created = true;
-                courseCache.put(courseKey, course);
-            }
+            StudentTranscriptCourse course = StudentTranscriptCourse.create(
+                student,
+                row.schoolYear(),
+                row.semester(),
+                row.subjectCategory(),
+                row.courseName()
+            );
+            course.attachSourceImport(transcriptImport);
 
             course.updateScore(
                 row.grade(),
@@ -205,38 +223,29 @@ public class TranscriptService {
                 originalFileName,
                 row.rowNumber()
             );
-            if (created) {
-                courseRepository.save(course);
-                createdCourses++;
-            } else {
-                updatedCourses++;
-            }
+            courseRepository.save(course);
+            createdCourses++;
         }
-
-        StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
-            admissionYear,
-            originalFileName,
-            mode,
-            sha256(file),
-            parseResult.totalRows(),
-            parseResult.rows().size(),
-            parseResult.errors().size()
-        ));
+        snapshotReplacementService.deleteMissingStudents(
+            snapshot.existingStudents(), firstRowByApplicant.keySet()
+        );
 
         return new TranscriptImportResponse(
             transcriptImport.getId(),
             transcriptImport.getStatus(),
-            "STANDARD_TRANSCRIPT_V1",
+            sourceFormat,
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
-            0,
+            parseResult.skipped().size(),
             createdApplicants.size(),
             updatedApplicants.size(),
             createdCourses,
-            updatedCourses,
+            0,
+            snapshot.deletedCourses(),
             0,
             0,
+            snapshot.deletedApplications(),
             0,
             0,
             parseResult.errors(),
@@ -245,98 +254,14 @@ public class TranscriptService {
     }
 
     @Transactional(readOnly = true)
-    public TranscriptPreviewResponse previewExcel(int admissionYear, MultipartFile file) {
-        return previewExcel(admissionYear, null, file);
-    }
-
-    @Transactional(readOnly = true)
-    public TranscriptPreviewResponse previewExcel(int admissionYear, Long universityId, MultipartFile file) {
-        return previewExcel(admissionYear, universityId, file, null);
-    }
-
-    @Transactional(readOnly = true)
-    public TranscriptPreviewResponse previewExcel(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
-    ) {
-        validateFile(admissionYear, file);
-        if (transferExcelParser.supports(file)) {
-            TransferExcelParseResult result = transferExcelParser.parse(file);
-            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
-            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
-                universityId, admissionYear, result.applications(), result.courses(),
-                schoolInfo.byApplicantNumber()
-            );
-            requireMatchedVerificationRule(verification);
-            return transferImportService.preview(
-                file, sha256(file), result, verification,
-                schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications())
-            );
-        }
-        TranscriptExcelParseResult result = excelParser.parse(file);
-        return new TranscriptPreviewResponse(
-            safeFileName(file.getOriginalFilename()),
-            sha256(file),
-            "STANDARD_TRANSCRIPT_V1",
-            0,
-            result.totalRows(),
-            result.rows().size(),
-            result.errors().size(),
-            0,
-            result.rows().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
-                row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
-                row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
-            )).toList(),
-            null,
-            result.errors(),
-            List.of()
-        );
-    }
-
-    @Transactional(readOnly = true)
-    public byte[] exportExcelValidation(int admissionYear, Long universityId, MultipartFile file) {
-        return exportExcelValidation(admissionYear, universityId, file, null);
-    }
-
-    @Transactional(readOnly = true)
-    public byte[] exportExcelValidation(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
-    ) {
-        validateFile(admissionYear, file);
-        String fileName = safeFileName(file.getOriginalFilename());
-        if (transferExcelParser.supports(file)) {
-            TransferExcelParseResult result = transferExcelParser.parse(file);
-            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
-            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
-                universityId, admissionYear, result.applications(), result.courses(),
-                schoolInfo.byApplicantNumber()
-            );
-            requireMatchedVerificationRule(verification);
-            List<String> warnings = new java.util.ArrayList<>(result.warnings());
-            warnings.addAll(schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications()));
-            return validationExcelWriter.write(
-                fileName, result.sourceFormat(), result.applications().size(), result.totalRows(),
-                result.skipped(), result.courses(), result.errors(), List.copyOf(warnings), verification
-            );
-        }
-        TranscriptExcelParseResult result = excelParser.parse(file);
-        return validationExcelWriter.write(
-            fileName, "STANDARD_TRANSCRIPT_V1", 0, result.totalRows(), List.of(),
-            result.rows(), result.errors(), List.of(),
-            new TranscriptBatchVerificationResult(List.of(), List.of())
-        );
-    }
-
-    @Transactional(readOnly = true)
-    public List<TranscriptImportSummaryResponse> findImports() {
-        return importRepository.findTop50ByOrderByCreatedAtDesc().stream()
+    public List<TranscriptImportSummaryResponse> findImports(Long universityId) {
+        return importRepository.findTop50ByUniversity_IdOrderByCreatedAtDesc(requireUniversity(universityId).getId()).stream()
             .map(TranscriptImportSummaryResponse::from)
             .toList();
+    }
+
+    private List<TranscriptImportStatus> completedImportStatuses() {
+        return List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS);
     }
 
     public byte[] createExcelTemplate() {
@@ -368,7 +293,39 @@ public class TranscriptService {
     }
 
     @Transactional(readOnly = true)
+    public byte[] exportImportResult(Long importId) {
+        StudentTranscriptImport transcriptImport = importRepository.findById(importId)
+            .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
+        if (transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED
+            && transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED_WITH_ERRORS) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
+        }
+        return importResultExcelWriter.write(transcriptImport);
+    }
+
+    @Transactional(readOnly = true)
+    public void writeImportResult(Long importId, OutputStream output) {
+        StudentTranscriptImport transcriptImport = importRepository.findById(importId)
+            .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
+        if (transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED
+            && transcriptImport.getStatus() != TranscriptImportStatus.COMPLETED_WITH_ERRORS) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "완료된 가져오기 작업만 결과를 다운로드할 수 있습니다.");
+        }
+        if ("SYU_SOURCE_WORKBOOK_V1".equals(transcriptImport.getSourceFormat())
+            && transcriptImport.getAdmissionYear() == 2026) {
+            syuImportScoreExcelWriter.write(transcriptImport, output);
+            return;
+        }
+        try {
+            output.write(importResultExcelWriter.write(transcriptImport));
+        } catch (IOException exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "가져오기 처리 결과를 전송하지 못했습니다.");
+        }
+    }
+
+    @Transactional(readOnly = true)
     public StudentPageResponse findStudents(
+        Long universityId,
         int admissionYear,
         String keyword,
         int page,
@@ -376,7 +333,7 @@ public class TranscriptService {
     ) {
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         Page<Student> students = studentRepository.search(
-            admissionYear,
+            requireUniversity(universityId).getId(), admissionYear,
             normalizedKeyword,
             PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "applicantNumber"))
         );
@@ -404,8 +361,12 @@ public class TranscriptService {
     }
 
     @Transactional(readOnly = true)
-    public StudentTranscriptResponse findStudentTranscript(int admissionYear, String applicantNumber) {
-        Student student = studentRepository.findByAdmissionYearAndApplicantNumber(admissionYear, applicantNumber)
+    public StudentTranscriptResponse findStudentTranscript(
+        Long universityId, int admissionYear, String applicantNumber
+    ) {
+        Student student = studentRepository.findByUniversity_IdAndAdmissionYearAndApplicantNumber(
+            requireUniversity(universityId).getId(), admissionYear, applicantNumber
+        )
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
         return StudentTranscriptResponse.of(
             student,
@@ -592,8 +553,8 @@ public class TranscriptService {
     }
 
     private void requireUniqueCourse(Long studentId, Long currentCourseId, UpsertTranscriptCourseRequest request) {
-        courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
-            studentId, request.schoolYear(), request.semester(), request.subjectCategory(), request.courseName().trim()
+        courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndCourseNameNormalized(
+            studentId, request.schoolYear(), request.semester(), TextNormalizer.normalizeCourseName(request.courseName())
         ).filter(existing -> !existing.getId().equals(currentCourseId))
             .ifPresent(existing -> { throw CustomException.of(DUPLICATE_TRANSCRIPT_COURSE); });
     }
@@ -601,6 +562,14 @@ public class TranscriptService {
     private Student findStudent(Long studentId) {
         return studentRepository.findById(studentId)
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
+    }
+
+    private University requireUniversity(Long universityId) {
+        if (universityId == null || universityId <= 0) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "대학을 선택해 주세요.");
+        }
+        return universityRepository.findById(universityId)
+            .orElseThrow(() -> CustomException.of(com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND));
     }
 
     private StudentTranscriptCourse findCourse(Long studentId, Long courseId) {
@@ -647,63 +616,6 @@ public class TranscriptService {
         return applicantSchoolInfoExcelParser.parse(schoolInfoFile);
     }
 
-    private List<String> schoolInfoWarnings(
-        ApplicantSchoolInfoParseResult schoolInfo,
-        MultipartFile schoolInfoFile,
-        List<TransferApplicationRow> applications
-    ) {
-        if (schoolInfoFile == null || schoolInfoFile.isEmpty()) {
-            return List.of(
-                "지원자 추가정보 Excel이 없어 출신고교 유형을 일반고로 처리했습니다. "
-                    + "특성화고·종합고 전문계열·학력인정 평생교육시설 지원자는 추가정보 파일을 첨부해 주세요."
-            );
-        }
-        Set<String> applicationNumbers = applications.stream()
-            .map(TransferApplicationRow::applicantNumber)
-            .collect(java.util.stream.Collectors.toSet());
-        List<ApplicantSchoolInfoRow> linkedRows = schoolInfo.rows().stream()
-            .filter(row -> applicationNumbers.contains(row.applicantNumber()))
-            .toList();
-        long alternativeBackgrounds = linkedRows.stream()
-            .filter(row -> row.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL)
-            .count();
-        long allCourseTypes = linkedRows.stream()
-            .filter(row -> row.highSchoolType().usesHanshinAllOrdinaryCoursesPolicy())
-            .count();
-        long missing = applications.stream()
-            .map(TransferApplicationRow::applicantNumber)
-            .distinct()
-            .filter(applicantNumber -> !schoolInfo.byApplicantNumber().containsKey(applicantNumber))
-            .count();
-        String sourceYears = linkedRows.stream()
-            .map(ApplicantSchoolInfoRow::admissionYear)
-            .filter(java.util.Objects::nonNull)
-            .distinct()
-            .sorted()
-            .map(String::valueOf)
-            .collect(java.util.stream.Collectors.joining(", "));
-        return List.of(
-            (
-                "지원자 추가정보 %,d건을 연결했습니다. 전 과목 반영 고교유형 %,d건, "
-                    + "검정고시·외국고 %,d건, 추가정보 미연결 지원자 %,d건입니다. "
-                    + "추가정보 입학연도: %s"
-            ).formatted(linkedRows.size(), allCourseTypes, alternativeBackgrounds, missing,
-                sourceYears.isBlank() ? "미확인" : sourceYears)
-        );
-    }
-
-    private void requireMatchedVerificationRule(TranscriptBatchVerificationResult verification) {
-        if (!verification.failures().isEmpty()
-            && verification.successes().isEmpty()
-            && verification.failures().stream().allMatch(failure -> "RULE_NOT_FOUND".equals(failure.code()))) {
-            throw CustomException.of(
-                INVALID_TRANSCRIPT_FILE,
-                "선택한 대학교·모집연도에 전달양식의 전형과 맞는 게시 규칙이 없습니다. "
-                    + "검증할 모집요강 연도와 대상 대학교를 확인해 주세요."
-            );
-        }
-    }
-
     private String safeFileName(String originalFileName) {
         String cleaned = StringUtils.cleanPath(Optional.ofNullable(originalFileName).orElse("upload.xlsx"))
             .replace('\\', '/');
@@ -721,34 +633,6 @@ public class TranscriptService {
             throw new IllegalStateException("SHA-256 is not available", exception);
         } catch (IOException exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 해시를 계산하지 못했습니다.");
-        }
-    }
-
-    private record CourseKey(
-        String applicantNumber,
-        int schoolYear,
-        int semester,
-        String subjectCategory,
-        String courseName
-    ) {
-        private static CourseKey from(TranscriptExcelRow row) {
-            return new CourseKey(
-                row.applicantNumber(),
-                row.schoolYear(),
-                row.semester(),
-                row.subjectCategory().name(),
-                row.courseName()
-            );
-        }
-
-        private static CourseKey from(StudentTranscriptCourse course) {
-            return new CourseKey(
-                course.getStudent().getApplicantNumber(),
-                course.getSchoolYear(),
-                course.getSemester(),
-                course.getSubjectCategory().name(),
-                course.getCourseName()
-            );
         }
     }
 

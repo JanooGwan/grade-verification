@@ -22,12 +22,16 @@ import com.jinhakapply.gradevalidation.admission.repository.AdmissionTrackReposi
 import com.jinhakapply.gradevalidation.admission.repository.RecruitmentUnitRepository;
 import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
+import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
-import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
@@ -51,52 +55,10 @@ class TransferImportService {
     private final RecruitmentUnitRepository recruitmentUnitRepository;
     private final StudentApplicationRepository studentApplicationRepository;
     private final StudentRepository studentRepository;
+    private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
     private final JdbcTemplate jdbcTemplate;
-
-    TranscriptPreviewResponse preview(
-        MultipartFile file,
-        String fileSha256,
-        TransferExcelParseResult result,
-        TranscriptBatchVerificationResult verification,
-        List<String> additionalWarnings
-    ) {
-        List<String> warnings = new ArrayList<>(result.warnings());
-        if (additionalWarnings != null) warnings.addAll(additionalWarnings);
-        return new TranscriptPreviewResponse(
-            file.getOriginalFilename(),
-            fileSha256,
-            result.sourceFormat(),
-            result.applications().size(),
-            result.totalRows(),
-            result.courses().size(),
-            result.invalidRows(),
-            result.skippedRows(),
-            result.courses().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
-                row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
-                row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
-            )).toList(),
-            new TranscriptPreviewResponse.VerificationSummary(
-                result.applications().size(),
-                verification.successes().size(),
-                verification.failures().size(),
-                verification.successes().stream().limit(20).map(success ->
-                    new TranscriptPreviewResponse.VerificationResultRow(
-                        success.application().rowNumber(),
-                        success.application().applicantNumber(),
-                        success.studentName(),
-                        success.application().admissionTrackName(),
-                        success.application().recruitmentUnitName(),
-                        success.verification().finalScore(),
-                        success.verification().averageGrade(),
-                        success.verification().includedCourseCount()
-                    )
-                ).toList()
-            ),
-            result.errors(),
-            List.copyOf(warnings)
-        );
-    }
+    private final TranscriptSnapshotReplacementService snapshotReplacementService;
 
     @Transactional
     TranscriptImportResponse importExcel(
@@ -142,6 +104,19 @@ class TransferImportService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
         }
+        StudentTranscriptImport previousImport = importRepository
+            .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+                university.getId(), admissionYear,
+                List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
+            ).orElse(null);
+        if (previousImport != null && result.invalidRows() > 0) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "기존 저장본을 지우지 않도록 오류가 있는 파일은 재업로드할 수 없습니다. 오류를 모두 수정한 뒤 다시 저장해 주세요.");
+        }
+
+        TranscriptSnapshotReplacementService.SnapshotScope snapshot = snapshotReplacementService.clear(
+            university.getId(), admissionYear, false
+        );
 
         Set<String> applicantNumbers = result.courses().stream()
             .map(TranscriptExcelRow::applicantNumber)
@@ -152,8 +127,8 @@ class TransferImportService {
             .collect(Collectors.toMap(TransferApplicationRow::applicantNumber, Function.identity(), (first, ignored) -> first));
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant = schoolInfoResult.byApplicantNumber();
 
-        Map<String, Student> students = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
-            admissionYear, applicantNumbers
+        Map<String, Student> students = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            university.getId(), admissionYear, applicantNumbers
         ).stream().collect(Collectors.toMap(Student::getApplicantNumber, Function.identity()));
         int updatedStudents = students.size();
         int createdStudents = 0;
@@ -167,6 +142,7 @@ class TransferImportService {
             String highSchoolName = schoolInfo == null ? null : schoolInfo.highSchoolName();
             if (existing == null) {
                 Student created = studentRepository.save(Student.create(
+                    university,
                     admissionYear,
                     applicantNumber,
                     "미등록",
@@ -177,36 +153,49 @@ class TransferImportService {
                 applySchoolInfo(created, schoolInfo);
                 students.put(applicantNumber, created);
                 createdStudents++;
-            } else if (application != null || schoolInfo != null) {
+            } else {
                 existing.updateProfile(
                     existing.getName(),
-                    highSchoolCode == null ? existing.getHighSchoolCode() : highSchoolCode,
-                    highSchoolName == null ? existing.getHighSchoolName() : highSchoolName,
-                    graduationYear == null ? existing.getGraduationYear() : graduationYear
+                    highSchoolCode,
+                    highSchoolName,
+                    graduationYear
                 );
                 applySchoolInfo(existing, schoolInfo);
             }
         }
 
-        CatalogResult catalog = importApplications(university, admissionYear, result.applications(), students);
-        CourseResult courses = upsertCourses(result.courses(), students, safeFileName(file.getOriginalFilename()));
+        String sourceFileName = safeFileName(file.getOriginalFilename());
         StudentTranscriptImport transcriptImport = importRepository.save(StudentTranscriptImport.create(
+            university,
             admissionYear,
-            safeFileName(file.getOriginalFilename()),
+            sourceFileName,
             mode,
             fileSha256,
             result.totalRows(),
             result.courses().size(),
-            result.invalidRows()
+            result.invalidRows(),
+            result.sourceFormat()
         ));
+        CatalogResult catalog = importApplications(
+            university,
+            admissionYear,
+            result.applications(),
+            students,
+            transcriptImport,
+            snapshot.deletedApplications()
+        );
+        CourseResult courses = replaceCourses(
+            result.courses(), students, sourceFileName, transcriptImport, snapshot.deletedCourses()
+        );
+        snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantNumbers);
         List<String> warnings = new ArrayList<>(result.warnings());
         warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
         return new TranscriptImportResponse(
             transcriptImport.getId(), transcriptImport.getStatus(), result.sourceFormat(),
             result.totalRows(), result.courses().size(), result.invalidRows(),
             result.skippedRows(),
-            createdStudents, updatedStudents, courses.created(), courses.updated(),
-            result.applications().size(), catalog.createdApplications(), catalog.createdTracks(),
+            createdStudents, updatedStudents, courses.created(), courses.updated(), courses.deleted(),
+            result.applications().size(), catalog.createdApplications(), catalog.deletedApplications(), catalog.createdTracks(),
             catalog.createdUnits(), result.errors(), List.copyOf(warnings)
         );
     }
@@ -233,20 +222,32 @@ class TransferImportService {
     }
 
     static void applySchoolInfo(Student student, ApplicantSchoolInfoRow schoolInfo) {
-        if (schoolInfo == null) return;
+        if (schoolInfo == null) {
+            student.updateCommonEvaluationProfile(
+                EducationBackground.DOMESTIC_HIGH_SCHOOL,
+                HighSchoolType.GENERAL,
+                student.getGraduationStatus(),
+                null
+            );
+            student.updateApplicantHighSchoolCategoryCode(null);
+            return;
+        }
         student.updateCommonEvaluationProfile(
             schoolInfo.educationBackground(),
             schoolInfo.highSchoolType(),
             student.getGraduationStatus(),
             student.getGedAverageScore()
         );
+        student.updateApplicantHighSchoolCategoryCode(schoolInfo.applicantHighSchoolCategoryCode());
     }
 
-    private CatalogResult importApplications(
+    CatalogResult importApplications(
         University university,
         int admissionYear,
         List<TransferApplicationRow> rows,
-        Map<String, Student> students
+        Map<String, Student> students,
+        StudentTranscriptImport transcriptImport,
+        int deletedApplications
     ) {
         Map<String, AdmissionTrack> tracks = admissionTrackRepository
             .findAllByUniversityIdAndAdmissionYearOrderByNameAsc(university.getId(), admissionYear)
@@ -288,68 +289,62 @@ class TransferImportService {
             applicationCandidates.add(new ApplicationCandidate(students.get(row.applicantNumber()), unit));
         }
 
-        List<Long> studentIds = students.values().stream().map(Student::getId).toList();
-        Set<String> existing = studentIds.isEmpty() ? new HashSet<>()
-            : studentApplicationRepository.findAllByStudent_IdIn(studentIds).stream()
-                .map(item -> applicationKey(item.getStudent().getId(), item.getRecruitmentUnit().getId()))
-                .collect(Collectors.toCollection(HashSet::new));
+        Set<String> seen = new HashSet<>();
         List<StudentApplication> created = new ArrayList<>();
         applicationCandidates.forEach(candidate -> {
             String key = applicationKey(candidate.student().getId(), candidate.unit().getId());
-            if (existing.add(key)) created.add(StudentApplication.create(candidate.student(), candidate.unit()));
+            if (seen.add(key)) {
+                created.add(StudentApplication.create(candidate.student(), candidate.unit(), transcriptImport));
+            }
         });
         studentApplicationRepository.saveAll(created);
-        return new CatalogResult(createdTracks, createdUnits, created.size());
+        return new CatalogResult(createdTracks, createdUnits, created.size(), deletedApplications);
     }
 
-    private CourseResult upsertCourses(
+    CourseResult replaceCourses(
         List<TranscriptExcelRow> rows,
         Map<String, Student> students,
-        String sourceFileName
+        String sourceFileName,
+        StudentTranscriptImport transcriptImport,
+        int deletedCourses
     ) {
         String sql = """
             INSERT INTO student_transcript_course (
-                student_id, school_year, semester, subject_category, course_name,
+                student_id, source_import_id, school_year, semester, subject_category, course_name, course_name_normalized,
                 grade_value, grade_scale, achievement, raw_score, mean_score, standard_deviation,
                 student_count, rank_position, tied_rank_count, legacy_achievement, credits,
                 career_subject, professional_course, source_file_name, source_row_number, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-            ON DUPLICATE KEY UPDATE
-                grade_value=VALUES(grade_value), grade_scale=VALUES(grade_scale), achievement=VALUES(achievement),
-                raw_score=VALUES(raw_score), mean_score=VALUES(mean_score), standard_deviation=VALUES(standard_deviation),
-                student_count=VALUES(student_count), rank_position=VALUES(rank_position),
-                tied_rank_count=VALUES(tied_rank_count), legacy_achievement=VALUES(legacy_achievement),
-                credits=VALUES(credits), career_subject=VALUES(career_subject),
-                professional_course=VALUES(professional_course), source_file_name=VALUES(source_file_name),
-                source_row_number=VALUES(source_row_number), updated_at=CURRENT_TIMESTAMP(6)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             """;
         int[][] results = jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
             statement.setLong(1, students.get(row.applicantNumber()).getId());
-            statement.setInt(2, row.schoolYear());
-            statement.setInt(3, row.semester());
-            statement.setString(4, row.subjectCategory().name());
-            statement.setString(5, row.courseName());
-            setInteger(statement, 6, row.grade());
-            statement.setString(7, row.gradeScale().name());
-            setString(statement, 8, row.achievement() == null ? null : row.achievement().name());
-            setDecimal(statement, 9, row.rawScore());
-            setDecimal(statement, 10, row.meanScore());
-            setDecimal(statement, 11, row.standardDeviation());
-            setInteger(statement, 12, row.studentCount());
-            setInteger(statement, 13, row.rankPosition());
-            setInteger(statement, 14, row.tiedRankCount());
-            setString(statement, 15, row.legacyAchievement() == null ? null : row.legacyAchievement().name());
-            statement.setBigDecimal(16, row.credits());
-            statement.setBoolean(17, row.careerSubject());
-            statement.setBoolean(18, row.professionalCourse());
-            statement.setString(19, sourceFileName);
-            statement.setInt(20, row.rowNumber());
+            statement.setLong(2, transcriptImport.getId());
+            statement.setInt(3, row.schoolYear());
+            statement.setInt(4, row.semester());
+            statement.setString(5, row.subjectCategory().name());
+            statement.setString(6, row.courseName());
+            statement.setString(7, TextNormalizer.normalizeCourseName(row.courseName()));
+            setInteger(statement, 8, row.grade());
+            statement.setString(9, row.gradeScale().name());
+            setString(statement, 10, row.achievement() == null ? null : row.achievement().name());
+            setDecimal(statement, 11, row.rawScore());
+            setDecimal(statement, 12, row.meanScore());
+            setDecimal(statement, 13, row.standardDeviation());
+            setInteger(statement, 14, row.studentCount());
+            setInteger(statement, 15, row.rankPosition());
+            setInteger(statement, 16, row.tiedRankCount());
+            setString(statement, 17, row.legacyAchievement() == null ? null : row.legacyAchievement().name());
+            statement.setBigDecimal(18, row.credits());
+            statement.setBoolean(19, row.careerSubject());
+            statement.setBoolean(20, row.professionalCourse());
+            statement.setString(21, sourceFileName);
+            statement.setInt(22, row.rowNumber());
         });
         CourseResult result = classifyBatchResults(results);
         if (result.unknown() > 0) {
             log.warn("Could not classify {} transcript course batch results", result.unknown());
         }
-        return result;
+        return result.withDeleted(deletedCourses);
     }
 
     static CourseResult classifyBatchResults(int[][] results) {
@@ -366,7 +361,7 @@ class TransferImportService {
                 else unknown++;
             }
         }
-        return new CourseResult(created, updated, unchanged, unknown);
+        return new CourseResult(created, updated, unchanged, unknown, 0);
     }
 
     private void setInteger(java.sql.PreparedStatement statement, int index, Integer value) throws java.sql.SQLException {
@@ -407,7 +402,16 @@ class TransferImportService {
         return cleaned.substring(cleaned.lastIndexOf('/') + 1);
     }
 
-    private record CatalogResult(int createdTracks, int createdUnits, int createdApplications) {}
-    record CourseResult(int created, int updated, int unchanged, int unknown) {}
+    record CatalogResult(
+        int createdTracks,
+        int createdUnits,
+        int createdApplications,
+        int deletedApplications
+    ) {}
+    record CourseResult(int created, int updated, int unchanged, int unknown, int deleted) {
+        CourseResult withDeleted(int deleted) {
+            return new CourseResult(created, updated, unchanged, unknown, deleted);
+        }
+    }
     private record ApplicationCandidate(Student student, RecruitmentUnit unit) {}
 }

@@ -106,19 +106,54 @@ class MySqlRepositoryIntegrationTest {
               AND INDEX_NAME = 'uk_student_legacy_grade_summary'
             ORDER BY SEQ_IN_INDEX
             """, String.class);
+        List<String> syuSourceQueryIndexColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_transcript_course'
+              AND INDEX_NAME = 'idx_transcript_course_source_student_row'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
+        List<String> syuImportSnapshotIndexColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_transcript_import_course'
+              AND INDEX_NAME = 'idx_transcript_import_course_applicant'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
+        List<String> undocumentedColumns = jdbcTemplate.queryForList("""
+            SELECT CONCAT(TABLE_NAME, '.', COLUMN_NAME)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME <> 'flyway_schema_history'
+              AND COLUMN_COMMENT = ''
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+            """, String.class);
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31"
+            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
+            "32", "33", "34", "35", "36", "37", "38", "39", "40"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
             "student_id", "summary_type", "school_year", "semester_key"
         );
+        assertThat(syuSourceQueryIndexColumns).containsExactly(
+            "source_file_name", "student_id", "source_row_number"
+        );
+        assertThat(syuImportSnapshotIndexColumns).containsExactly(
+            "import_id", "applicant_number", "source_row_number"
+        );
+        assertThat(undocumentedColumns).isEmpty();
     }
 
     @Test
     void separatesHanshinRulesByAdmissionYearWhenSeedDataExists() {
+        Integer hanshinUniversityCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM university WHERE code = 'HS'", Integer.class
+        );
         List<Map<String, Object>> rules = jdbcTemplate.queryForList("""
             SELECT rule.admission_year, rule.admission_type, rule.minimum_course_count, rule.score_multiplier
             FROM evaluation_rule rule
@@ -132,7 +167,21 @@ class MySqlRepositoryIntegrationTest {
               )
             """);
 
-        assertThat(rules.size()).isIn(0, 20);
+        if (hanshinUniversityCount == null || hanshinUniversityCount == 0) {
+            assertThat(rules).isEmpty();
+            return;
+        }
+
+        assertThat(rules).hasSize(20);
+        assertThat(rules).extracting(rule -> rule.get("admission_year") + "|" + rule.get("admission_type"))
+            .containsExactlyInAnyOrder(
+                "2026|학생부우수자", "2026|학교장추천", "2026|사회배려자", "2026|고른기회",
+                "2026|기회균형선발", "2026|농어촌학생", "2026|특성화고교졸업자", "2026|참인재",
+                "2026|논술", "2026|체육실기",
+                "2027|학생부우수자", "2027|학교장추천", "2027|사회배려자", "2027|고른기회",
+                "2027|기회균형선발", "2027|농어촌학생", "2027|특성화고교졸업자", "2027|참인재",
+                "2027|논술", "2027|체육실기"
+            );
         assertThat(rules).allSatisfy(rule -> {
             int admissionYear = ((Number) rule.get("admission_year")).intValue();
             int minimumCourseCount = ((Number) rule.get("minimum_course_count")).intValue();
@@ -175,7 +224,8 @@ class MySqlRepositoryIntegrationTest {
 
     @Test
     void persistsUniversityCommonStudentEvaluationData() {
-        Student student = Student.create(2027, "COMMON-001", "공통지원자", null, null, 2026);
+        University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
+        Student student = Student.create(university, 2027, "COMMON-001", "공통지원자", null, null, 2026);
         student.updateCommonEvaluationProfile(
             EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, null
         );
@@ -235,18 +285,19 @@ class MySqlRepositoryIntegrationTest {
 
     @Test
     void batchesStudentAndCourseLookupsAndSummarizesGrades() {
+        University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
         Student first = studentRepository.saveAndFlush(Student.create(
-            2027, "A-001", "첫 번째 학생", null, null, 2027
+            university, 2027, "A-001", "첫 번째 학생", null, null, 2027
         ));
         Student second = studentRepository.saveAndFlush(Student.create(
-            2027, "A-002", "두 번째 학생", null, null, 2027
+            university, 2027, "A-002", "두 번째 학생", null, null, 2027
         ));
         courseRepository.saveAndFlush(course(first, "수학", 2));
         courseRepository.saveAndFlush(course(first, "영어", 4));
         courseRepository.saveAndFlush(course(second, "국어", 1));
 
-        List<Student> students = studentRepository.findAllByAdmissionYearAndApplicantNumberIn(
-            2027, List.of("A-001", "A-002")
+        List<Student> students = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            university.getId(), 2027, List.of("A-001", "A-002")
         );
         List<StudentTranscriptCourse> courses = courseRepository.findAllByStudent_IdIn(
             students.stream().map(Student::getId).toList()
@@ -266,6 +317,27 @@ class MySqlRepositoryIntegrationTest {
     }
 
     @Test
+    void separatesSameApplicantNumberByUniversityAndRejectsEquivalentCourseNames() {
+        University firstUniversity = universityRepository.saveAndFlush(University.create("UNI-A", "대학교 A"));
+        University secondUniversity = universityRepository.saveAndFlush(University.create("UNI-B", "대학교 B"));
+        Student firstStudent = studentRepository.saveAndFlush(Student.create(
+            firstUniversity, 2027, "A-001", "동일수험번호", null, null, 2027
+        ));
+        Student secondStudent = studentRepository.saveAndFlush(Student.create(
+            secondUniversity, 2027, "A-001", "동일수험번호", null, null, 2027
+        ));
+
+        assertThat(firstStudent.getId()).isNotEqualTo(secondStudent.getId());
+        assertThat(studentRepository.findByUniversity_IdAndAdmissionYearAndApplicantNumber(
+            secondUniversity.getId(), 2027, "A-001"
+        )).contains(secondStudent);
+
+        courseRepository.saveAndFlush(course(firstStudent, "사회·문화", 2));
+        assertThatThrownBy(() -> courseRepository.saveAndFlush(course(firstStudent, "사회문화", 3)))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     void cascadesStudentDeletionToCoursesAndApplications() {
         University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
         AdmissionTrack track = trackRepository.saveAndFlush(AdmissionTrack.create(
@@ -275,7 +347,7 @@ class MySqlRepositoryIntegrationTest {
             track, "CS01", "컴퓨터공학부"
         ));
         Student student = studentRepository.saveAndFlush(Student.create(
-            2027, "A-001", "학생", null, null, 2027
+            university, 2027, "A-001", "학생", null, null, 2027
         ));
         courseRepository.saveAndFlush(course(student, "수학", 2));
         applicationRepository.saveAndFlush(StudentApplication.create(student, unit));

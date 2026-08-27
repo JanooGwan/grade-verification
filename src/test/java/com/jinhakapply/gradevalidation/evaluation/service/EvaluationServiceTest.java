@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementConversion;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
@@ -20,6 +21,14 @@ import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionReques
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.CourseFilter;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.GroupDimension;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionMetric;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionStage;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SelectionStageType;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy.SortDirection;
+import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
@@ -31,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -38,7 +48,31 @@ import org.springframework.test.util.ReflectionTestUtils;
 class EvaluationServiceTest {
     @Mock EvaluationRuleRepository ruleRepository;
     @Mock UniversityRepository universityRepository;
+    @Spy DeclarativeSelectionPolicyEngine selectionPolicyEngine = new DeclarativeSelectionPolicyEngine();
     @InjectMocks EvaluationService service;
+
+    @Test
+    void usesDeclarativeSelectionPolicyBeforeLegacySelectionStrategy() {
+        EvaluationRule configuredRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "1"));
+        configuredRule.configureSelectionPolicy(new CourseSelectionPolicy(1,
+            new CourseFilter(Set.of(SubjectCategory.MATH), true, true, false),
+            List.of(new SelectionStage(SelectionStageType.TOP_COURSES, GroupDimension.NONE,
+                GroupDimension.NONE, SelectionMetric.CONVERTED_SCORE, SortDirection.DESC, 1))));
+        mockRule(configuredRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 1, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학A", 3, "3"),
+            course(1, 2, SubjectCategory.MATH, "수학B", 2, "3")
+        )));
+
+        assertThat(response.includedCourseCount()).isEqualTo(1);
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactly("수학B");
+    }
 
     @Test
     void appliesGradeSubjectAndCreditWeights() {
@@ -296,6 +330,37 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void syu2026UsesTheSameInquiryDomainAndMinimumSemesterPolicy() {
+        EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 2,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 3, "1"),
+            course(1, 2, SubjectCategory.SOCIAL, "사회", 1, "1"),
+            course(2, 1, SubjectCategory.SCIENCE, "과학", 1, "1"),
+            course(2, 1, SubjectCategory.MATH, "수학", 5, "1"),
+            course(2, 1, SubjectCategory.ENGLISH, "영어", 6, "1")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("국어", "사회", "과학");
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 3, "1"),
+            course(1, 2, SubjectCategory.SOCIAL, "1-2 사회", 1, "1")
+        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
+            assertThat(exception.getDetail()).contains("3개 학기");
+        });
+    }
+
+    @Test
     void syuExcludesCoursesWithOnlyOneEnrolledStudent() {
         EvaluationRule syuRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("1", "1", "1"),
@@ -429,6 +494,96 @@ class EvaluationServiceTest {
         assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
         assertThat(response.includedCourseCount()).isEqualTo(3);
         assertThat(response.averageGrade()).isEqualByComparingTo("4.0000");
+    }
+
+    @Test
+    void kbuGeneralTrackSelectsRecentSemestersWhenGradeAndCreditsTie() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 2, "3"),
+            course(1, 2, SubjectCategory.KOREAN, "1-2 국어", 2, "3"),
+            course(2, 1, SubjectCategory.KOREAN, "2-1 국어", 2, "3"),
+            course(2, 2, SubjectCategory.KOREAN, "2-2 국어", 2, "3"),
+            course(3, 1, SubjectCategory.KOREAN, "3-1 국어", 2, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("2-2 국어", "3-1 국어");
+    }
+
+    @Test
+    void kbuHealthTrackUsesCreditsThenPublishedSubjectPriorityForTies() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SUBJECTS, 3);
+        ReflectionTestUtils.setField(kbuRule, "recruitmentUnit", "간호학과");
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.ENGLISH, "영어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3"),
+            course(1, 1, SubjectCategory.SOCIAL, "사회", 2, "4"),
+            course(1, 1, SubjectCategory.SCIENCE, "과학", 2, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("사회", "과학", "수학");
+    }
+
+    @Test
+    void kbuTruncatesAverageGradeToOneDecimalBeforeInterpolatingScore() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(2, 2, SubjectCategory.KOREAN, "국어", 2, "7"),
+            course(3, 1, SubjectCategory.MATH, "수학", 3, "2")
+        )));
+
+        assertThat(response.averageGrade()).isEqualByComparingTo("2.2");
+        assertThat(response.baseScore()).isEqualByComparingTo("85.00");
+        assertThat(response.finalScore()).isEqualByComparingTo("85.00");
+    }
+
+    @Test
+    void kbuExcludesThirdYearProfessionalCoursesFromGeneralHighSchoolRecords() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+        VerifyGradeRequest.CourseGrade professionalCourse = new VerifyGradeRequest.CourseGrade(
+            3, 1, SubjectCategory.OTHER, "직업과정 실무", 1, GradeScale.NINE_LEVEL,
+            null, null, null, null, null, null, null, null,
+            false, true, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false,
+            HighSchoolType.GENERAL, 2026, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "국어", 3, "3"),
+                course(2, 1, SubjectCategory.MATH, "수학", 3, "3"),
+                professionalCourse
+            )));
+
+        assertThat(response.calculations()).filteredOn(calculation -> !calculation.included())
+            .singleElement().satisfies(calculation -> {
+                assertThat(calculation.courseName()).isEqualTo("직업과정 실무");
+                assertThat(calculation.exclusionReason()).contains("3학년 직업과정");
+            });
+    }
+
+    @Test
+    void kbuRejectsGeneralTrackWithFewerThanTwoGradableSemesters() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "3")
+        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
+            assertThat(exception.getDetail()).contains("2개 학기");
+        });
     }
 
     @Test
@@ -683,6 +838,29 @@ class EvaluationServiceTest {
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);
         rule.markVerified("tester", null);
         rule.publish("tester", null);
+        return rule;
+    }
+
+    private EvaluationRule kbuRule(SelectionStrategy selection, int selectionCount) {
+        EvaluationRule rule = rule(selection, selectionCount, ScoreAggregation.AVERAGE_GRADE_THEN_SCORE,
+            decimals("1", "1", "1"), decimals("1", "1", "1", "1", "1", "1"),
+            AchievementConversion.Z_SCORE);
+        ReflectionTestUtils.setField(rule.getUniversity(), "name", "경복대학교");
+        ReflectionTestUtils.setField(rule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(rule, "applyGradeWeights", false);
+        ReflectionTestUtils.setField(rule, "includeProfessionalCourses", true);
+        ReflectionTestUtils.setField(rule, "intermediateScale", 1);
+        ReflectionTestUtils.setField(rule, "intermediateRounding", RoundingMode.DOWN);
+        ReflectionTestUtils.setField(rule, "finalScale", 2);
+        rule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "87.5", "75", "62.5", "50", "37.5", "25", "12.5", "0");
+        for (int grade = 1; grade <= 9; grade++) rule.getGradeScores().put(grade, scores.get(grade - 1));
+        rule.getSubjectPriorities().put(SubjectCategory.SCIENCE, 1);
+        rule.getSubjectPriorities().put(SubjectCategory.MATH, 2);
+        rule.getSubjectPriorities().put(SubjectCategory.KOREAN, 3);
+        rule.getSubjectPriorities().put(SubjectCategory.ENGLISH, 4);
+        rule.getSubjectPriorities().put(SubjectCategory.SOCIAL, 5);
+        rule.getSubjectPriorities().put(SubjectCategory.OTHER, 6);
         return rule;
     }
 

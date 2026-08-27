@@ -15,12 +15,14 @@ import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
+import com.jinhakapply.gradevalidation.evaluation.policy.CourseSelectionPolicy;
 
 public record EvaluationRuleResponse(
     Long id, Long universityId, String universityName, String name, int admissionYear,
     String admissionType, String recruitmentUnit, int version,
     List<BigDecimal> gradeWeights, List<BigDecimal> subjectWeights,
-    List<BigDecimal> gradeScores, SelectionStrategy selectionStrategy, int selectionCount,
+    List<BigDecimal> gradeScores, SelectionStrategy selectionStrategy, CourseSelectionPolicy selectionPolicy,
+    int selectionCount,
     int achievementSelectionCount, int minimumCourseCount, ScoreAggregation scoreAggregation,
     AchievementConversion achievementConversion, GradeScale inputGradeScale,
     List<BigDecimal> legacyAchievementGrades, boolean includeThirdYearSecondSemester,
@@ -41,7 +43,8 @@ public record EvaluationRuleResponse(
             List.of(rule.getGrade1Weight(), rule.getGrade2Weight(), rule.getGrade3Weight()),
             List.of(rule.getKoreanWeight(), rule.getMathWeight(), rule.getEnglishWeight(), rule.getSocialWeight(), rule.getScienceWeight(), rule.getOtherWeight()),
             IntStream.rangeClosed(1, 9).mapToObj(rule.getGradeScores()::get).toList(),
-            rule.getSelectionStrategy(), rule.getSelectionCount(), rule.getAchievementSelectionCount(),
+            rule.getSelectionStrategy(), rule.getSelectionPolicy(), rule.getSelectionCount(),
+            rule.getAchievementSelectionCount(),
             rule.getMinimumCourseCount(),
             rule.getScoreAggregation(), rule.getAchievementConversion(), rule.getInputGradeScale(),
             java.util.Arrays.stream(LegacyAchievement.values()).map(rule.getLegacyAchievementGrades()::get).toList(),

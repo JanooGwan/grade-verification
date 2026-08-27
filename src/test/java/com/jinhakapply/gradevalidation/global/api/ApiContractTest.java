@@ -6,11 +6,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,9 +21,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -48,6 +53,10 @@ import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
+import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
+import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
@@ -60,6 +69,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.multipart.MultipartFile;
 
 @WebMvcTest(properties = "app.security.admin-api.enabled=false", controllers = {
@@ -81,23 +91,37 @@ class ApiContractTest {
     @MockitoBean EvaluationService evaluationService;
     @MockitoBean RuleExtractionService ruleExtractionService;
     @MockitoBean TranscriptService transcriptService;
+    @MockitoBean SyuSourceImportService syuSourceImportService;
+    @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
 
     @Test
-    void downloadsTranscriptValidationResultAsExcel() throws Exception {
+    void queuesSyuSourceWorkbookAndReturnsAccepted() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
-            "file", "sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "file", "syu-source.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[] {1, 2, 3}
         );
-        when(transcriptService.exportExcelValidation(
-            anyInt(), anyLong(), any(MultipartFile.class), isNull()
-        ))
-            .thenReturn(new byte[] {4, 5, 6});
+        when(syuSourceImportService.queue(anyInt(), anyLong(), any(MultipartFile.class)))
+            .thenReturn(new SourceImportStartResponse(
+                7L, TranscriptImportStatus.QUEUED, "SYU_SOURCE_WORKBOOK_V1", "queued"
+            ));
 
-        mockMvc.perform(multipart("/api/transcripts/imports/excel/preview/export")
+        mockMvc.perform(multipart("/api/transcripts/imports/source/syu")
                 .file(file)
+                .param("admissionYear", "2026")
+                .param("universityId", "1"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(7))
+            .andExpect(jsonPath("$.status").value("QUEUED"));
+    }
+
+    @Test
+    void downloadsStoredTranscriptValidationResultAsExcel() throws Exception {
+        when(storedTranscriptVerificationService.export(1L, 2027)).thenReturn(new byte[] {4, 5, 6});
+
+        mockMvc.perform(get("/api/transcripts/verifications/export")
                 .param("admissionYear", "2027")
                 .param("universityId", "1"))
             .andExpect(status().isOk())
@@ -110,6 +134,51 @@ class ApiContractTest {
                 )
             ))
             .andExpect(content().bytes(new byte[] {4, 5, 6}));
+    }
+
+    @Test
+    void verifiesOnlyStoredTranscriptData() throws Exception {
+        when(storedTranscriptVerificationService.verify(1L, 2027)).thenReturn(new TranscriptPreviewResponse(
+            "stored.xlsx", "hash", "HANSHIN_MULTI_SHEET_V1", 1, 2, 2, 0, 0,
+            List.of(),
+            new TranscriptPreviewResponse.VerificationSummary(1, 1, 0, List.of()),
+            List.of(),
+            List.of("DB 저장 데이터 기준")
+        ));
+
+        mockMvc.perform(get("/api/transcripts/verifications")
+                .param("admissionYear", "2027")
+                .param("universityId", "1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.originalFileName").value("stored.xlsx"))
+            .andExpect(jsonPath("$.verification.successfulApplications").value(1));
+
+        verify(storedTranscriptVerificationService).verify(1L, 2027);
+    }
+
+    @Test
+    void downloadsTranscriptImportResultAsExcel() throws Exception {
+        doAnswer(invocation -> {
+            OutputStream output = invocation.getArgument(1);
+            output.write(new byte[] {7, 8, 9});
+            return null;
+        }).when(transcriptService).writeImportResult(eq(5L), any(OutputStream.class));
+
+        MvcResult async = mockMvc.perform(get("/api/transcripts/imports/5/result"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(async))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {7, 8, 9}));
     }
 
     @Test
@@ -319,14 +388,15 @@ class ApiContractTest {
             new byte[]{1, 2, 3}
         );
         when(transcriptService.importExcel(
-            anyInt(), any(), isNull(), any(), isNull()
+            anyInt(), any(), anyLong(), any(), isNull()
         )).thenReturn(new TranscriptImportResponse(
             41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
-            1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
+            1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of()
         ));
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel")
                 .file(file)
+                .param("universityId", "1")
                 .param("admissionYear", "2027"))
             .andExpect(status().isCreated())
             .andExpect(header().string(HttpHeaders.LOCATION, "/api/transcripts/imports/41"))
@@ -352,28 +422,31 @@ class ApiContractTest {
 
     @Test
     void appliesStudentPagingDefaults() throws Exception {
-        when(transcriptService.findStudents(2027, null, 0, 20)).thenReturn(
+        when(transcriptService.findStudents(1L, 2027, null, 0, 20)).thenReturn(
             new StudentPageResponse(List.of(), 0, 20, 0, 0, true, true)
         );
 
-        mockMvc.perform(get("/api/transcripts/students").param("admissionYear", "2027"))
+        mockMvc.perform(get("/api/transcripts/students")
+                .param("universityId", "1")
+                .param("admissionYear", "2027"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.page").value(0))
             .andExpect(jsonPath("$.size").value(20))
             .andExpect(jsonPath("$.content").isArray());
 
-        verify(transcriptService).findStudents(2027, null, 0, 20);
+        verify(transcriptService).findStudents(1L, 2027, null, 0, 20);
     }
 
     @Test
     void rejectsOversizedStudentPage() throws Exception {
         mockMvc.perform(get("/api/transcripts/students")
+                .param("universityId", "1")
                 .param("admissionYear", "2027")
                 .param("size", "101"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"));
 
-        verify(transcriptService, never()).findStudents(anyInt(), any(), anyInt(), anyInt());
+        verify(transcriptService, never()).findStudents(anyLong(), anyInt(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -470,13 +543,22 @@ class ApiContractTest {
         );
         when(operationsDashboardService.getDashboard()).thenReturn(new OperationsDashboardResponse(
             3, 120, 960, 5, 80, 22, 4,
-            new OperationsDashboardResponse.RuleCounts(1, 2, 3, 4), snapshot
+            new OperationsDashboardResponse.RuleCounts(1, 2, 3, 4),
+            List.of(new OperationsDashboardResponse.UniversityDataStatus(
+                1L, "HS", "한신대학교", true, 2027, true,
+                120, 960, 80, "COMPLETED", "학생성적.xlsx",
+                LocalDateTime.of(2026, 8, 8, 14, 30), true, 22,
+                LocalDateTime.of(2026, 8, 8, 15, 10)
+            )), snapshot
         ));
 
         mockMvc.perform(get("/api/operations/dashboard"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.universities").value(3))
             .andExpect(jsonPath("$.students").value(120))
+            .andExpect(jsonPath("$.universityDataStatuses[0].universityName").value("한신대학교"))
+            .andExpect(jsonPath("$.universityDataStatuses[0].studentDataPresent").value(true))
+            .andExpect(jsonPath("$.universityDataStatuses[0].verificationDataPresent").value(true))
             .andExpect(jsonPath("$.rules.published").value(3))
             .andExpect(jsonPath("$.http.totalRequests").value(12))
             .andExpect(jsonPath("$.http.errorRequests").value(1));

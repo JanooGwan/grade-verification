@@ -109,12 +109,12 @@ class GuidebookQuantitativeScoreCalculatorTest {
     @Test
     void appliesKbuBonusLimitAndViolenceDeduction() {
         EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1", scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
-        var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("8"),
+        var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("5"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 5));
 
-        assertThat(result.additionalScore()).isEqualByComparingTo("8.00");
+        assertThat(result.additionalScore()).isEqualByComparingTo("5.00");
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("5.00");
-        assertThat(result.finalScore()).isEqualByComparingTo("90.50");
+        assertThat(result.finalScore()).isEqualByComparingTo("87.50");
 
         var healthBoundary = calculator.calculate(rule, "간호학과", verification("87.5"), request("5"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
@@ -131,6 +131,83 @@ class GuidebookQuantitativeScoreCalculatorTest {
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("8"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("1"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+    }
+
+    @Test
+    void convertsKbuGedRequiredSubjectsAndTruncatesAverageGrade() {
+        EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1",
+            scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
+        StudentCommonEvaluationSnapshot common = new StudentCommonEvaluationSnapshot(
+            EducationBackground.GED, com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType.GENERAL,
+            GraduationStatus.GRADUATE, 2025, null,
+            List.of(
+                ged(GedSubjectType.KOREAN, "국어", "99"),
+                ged(GedSubjectType.ENGLISH, "영어", "98"),
+                ged(GedSubjectType.MATH, "수학", "95"),
+                ged(GedSubjectType.KOREAN_HISTORY, "한국사", "90"),
+                ged(GedSubjectType.SOCIAL, "사회", "83"),
+                ged(GedSubjectType.SCIENCE, "과학", "75")
+            ), List.of(), List.of(), List.of()
+        );
+
+        var result = calculator.calculate(rule, "수시 일반 일반학과", null, request(null), common);
+
+        assertThat(result.academicBaseScore()).isEqualByComparingTo("68.75");
+        assertThat(result.finalScore()).isEqualByComparingTo("68.75");
+        assertThat(result.calculationSteps()).filteredOn(step -> step.key().equals("KBU_GED_AVERAGE"))
+            .singleElement().satisfies(step -> assertThat(step.result()).isEqualByComparingTo("3.50000"));
+    }
+
+    @Test
+    void rejectsKbuGedAverageWithoutRequiredSubjectScores() {
+        EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1",
+            scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
+
+        assertThatThrownBy(() -> calculator.calculate(rule, "수시 일반 일반학과", null, request(null),
+            common(EducationBackground.GED, "98", 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception -> {
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT);
+                assertThat(exception.getDetail()).contains("필수 6개 과목");
+            });
+    }
+
+    @Test
+    void disablesKbuBonusForSusiBalanceOpportunityHealthTrack() {
+        EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1",
+            scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
+        var result = calculator.calculate(rule, "수시 기회균형 간호학과", verification("87.5"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+
+        assertThat(result.additionalScore()).isEqualByComparingTo("0.00");
+        assertThat(result.maximumTotalScore()).isEqualByComparingTo("100.00");
+        assertThatThrownBy(() -> calculator.calculate(rule, "수시 기회균형 간호학과", verification("87.5"),
+            request("1"), common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+    }
+
+    @Test
+    void keepsKbuInterviewComponentPendingAndReportsQuantitativeMaximum() {
+        EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "0.4",
+            scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
+
+        var result = calculator.calculate(rule, "수시 일반 항공서비스과", verification("87.5"), request("10"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+
+        assertThat(result.academicScore()).isEqualByComparingTo("35.00");
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("50.00");
+        assertThat(result.maximumTotalScore()).isEqualByComparingTo("110.00");
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
+        assertThat(result.pendingComponents()).containsExactly("면접 정성평가 60점");
+        assertThat(result.finalScore()).isNull();
     }
 
     @Test

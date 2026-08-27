@@ -36,6 +36,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRe
 import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
+import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,9 +61,9 @@ class TranscriptServiceTest {
     @Mock
     private TransferImportService transferImportService;
     @Mock
-    private TranscriptValidationExcelWriter validationExcelWriter;
+    private TranscriptImportResultExcelWriter importResultExcelWriter;
     @Mock
-    private TranscriptBatchVerificationService batchVerificationService;
+    private SyuImportScoreExcelWriter syuImportScoreExcelWriter;
     @Mock
     private StudentRepository studentRepository;
     @Mock
@@ -76,31 +78,48 @@ class TranscriptServiceTest {
     private StudentGedSubjectScoreRepository gedSubjectScoreRepository;
     @Mock
     private StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
+    @Mock
+    private UniversityRepository universityRepository;
+    @Mock
+    private TranscriptSnapshotReplacementService snapshotReplacementService;
 
     private TranscriptService transcriptService;
+    private University university;
 
     @BeforeEach
     void setUp() {
+        university = University.create("TEST", "테스트대학교");
+        ReflectionTestUtils.setField(university, "id", 1L);
+        org.mockito.Mockito.lenient().when(universityRepository.findById(1L))
+            .thenReturn(Optional.of(university));
+        org.mockito.Mockito.lenient().when(snapshotReplacementService.clear(
+            org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.eq(false)
+        )).thenReturn(new TranscriptSnapshotReplacementService.SnapshotScope(
+            List.of(), 0, 0, 0, 0
+        ));
         transcriptService = new TranscriptService(
             excelParser,
             transferExcelParser,
             applicantSchoolInfoExcelParser,
             transferImportService,
-            validationExcelWriter,
-            batchVerificationService,
+            importResultExcelWriter,
+            syuImportScoreExcelWriter,
             studentRepository,
             courseRepository,
             importRepository,
             attendanceRepository,
             schoolViolenceRepository,
             gedSubjectScoreRepository,
-            legacyGradeSummaryRepository
+            legacyGradeSummaryRepository,
+            universityRepository,
+            snapshotReplacementService
         );
     }
 
     @Test
     void storesUniversityCommonStudentDataSeparatelyFromScoreRuns() {
-        Student student = Student.create(2027, "A-001", "학생", "S001", "고등학교", 2027);
+        Student student = Student.create(university, 2027, "A-001", "학생", "S001", "고등학교", 2027);
         ReflectionTestUtils.setField(student, "id", 1L);
         when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
         when(attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(1L)).thenReturn(List.of());
@@ -175,55 +194,6 @@ class TranscriptServiceTest {
     }
 
     @Test
-    void formatsLinkedSchoolInformationWarningForHistoricalApplicantData() {
-        ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
-            2, 2026, "A-001", 2026, "S001", "직업고등학교", "D001",
-            "특성화고", "특성화고", "전문계고교",
-            EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.SPECIALIZED
-        );
-        ApplicantSchoolInfoParseResult schoolInfoResult = new ApplicantSchoolInfoParseResult(
-            List.of(schoolInfo), Map.of("A-001", schoolInfo)
-        );
-        TransferApplicationRow application = new TransferApplicationRow(
-            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
-        );
-        MockMultipartFile schoolInfoFile = new MockMultipartFile(
-            "schoolInfoFile", "지원자 추가정보.xlsx", null, new byte[] {1}
-        );
-
-        List<String> warnings = ReflectionTestUtils.invokeMethod(
-            transcriptService,
-            "schoolInfoWarnings",
-            schoolInfoResult,
-            schoolInfoFile,
-            List.of(application)
-        );
-
-        assertThat(warnings).containsExactly(
-            "지원자 추가정보 1건을 연결했습니다. 전 과목 반영 고교유형 1건, "
-                + "검정고시·외국고 0건, 추가정보 미연결 지원자 0건입니다. 추가정보 입학연도: 2026"
-        );
-    }
-
-    @Test
-    void rejectsEmptyExportWhenEveryApplicationHasNoMatchingRule() {
-        TransferApplicationRow application = new TransferApplicationRow(
-            2, 2026, "A-001", "06", "참인재", "21", "한국어문학", 2026
-        );
-        TranscriptBatchVerificationResult verification = new TranscriptBatchVerificationResult(
-            List.of(),
-            List.of(new TranscriptBatchVerificationResult.Failure(
-                application, "학생", 12, "RULE_NOT_FOUND", "게시 규칙 없음"
-            ))
-        );
-
-        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
-            transcriptService, "requireMatchedVerificationRule", verification
-        )).isInstanceOfSatisfying(CustomException.class, exception ->
-            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_TRANSCRIPT_FILE));
-    }
-
-    @Test
     void updatesExistingStudentAndCreatesCourse() {
         MockMultipartFile file = new MockMultipartFile(
             "file",
@@ -252,17 +222,20 @@ class TranscriptServiceTest {
             false,
             false
         );
-        Student student = Student.create(2027, "A-001", "기존명", null, null, null);
+        Student student = Student.create(university, 2027, "A-001", "기존명", null, null, null);
         ReflectionTestUtils.setField(student, "id", 1L);
 
         when(excelParser.parse(file)).thenReturn(new TranscriptExcelParseResult(1, List.of(row), List.of()));
-        when(studentRepository.findAllByAdmissionYearAndApplicantNumberIn(2027, java.util.Set.of("A-001")))
+        when(studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
+            1L, 2027, java.util.Set.of("A-001")
+        ))
             .thenReturn(List.of(student));
-        when(courseRepository.findAllByStudent_IdIn(List.of(1L))).thenReturn(List.of());
-        org.mockito.Mockito.lenient().when(studentRepository.findByAdmissionYearAndApplicantNumber(2027, "A-001"))
+        org.mockito.Mockito.lenient().when(studentRepository.findByUniversity_IdAndAdmissionYearAndApplicantNumber(
+            1L, 2027, "A-001"
+        ))
             .thenReturn(Optional.of(student));
-        org.mockito.Mockito.lenient().when(courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndSubjectCategoryAndCourseName(
-            1L, 1, 1, SubjectCategory.MATH, "수학"
+        org.mockito.Mockito.lenient().when(courseRepository.findByStudent_IdAndSchoolYearAndSemesterAndCourseNameNormalized(
+            1L, 1, 1, "수학"
         )).thenReturn(Optional.empty());
         when(courseRepository.save(any(StudentTranscriptCourse.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -271,23 +244,36 @@ class TranscriptServiceTest {
             ReflectionTestUtils.setField(transcriptImport, "id", 10L);
             return transcriptImport;
         });
+        StudentTranscriptImport previousImport = StudentTranscriptImport.create(
+            university, 2027, "transcript.xlsx", TranscriptImportMode.VALID_ROWS_ONLY,
+            "previous", 2, 2, 0, "STANDARD_TRANSCRIPT_V1"
+        );
+        ReflectionTestUtils.setField(previousImport, "id", 9L);
+        when(importRepository.findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+            1L, 2027,
+            List.of(TranscriptImportStatus.COMPLETED, TranscriptImportStatus.COMPLETED_WITH_ERRORS)
+        )).thenReturn(Optional.of(previousImport));
+        when(snapshotReplacementService.clear(1L, 2027, false)).thenReturn(
+            new TranscriptSnapshotReplacementService.SnapshotScope(List.of(student), 0, 2, 0, 0)
+        );
 
-        TranscriptImportResponse response = transcriptService.importExcel(2027, file);
+        TranscriptImportResponse response = transcriptService.importExcel(2027, TranscriptImportMode.VALID_ROWS_ONLY, 1L, file);
 
         assertThat(response.importId()).isEqualTo(10L);
         assertThat(response.status()).isEqualTo(TranscriptImportStatus.COMPLETED);
         assertThat(response.updatedStudents()).isEqualTo(1);
         assertThat(response.createdCourses()).isEqualTo(1);
+        assertThat(response.deletedCourses()).isEqualTo(2);
         assertThat(student.getName()).isEqualTo("학생");
         verify(courseRepository).save(any(StudentTranscriptCourse.class));
     }
 
     @Test
     void findsStudentPageWithCourseSummary() {
-        Student student = Student.create(2027, "MJC27S001", "합성지원자001", "S001", "합성고", 2027);
+        Student student = Student.create(university, 2027, "MJC27S001", "합성지원자001", "S001", "합성고", 2027);
         ReflectionTestUtils.setField(student, "id", 1L);
         PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.ASC, "applicantNumber"));
-        when(studentRepository.search(2027, "합성", pageable))
+        when(studentRepository.search(1L, 2027, "합성", pageable))
             .thenReturn(new PageImpl<>(List.of(student), pageable, 1));
         StudentCourseSummaryProjection summary = org.mockito.Mockito.mock(StudentCourseSummaryProjection.class);
         when(summary.getStudentId()).thenReturn(1L);
@@ -295,7 +281,7 @@ class TranscriptServiceTest {
         when(summary.getAverageGrade()).thenReturn(3.456);
         when(courseRepository.summarizeByStudentIds(List.of(1L))).thenReturn(List.of(summary));
 
-        StudentPageResponse response = transcriptService.findStudents(2027, " 합성 ", 0, 20);
+        StudentPageResponse response = transcriptService.findStudents(1L, 2027, " 합성 ", 0, 20);
 
         assertThat(response.totalElements()).isEqualTo(1);
         assertThat(response.content()).hasSize(1);
@@ -335,7 +321,7 @@ class TranscriptServiceTest {
             2, List.of(row), List.of(new TranscriptImportRowError(3, "등급 오류"))
         ));
 
-        assertThatThrownBy(() -> transcriptService.importExcel(2027, TranscriptImportMode.ALL_OR_NOTHING, file))
+        assertThatThrownBy(() -> transcriptService.importExcel(2027, TranscriptImportMode.ALL_OR_NOTHING, 1L, file))
             .isInstanceOfSatisfying(CustomException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_TRANSCRIPT_FILE));
         verifyNoInteractions(studentRepository, courseRepository, importRepository);

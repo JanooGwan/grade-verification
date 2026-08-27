@@ -4,6 +4,7 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.dto.BulkCreateEvaluationRuleRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.CreateEvaluationRuleRequest;
+import com.jinhakapply.gradevalidation.evaluation.dto.ConfigureSelectionPolicyRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionRequest;
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
@@ -62,6 +63,14 @@ public interface EvaluationApi {
         @PathVariable Long ruleId,
         @Valid @RequestBody EvaluationRuleActionRequest request
     );
+
+    @Operation(summary = "선언형 과목 선택 정책 설정")
+    @PatchMapping("/rules/{ruleId}/selection-policy")
+    ResponseEntity<EvaluationRuleResponse> configureSelectionPolicy(
+        @PathVariable Long ruleId,
+        @Valid @RequestBody ConfigureSelectionPolicyRequest request
+    );
+
     @Operation(summary = "학생 내신 성적 검증")
     @PostMapping("/verify")
     ResponseEntity<GradeVerificationResponse> verify(@Valid @RequestBody VerifyGradeRequest request);

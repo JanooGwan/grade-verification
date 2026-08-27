@@ -6,6 +6,9 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum ApiResponseCode {
 
+    UPLOAD_TOO_LARGE(HttpStatus.valueOf(413), "업로드 가능한 파일 크기를 초과했습니다."),
+    SOURCE_IMPORT_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "원천 파일 처리 대기열이 가득 찼습니다."),
+
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "예상하지 못한 오류가 발생했습니다."),
 
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "요청값이 올바르지 않습니다."),
@@ -21,6 +24,7 @@ public enum ApiResponseCode {
     INVALID_RULE_EXTRACTION_STATUS(HttpStatus.CONFLICT, "현재 상태에서는 추출 결과로 초안을 만들 수 없습니다."),
     INVALID_TRANSCRIPT_FILE(HttpStatus.BAD_REQUEST, "학생부 Excel 파일이 올바르지 않습니다."),
     TRANSCRIPT_IMPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부 가져오기 이력을 찾을 수 없습니다."),
+    STORED_TRANSCRIPT_DATA_NOT_FOUND(HttpStatus.NOT_FOUND, "DB에 저장된 성적검증 데이터가 없습니다."),
     TRANSCRIPT_STUDENT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부가 등록된 학생을 찾을 수 없습니다."),
     ADMISSION_TRACK_NOT_FOUND(HttpStatus.NOT_FOUND, "전형을 찾을 수 없습니다."),
     RECRUITMENT_UNIT_NOT_FOUND(HttpStatus.NOT_FOUND, "모집단위를 찾을 수 없습니다."),

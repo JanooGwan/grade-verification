@@ -6,6 +6,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleExtractionRepository;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.operation.dto.OperationsDashboardResponse;
+import com.jinhakapply.gradevalidation.operation.repository.UniversityDataStatusRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
@@ -26,6 +27,7 @@ public class OperationsDashboardService {
     private final VerificationRunRepository verificationRunRepository;
     private final EvaluationRuleExtractionRepository extractionRepository;
     private final EvaluationRuleRepository ruleRepository;
+    private final UniversityDataStatusRepository dataStatusRepository;
     private final OperationalMetrics metrics;
 
     public OperationsDashboardResponse getDashboard() {
@@ -38,6 +40,15 @@ public class OperationsDashboardService {
                 ruleRepository.countByStatus(EvaluationRuleStatus.PUBLISHED),
                 ruleRepository.countByStatus(EvaluationRuleStatus.RETIRED)
             ),
+            dataStatusRepository.findAll().stream().map(status ->
+                new OperationsDashboardResponse.UniversityDataStatus(
+                    status.universityId(), status.universityCode(), status.universityName(), status.active(),
+                    status.admissionYear(), status.studentCount() > 0, status.studentCount(),
+                    status.transcriptCourseCount(), status.applicationCount(), status.latestImportStatus(),
+                    status.latestImportFileName(), status.latestImportAt(), status.verificationResultCount() > 0,
+                    status.verificationResultCount(), status.latestVerificationAt()
+                )
+            ).toList(),
             metrics.snapshot()
         );
     }

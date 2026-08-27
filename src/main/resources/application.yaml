@@ -10,6 +10,12 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      data-source-properties:
+        rewriteBatchedStatements: true
+        cachePrepStmts: true
+        prepStmtCacheSize: 250
+        prepStmtCacheSqlLimit: 2048
 
   jpa:
     open-in-view: false
@@ -25,8 +31,12 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 40MB
-      max-request-size: 42MB
+      max-file-size: 200MB
+      max-request-size: 205MB
+
+  mvc:
+    async:
+      request-timeout: 15m
 
 springdoc:
   swagger-ui:

@@ -8,6 +8,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
@@ -17,16 +18,28 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
+import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequiredArgsConstructor
 public class TranscriptController implements TranscriptApi {
 
     private final TranscriptService transcriptService;
+    private final SyuSourceImportService syuSourceImportService;
+    private final StoredTranscriptVerificationService storedTranscriptVerificationService;
+
+    @Override
+    public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
+        int admissionYear, Long universityId, MultipartFile file
+    ) {
+        return ResponseEntity.accepted().body(syuSourceImportService.queue(admissionYear, universityId, file));
+    }
 
     @Override
     public ResponseEntity<TranscriptImportResponse> importExcel(
@@ -45,32 +58,20 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<TranscriptPreviewResponse> previewExcel(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
+    public ResponseEntity<TranscriptPreviewResponse> verifyStoredTranscript(
+        Long universityId, int admissionYear
     ) {
-        return ResponseEntity.ok(
-            transcriptService.previewExcel(admissionYear, universityId, file, schoolInfoFile)
-        );
+        return ResponseEntity.ok(storedTranscriptVerificationService.verify(universityId, admissionYear));
     }
 
     @Override
-    public ResponseEntity<byte[]> exportExcelValidation(
-        int admissionYear,
-        Long universityId,
-        MultipartFile file,
-        MultipartFile schoolInfoFile
-    ) {
-        byte[] result = transcriptService.exportExcelValidation(
-            admissionYear, universityId, file, schoolInfoFile
-        );
+    public ResponseEntity<byte[]> exportStoredTranscriptVerification(Long universityId, int admissionYear) {
+        byte[] result = storedTranscriptVerificationService.export(universityId, admissionYear);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .contentLength(result.length)
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                .filename("가져오기-검증결과.xlsx", StandardCharsets.UTF_8)
+                .filename("DB-성적검증결과.xlsx", StandardCharsets.UTF_8)
                 .build()
                 .toString())
             .body(result);
@@ -85,8 +86,8 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<List<TranscriptImportSummaryResponse>> findImports() {
-        return ResponseEntity.ok(transcriptService.findImports());
+    public ResponseEntity<List<TranscriptImportSummaryResponse>> findImports(Long universityId) {
+        return ResponseEntity.ok(transcriptService.findImports(universityId));
     }
 
     @Override
@@ -95,21 +96,35 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
+    public ResponseEntity<StreamingResponseBody> downloadImportResult(Long importId) {
+        StreamingResponseBody result = output -> transcriptService.writeImportResult(importId, output);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("가져오기-" + importId + "-환산결과.xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
+    }
+
+    @Override
     public ResponseEntity<StudentPageResponse> findStudents(
+        Long universityId,
         int admissionYear,
         String keyword,
         int page,
         int size
     ) {
-        return ResponseEntity.ok(transcriptService.findStudents(admissionYear, keyword, page, size));
+        return ResponseEntity.ok(transcriptService.findStudents(universityId, admissionYear, keyword, page, size));
     }
 
     @Override
     public ResponseEntity<StudentTranscriptResponse> findStudentTranscript(
         String applicantNumber,
+        Long universityId,
         int admissionYear
     ) {
-        return ResponseEntity.ok(transcriptService.findStudentTranscript(admissionYear, applicantNumber));
+        return ResponseEntity.ok(transcriptService.findStudentTranscript(universityId, admissionYear, applicantNumber));
     }
 
     @Override
