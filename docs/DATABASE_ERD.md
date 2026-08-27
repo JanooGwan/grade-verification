@@ -81,9 +81,9 @@ erDiagram
 
     STUDENT {
         BIGINT id PK "지원자 식별자"
-        BIGINT university_id FK, UK "대학 식별자"
-        INT admission_year UK "입학연도"
-        VARCHAR applicant_number UK "수험번호"
+        BIGINT university_id FK "대학 식별자, 입학연도·수험번호와 복합 UK"
+        INT admission_year "입학연도, 대학·수험번호와 복합 UK"
+        VARCHAR applicant_number "수험번호, 대학·입학연도와 복합 UK"
         VARCHAR name "지원자명"
         VARCHAR high_school_code "출신고교 코드, nullable"
         VARCHAR high_school_name "출신고교명, nullable"

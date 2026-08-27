@@ -25,6 +25,10 @@ import org.springframework.stereotype.Component;
 @Component
 class PdfRuleHeuristicExtractor {
 
+    private static final List<String> NO_YEAR_WEIGHT_TERMS = List.of(
+        "학년별 차등 없이", "학년별 반영비율 없음", "학년별 가중치 없음"
+    );
+
     private static final Pattern SELECTION_COUNT = Pattern.compile(
         "(?:상위|우수)\\s*(\\d+)\\s*(?:개\\s*)?(교과영역|교과|과목|학기)"
     );
@@ -170,8 +174,7 @@ class PdfRuleHeuristicExtractor {
         List<RuleExtractionAnalysis.Evidence> evidence,
         List<String> warnings
     ) {
-        if (combined.contains("학년별 차등 없이") || combined.contains("학년별 반영비율 없음")
-            || combined.contains("학년별 가중치 없음")) {
+        if (containsAny(combined, NO_YEAR_WEIGHT_TERMS)) {
             addEvidence(evidence, pages, "gradeWeights", "학년별", "0.88");
             return decimals("1", "1", "1");
         }
@@ -193,9 +196,12 @@ class PdfRuleHeuristicExtractor {
     }
 
     private Boolean inferGradeWeightApplication(String combined, List<BigDecimal> gradeWeights) {
-        if (combined.contains("학년별 차등 없이") || combined.contains("학년별 반영비율 없음")
-            || combined.contains("학년별 가중치 없음")) return false;
+        if (containsAny(combined, NO_YEAR_WEIGHT_TERMS)) return false;
         return gradeWeights.isEmpty() ? null : true;
+    }
+
+    private boolean containsAny(String text, List<String> terms) {
+        return terms.stream().anyMatch(text::contains);
     }
 
     private List<BigDecimal> inferGradeScores(

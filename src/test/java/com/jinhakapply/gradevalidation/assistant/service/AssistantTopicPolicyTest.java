@@ -16,12 +16,14 @@ class AssistantTopicPolicyTest {
         assertThat(policy.isInScope("2026학년도 수시 때 한신대에 지원한 학생 수는?")).isTrue();
         assertThat(policy.isInScope("수강한 과목이 10개 이하인 학생 수는?")).isTrue();
         assertThat(policy.isInScope("과목별 지원 통계를 알려줘")).isTrue();
+        assertThat(policy.isInScope("야구 특기자 전형의 지원 자격을 알려줘")).isTrue();
     }
 
     @Test
     void blocksClearExternalTopicsAndQuestionsWithoutAdmissionContext() {
         assertThat(policy.isInScope("오늘 날씨는 어때?")).isFalse();
         assertThat(policy.isInScope("대학 근처 오늘 날씨를 알려줘")).isFalse();
+        assertThat(policy.isInScope("입학 후 코인 투자법을 알려줘")).isFalse();
         assertThat(policy.isInScope("지금 원달러 환율은?")).isFalse();
         assertThat(policy.isInScope("최신 경제 주요 뉴스를 요약해줘")).isFalse();
         assertThat(policy.isInScope("자바 정렬 방법을 알려줘")).isFalse();
