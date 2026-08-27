@@ -1,6 +1,8 @@
 package com.jinhakapply.gradevalidation.admission.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -16,9 +18,12 @@ import com.jinhakapply.gradevalidation.admission.repository.StudentApplicationRe
 import com.jinhakapply.gradevalidation.admission.repository.VerificationRunRepository;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
+import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -27,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
@@ -108,6 +114,26 @@ class AdmissionServiceTest {
 
         assertThat(result.status()).isEqualTo(RuleMatchStatus.NOT_FOUND);
         assertThat(result.matchedRuleId()).isNull();
+    }
+
+    @Test
+    void passesStoredHighSchoolTypeToGradeVerification() {
+        EvaluationRule exact = rule(101L, "컴퓨터공학과");
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            1L, 2027, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(exact));
+        when(student.getGraduationStatus()).thenReturn(GraduationStatus.GRADUATE);
+        when(student.getHighSchoolType()).thenReturn(HighSchoolType.SPECIALIZED);
+        when(courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(10L))
+            .thenReturn(List.of());
+        RuntimeException stopAfterRequest = new RuntimeException("stop after request");
+        when(evaluationService.verify(any(VerifyGradeRequest.class))).thenThrow(stopAfterRequest);
+
+        assertThatThrownBy(() -> service.verifyApplication(10L, 20L)).isSameAs(stopAfterRequest);
+
+        ArgumentCaptor<VerifyGradeRequest> request = ArgumentCaptor.forClass(VerifyGradeRequest.class);
+        org.mockito.Mockito.verify(evaluationService).verify(request.capture());
+        assertThat(request.getValue().highSchoolType()).isEqualTo(HighSchoolType.SPECIALIZED);
     }
 
     private EvaluationRule rule(Long id, String recruitmentUnit) {

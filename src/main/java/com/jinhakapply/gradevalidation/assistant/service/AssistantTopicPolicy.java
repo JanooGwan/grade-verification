@@ -29,9 +29,14 @@ public class AssistantTopicPolicy {
             return false;
         }
         String normalized = question.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
-        if (CLEARLY_OUT_OF_SCOPE_TERMS.stream().anyMatch(normalized::contains)) {
+        boolean hasAdmissionContext = ADMISSION_CONTEXT_TERMS.stream().anyMatch(normalized::contains);
+        if (!hasAdmissionContext) {
             return false;
         }
-        return ADMISSION_CONTEXT_TERMS.stream().anyMatch(normalized::contains);
+        boolean hasOutOfScopeTerm = CLEARLY_OUT_OF_SCOPE_TERMS.stream().anyMatch(normalized::contains);
+        boolean hasAthleticAdmissionContext = List.of("스포츠", "축구", "야구", "농구").stream()
+            .anyMatch(normalized::contains)
+            && List.of("특기자", "전형", "모집", "지원 자격").stream().anyMatch(normalized::contains);
+        return !hasOutOfScopeTerm || hasAthleticAdmissionContext;
     }
 }

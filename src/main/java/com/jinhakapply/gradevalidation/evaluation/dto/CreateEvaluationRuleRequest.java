@@ -35,7 +35,7 @@ public record CreateEvaluationRuleRequest(
     boolean includeThirdYearSecondSemester,
     boolean includeThirdYearSecondSemesterForGraduates,
     boolean includeProfessionalCourses,
-    boolean applyGradeWeights,
+    @NotNull Boolean applyGradeWeights,
     boolean normalizeGradeWeights,
     @Min(0) @Max(8) int intermediateScale,
     @NotNull RoundingMode intermediateRounding,
