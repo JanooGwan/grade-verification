@@ -5,6 +5,10 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
@@ -75,6 +79,42 @@ public interface TranscriptApi {
         @RequestParam @NotNull @Positive Long universityId,
         @RequestParam @Min(2000) @Max(2100) int admissionYear
     );
+
+    @Operation(summary = "DB 저장 학생부 성적검증 결과 저장", description = "최신 완료 업로드 건의 검증 결과를 DB에 저장합니다.")
+    @PostMapping("/verifications/persist")
+    ResponseEntity<StoredVerificationPersistenceResponse> persistStoredTranscriptVerification(
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
+    );
+
+    @Operation(summary = "저장된 일괄 성적검증 회차 목록 조회")
+    @GetMapping("/saved-verifications/batches")
+    ResponseEntity<List<SavedVerificationBatchResponse>> findSavedVerificationBatches(
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
+    );
+
+    @Operation(summary = "저장된 일괄 성적검증 결과 목록 조회")
+    @GetMapping("/saved-verifications")
+    ResponseEntity<SavedVerificationPageResponse> findSavedVerificationResults(
+        @RequestParam @NotNull @Positive Long sourceImportId,
+        @RequestParam(required = false) @Size(max = 100) String keyword,
+        @RequestParam(defaultValue = "0") @Min(0) int page,
+        @RequestParam(defaultValue = "50") @Min(1) @Max(100) int size
+    );
+
+    @Operation(summary = "저장된 일괄 성적검증 상세 조회")
+    @GetMapping("/saved-verifications/{verificationRunId}")
+    ResponseEntity<SavedVerificationDetailResponse> findSavedVerificationDetail(
+        @PathVariable Long verificationRunId
+    );
+
+    @Operation(summary = "저장된 일괄 성적검증 결과 Excel 다운로드")
+    @GetMapping(
+        value = "/saved-verifications/batches/{sourceImportId}/export",
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<byte[]> exportSavedVerificationBatch(@PathVariable Long sourceImportId);
 
     @Operation(summary = "DB 저장 학생부 성적검증 결과 다운로드")
     @GetMapping(

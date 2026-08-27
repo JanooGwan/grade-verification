@@ -36,6 +36,7 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRe
 import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
+import com.jinhakapply.gradevalidation.university.service.UniversityService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -75,6 +76,7 @@ class MySqlRepositoryIntegrationTest {
 
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired UniversityRepository universityRepository;
+    @Autowired UniversityService universityService;
     @Autowired AdmissionTrackRepository trackRepository;
     @Autowired RecruitmentUnitRepository unitRepository;
     @Autowired StudentRepository studentRepository;
@@ -127,6 +129,12 @@ class MySqlRepositoryIntegrationTest {
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME <> 'flyway_schema_history'
+              AND TABLE_NAME IN (
+                  SELECT TABLE_NAME
+                  FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_TYPE = 'BASE TABLE'
+              )
               AND COLUMN_COMMENT = ''
             ORDER BY TABLE_NAME, ORDINAL_POSITION
             """, String.class);
@@ -134,8 +142,17 @@ class MySqlRepositoryIntegrationTest {
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
             "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
-            "32", "33", "34", "35", "36", "37", "38", "39", "40"
+            "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45",
+            "46", "47", "48"
         );
+        String averageGradeNullable = jdbcTemplate.queryForObject("""
+            SELECT IS_NULLABLE
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'verification_run'
+              AND COLUMN_NAME = 'average_grade'
+            """, String.class);
+        assertThat(averageGradeNullable).isEqualTo("YES");
         assertThat(statusDefault).isEqualTo("DRAFT");
         assertThat(legacySummaryUniqueColumns).containsExactly(
             "student_id", "summary_type", "school_year", "semester_key"
@@ -216,9 +233,9 @@ class MySqlRepositoryIntegrationTest {
         );
 
         assertThat(comments).containsExactlyInAnyOrderEntriesOf(Map.of(
-            "admission_track", "대학·입학연도별 전형 카탈로그와 사용 여부를 관리한다.",
-            "student_attendance", "지원자의 학년별 미인정 결석·지각·조퇴·결과 원천데이터를 관리한다.",
-            "student_school_violence_action", "지원자의 학교폭력 조치호수·조치일·유효 여부와 비고를 관리한다."
+            "admission_track", "대학과 모집연도에 개설된 전형명 및 사용 여부를 관리하는 전형 기준정보이다.",
+            "student_attendance", "지원자의 학년별 미인정 결석·지각·조퇴·결과 횟수를 관리한다.",
+            "student_school_violence_action", "지원자의 학교폭력 조치호수와 조치일, 현재 적용 여부를 관리한다."
         ));
     }
 
@@ -358,6 +375,34 @@ class MySqlRepositoryIntegrationTest {
         assertThat(deletedRows).isOne();
         assertThat(courseRepository.count()).isZero();
         assertThat(applicationRepository.count()).isZero();
+    }
+
+    @Test
+    void deletesUniversityAfterCleaningUpOwnedStudentData() {
+        University university = universityRepository.saveAndFlush(
+            University.create("DELETE-ME", "삭제 대상 대학교")
+        );
+        Student student = studentRepository.saveAndFlush(Student.create(
+            university, 2027, "DELETE-001", "삭제 대상 학생", null, null, 2027
+        ));
+        courseRepository.saveAndFlush(course(student, "수학", 2));
+
+        entityManager.clear();
+        universityService.delete(university.getId());
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM university WHERE id = ?", Long.class, university.getId()
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM student WHERE university_id = ?", Long.class, university.getId()
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+            """
+                SELECT COUNT(*)
+                FROM student_transcript_course course
+                WHERE course.student_id = ?
+                """, Long.class, student.getId()
+        )).isZero();
     }
 
     private EvaluationRuleExtraction extraction(University university, String hash) {

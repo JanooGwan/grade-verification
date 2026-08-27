@@ -55,8 +55,13 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
+import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationResultRow;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.service.UniversityService;
@@ -93,6 +98,7 @@ class ApiContractTest {
     @MockitoBean TranscriptService transcriptService;
     @MockitoBean SyuSourceImportService syuSourceImportService;
     @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
+    @MockitoBean SavedVerificationQueryService savedVerificationQueryService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
@@ -137,6 +143,25 @@ class ApiContractTest {
     }
 
     @Test
+    void downloadsSavedVerificationBatchAsExcel() throws Exception {
+        when(savedVerificationQueryService.export(80L)).thenReturn(new byte[] {7, 8, 9});
+
+        mockMvc.perform(get("/api/transcripts/saved-verifications/batches/80/export"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {7, 8, 9}));
+
+        verify(savedVerificationQueryService).export(80L);
+    }
+
+    @Test
     void verifiesOnlyStoredTranscriptData() throws Exception {
         when(storedTranscriptVerificationService.verify(1L, 2027)).thenReturn(new TranscriptPreviewResponse(
             "stored.xlsx", "hash", "HANSHIN_MULTI_SHEET_V1", 1, 2, 2, 0, 0,
@@ -154,6 +179,64 @@ class ApiContractTest {
             .andExpect(jsonPath("$.verification.successfulApplications").value(1));
 
         verify(storedTranscriptVerificationService).verify(1L, 2027);
+    }
+
+    @Test
+    void persistsStoredTranscriptVerificationResults() throws Exception {
+        when(storedTranscriptVerificationService.persist(1L, 2027)).thenReturn(
+            new StoredVerificationPersistenceResponse(80L, 3, 2, 1, 2, LocalDateTime.of(2027, 1, 2, 3, 4))
+        );
+
+        mockMvc.perform(post("/api/transcripts/verifications/persist")
+                .param("admissionYear", "2027")
+                .param("universityId", "1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.sourceImportId").value(80))
+            .andExpect(jsonPath("$.savedResults").value(2))
+            .andExpect(jsonPath("$.failedResults").value(1))
+            .andExpect(jsonPath("$.replacedResults").value(2));
+
+        verify(storedTranscriptVerificationService).persist(1L, 2027);
+    }
+
+    @Test
+    void readsSavedBatchVerificationResultsWithoutRecalculating() throws Exception {
+        LocalDateTime savedAt = LocalDateTime.of(2027, 1, 2, 3, 4);
+        when(savedVerificationQueryService.findBatches(1L, 2027)).thenReturn(List.of(
+            new SavedVerificationBatchResponse(
+                80L, 1L, "한신대학교", 2027, "hanshin.xlsx", "HANSHIN_MULTI_SHEET_V1", 2, savedAt
+            )
+        ));
+        when(savedVerificationQueryService.findResults(80L, "2106", 0, 50)).thenReturn(
+            new SavedVerificationPageResponse(
+                List.of(new SavedVerificationResultRow(
+                    91L, 10L, "2106011001", "홍길동", "참인재", "한국어문학",
+                    "한신 학생부", 1, new BigDecimal("523.8"), new BigDecimal("4.0"), 12, 3, savedAt
+                )),
+                0, 50, 1, 1, true, true
+            )
+        );
+
+        mockMvc.perform(get("/api/transcripts/saved-verifications/batches")
+                .param("universityId", "1")
+                .param("admissionYear", "2027"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].sourceImportId").value(80))
+            .andExpect(jsonPath("$[0].resultCount").value(2));
+
+        mockMvc.perform(get("/api/transcripts/saved-verifications")
+                .param("sourceImportId", "80")
+                .param("keyword", "2106"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.totalElements").value(1))
+            .andExpect(jsonPath("$.content[0].verificationRunId").value(91))
+            .andExpect(jsonPath("$.content[0].finalScore").value(523.8));
+
+        verify(savedVerificationQueryService).findBatches(1L, 2027);
+        verify(savedVerificationQueryService).findResults(80L, "2106", 0, 50);
+        verify(storedTranscriptVerificationService, never()).verify(anyLong(), anyInt());
     }
 
     @Test

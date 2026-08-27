@@ -19,6 +19,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import org.springframework.stereotype.Component;
 
 /** 모집요강에서 정량식이 확정된 한국공학대·명지전문대·경복대·삼육대 전형 계산기. */
@@ -29,8 +30,10 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     @Override
     public boolean supports(EvaluationRule rule) {
         String university = normalizePolicyText(rule.getUniversity().getName());
-        return (rule.getAdmissionYear() == 2027 && (university.contains("한국공학")
-            || university.contains("명지전문") || university.contains("삼육")))
+        return ((rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
+            && university.contains("한국공학"))
+            || (rule.getAdmissionYear() == 2027 && (university.contains("명지전문")
+            || university.contains("삼육")))
             || (rule.getAdmissionYear() == 2026 && university.contains("경복"));
     }
 
@@ -51,9 +54,10 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         List<String> warnings = new ArrayList<>();
         List<ScoreCalculationStep> steps = new ArrayList<>();
 
-        BigDecimal baseScore = resolveBaseScore(
-            rule, university, track, gradeVerification, commonData, request, pending, warnings, steps
-        );
+        validateTukEligibility(university, track, commonData, ineligible);
+        BigDecimal baseScore = ineligible.isEmpty()
+            ? resolveBaseScore(rule, university, track, gradeVerification, commonData, request, pending, warnings, steps)
+            : ZERO;
         BigDecimal academicScore = baseScore == null ? ZERO : score(baseScore.multiply(rule.getScoreMultiplier()));
         BigDecimal attendanceScore = null;
         Integer equivalentAbsenceDays = null;
@@ -61,6 +65,18 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         BigDecimal maximumTotal = score(new BigDecimal("100").multiply(rule.getScoreMultiplier()));
         BigDecimal maximumQuantitative = maximumTotal;
 
+        if (university.contains("한국공학") && track.contains("논술")) {
+            maximumQuantitative = new BigDecimal("500.00");
+            maximumTotal = new BigDecimal("500.00");
+            if (request.essayScore() == null) {
+                pending.add("논술고사 400점");
+            } else {
+                validateTukEssayScore(request.essayScore());
+                additionalScore = score(request.essayScore());
+                steps.add(step("TUK_ESSAY_SCORE", "한국공학대 논술고사 반영점수", "논술고사 취득점수",
+                    Map.of("논술고사점수", request.essayScore()), additionalScore));
+            }
+        }
         if (university.contains("명지전문") && track.contains("항공서비스")) {
             pending.add("면접 정성평가 600점");
             maximumTotal = new BigDecimal("1000.00");
@@ -110,6 +126,12 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         BigDecimal violenceDeduction = schoolViolenceDeduction(
             university, track, admissionTrack, action, ineligible
         );
+        if (rule.getAdmissionYear() == 2026 && university.contains("한국공학")
+            && action > 0 && !track.contains("지역균형")) {
+            warnings.add(
+                "2026 모집요강은 호수별 상세 감점값을 기재하지 않아, 동일 기준을 구체화한 2027 모집요강의 1~9호 감점표를 적용했습니다."
+            );
+        }
         BigDecimal subtotal = academicScore
             .add(attendanceScore == null ? BigDecimal.ZERO : attendanceScore)
             .add(additionalScore == null ? BigDecimal.ZERO : additionalScore)
@@ -146,6 +168,16 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         List<String> warnings,
         List<ScoreCalculationStep> steps
     ) {
+        if (university.contains("한국공학") && track.contains("논술")
+            && usesTukEssayComparisonScore(rule, commonData)) {
+            if (request.essayScore() == null) return BigDecimal.ZERO;
+            validateTukEssayScore(request.essayScore());
+            BigDecimal result = tukEssayComparisonScore(request.essayScore());
+            steps.add(step("TUK_ESSAY_COMPARISON_SCORE", "한국공학대 논술 비교내신 환산점수",
+                "논술고사 총점을 비교내신 구간표에 대입",
+                Map.of("논술고사점수", request.essayScore()), result));
+            return result;
+        }
         if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
             if (verification == null) {
                 throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT, "국내고 교과성적 계산 결과가 필요합니다.");
@@ -168,9 +200,6 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
                 }
                 warnings.add("과목별 검정고시 점수가 없어 기존 전 과목 평균점수로 임시 환산했습니다.");
                 return scoreForGrade(rule, tukGedGrade(requiredGedAverage(commonData)));
-            }
-            if (track.contains("논술") && request.essayScore() != null) {
-                return tukEssayComparisonScore(request.essayScore());
             }
         }
         if (university.contains("경복") && commonData.educationBackground() == EducationBackground.GED) {
@@ -195,6 +224,22 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
                 "검정고시 지원자는 모집요강 가중치를 적용한 전 과목 평균점수가 필요합니다.");
         }
         return commonData.gedAverageScore();
+    }
+
+    private void validateTukEligibility(
+        String university,
+        String track,
+        StudentCommonEvaluationSnapshot commonData,
+        List<String> ineligible
+    ) {
+        if (!university.contains("한국공학") || commonData.educationBackground() != EducationBackground.GED) {
+            return;
+        }
+        if (track.contains("지역균형")) {
+            ineligible.add("한국공학대학교 지역균형전형은 검정고시 출신자가 지원할 수 없습니다.");
+        } else if (track.contains("특성화고교졸업자") || track.contains("특성화고졸업자")) {
+            ineligible.add("한국공학대학교 특성화고교졸업자전형은 검정고시 출신자가 지원할 수 없습니다.");
+        }
     }
 
     private int mjcGedGrade(BigDecimal score) {
@@ -313,7 +358,9 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             .filter(subject -> reflected.contains(subject.subjectType()))
             .map(subject -> scoreForGrade(rule, tukGedGrade(subject.score())))
             .toList();
-        if (scores.size() != 4) {
+        boolean exactlyOnePerSubject = reflected.stream().allMatch(type -> data.gedSubjectScores().stream()
+            .filter(subject -> subject.subjectType() == type).count() == 1);
+        if (!exactlyOnePerSubject || scores.size() != 4) {
             throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
                 "한국공학대학교 검정고시 환산에는 국어·영어·수학과 계열별 과학/사회 점수가 모두 필요합니다.");
         }
@@ -324,6 +371,21 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             "Σ(과목별 환산점수) ÷ 반영과목수",
             Map.of("과목별환산점수합", convertedScoreSum, "반영과목수", BigDecimal.valueOf(scores.size())), result));
         return result;
+    }
+
+    private boolean usesTukEssayComparisonScore(EvaluationRule rule, StudentCommonEvaluationSnapshot data) {
+        if (data.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) return true;
+        if (data.graduationStatus() != GraduationStatus.GRADUATE
+            || data.graduationYear() == null) return false;
+        int comparisonCutoffYear = rule.getAdmissionYear() == 2026 ? 2024 : 2025;
+        return data.graduationYear() <= comparisonCutoffYear;
+    }
+
+    private void validateTukEssayScore(BigDecimal essayScore) {
+        if (essayScore.signum() < 0 || essayScore.compareTo(new BigDecimal("400")) > 0) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                "한국공학대학교 논술고사 점수는 0점 이상 400점 이하로 입력해야 합니다.");
+        }
     }
 
     private BigDecimal tukEssayComparisonScore(BigDecimal essayScore) {

@@ -195,12 +195,10 @@ class SyuSourceImportProcessor {
         SourceScanResult scan = streamer.scan(path);
         log.info("SYU source scan completed: importId={}, courseRows={}, applicants={}, elapsedMs={}",
             importId, scan.courseRows(), scan.applicantNumbers().size(), elapsedMillis(scanStarted));
-        if (!scan.admissionYears().equals(java.util.Set.of(admissionYear))) {
-            throw new IllegalArgumentException(
-                "화면의 모집연도 %d와 파일의 입학연도 %s가 일치하지 않습니다."
-                    .formatted(admissionYear, scan.admissionYears())
-            );
-        }
+        int sourceAdmissionYear = requireSingleSourceAdmissionYear(scan.admissionYears());
+        recordSourceAdmissionYear(importId, sourceAdmissionYear);
+        log.info("SYU source year mapping: importId={}, sourceAdmissionYear={}, ruleAdmissionYear={}",
+            importId, sourceAdmissionYear, admissionYear);
 
         updateStatus(importId, "PROCESSING", null);
         deleteSnapshots(importId);
@@ -284,6 +282,22 @@ class SyuSourceImportProcessor {
             "UPDATE student_transcript_import SET status=?, error_message=?, updated_at=CURRENT_TIMESTAMP(6) WHERE id=?",
             status, errorMessage, importId
         );
+    }
+
+    private void recordSourceAdmissionYear(Long importId, int sourceAdmissionYear) {
+        jdbcTemplate.update(
+            "UPDATE student_transcript_import SET source_admission_year=?, updated_at=CURRENT_TIMESTAMP(6) WHERE id=?",
+            sourceAdmissionYear, importId
+        );
+    }
+
+    static int requireSingleSourceAdmissionYear(Set<Integer> admissionYears) {
+        if (admissionYears == null || admissionYears.size() != 1) {
+            throw new IllegalArgumentException(
+                "삼육대 원천 파일에는 하나의 입학연도만 있어야 합니다: " + admissionYears
+            );
+        }
+        return admissionYears.iterator().next();
     }
 
     private void updateProgress(Long importId, int totalRows, int importedRows, int failedRows) {

@@ -48,6 +48,7 @@ import org.springframework.web.multipart.MultipartFile;
 class TransferImportService {
 
     private static final int BATCH_SIZE = 1_000;
+    private static final String KBU_UNIVERSITY_CODE = "KBOK";
 
     private final TransferExcelParser parser;
     private final UniversityRepository universityRepository;
@@ -104,6 +105,8 @@ class TransferImportService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
         }
+        university = universityRepository.findByIdForUpdate(universityId)
+            .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
         StudentTranscriptImport previousImport = importRepository
             .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
                 university.getId(), admissionYear,
@@ -265,10 +268,11 @@ class TransferImportService {
 
         List<ApplicationCandidate> applicationCandidates = new ArrayList<>();
         for (TransferApplicationRow row : rows) {
-            String trackKey = normalize(row.admissionTrackName());
+            String admissionTrackName = admissionTrackName(university, row);
+            String trackKey = normalize(admissionTrackName);
             AdmissionTrack track = tracks.get(trackKey);
             if (track == null) {
-                track = admissionTrackRepository.save(AdmissionTrack.create(university, admissionYear, row.admissionTrackName()));
+                track = admissionTrackRepository.save(AdmissionTrack.create(university, admissionYear, admissionTrackName));
                 tracks.put(trackKey, track);
                 createdTracks++;
             }
@@ -299,6 +303,25 @@ class TransferImportService {
         });
         studentApplicationRepository.saveAll(created);
         return new CatalogResult(createdTracks, createdUnits, created.size(), deletedApplications);
+    }
+
+    private String admissionTrackName(University university, TransferApplicationRow row) {
+        if (!KBU_UNIVERSITY_CODE.equalsIgnoreCase(university.getCode())) return row.admissionTrackName();
+        return canonicalKbuAdmissionType(row.recruitmentPeriodName(), row.admissionTrackName());
+    }
+
+    static String canonicalKbuAdmissionType(String periodName, String admissionTrackName) {
+        String track = admissionTrackName == null ? "" : admissionTrackName.trim();
+        track = track.replace("기회균형선발", "기회균형");
+        String normalizedTrack = TextNormalizer.normalizePolicyText(track);
+        if (normalizedTrack.startsWith("수시") || normalizedTrack.startsWith("정시")) return track;
+
+        String period = TextNormalizer.normalizePolicyText(periodName);
+        if (period.startsWith("수시")) return "수시 " + track;
+        if (period.startsWith("정시")) {
+            return normalizedTrack.equals("일반") ? "정시 일반(학생부)" : "정시 " + track;
+        }
+        return track;
     }
 
     CourseResult replaceCourses(

@@ -7,9 +7,12 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
@@ -37,22 +40,28 @@ class TranscriptValidationExcelWriter {
         "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
         "교과성적(1,000점 만점)"
     };
-    private static final String[] ALL_COURSE_HEADERS = {
-        "원본 성적 행", "수험번호", "학생명", "고교코드", "고교명", "졸업연도",
-        "학년", "학기", "교과", "과목명", "석차등급", "등급제", "성취도",
-        "원점수", "과목평균", "표준편차", "수강자수", "석차", "동석차",
-        "성취평가", "이수단위", "진로선택", "전문교과"
-    };
-    private static final String[] SELECTED_COURSE_HEADERS = {
+    private static final String[] COURSE_COMPARISON_HEADERS = {
         "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
-        "선택순번", "원본 성적 행", "학년", "학기", "과목명",
+        "반영 여부", "선택순번", "원본 성적 행", "학년", "학기", "교과", "과목명",
         "석차등급", "성취도", "이수단위", "환산점수", "가중점수",
-        "진로선택", "전문교과", "수강자수", "원본 고교구분", "지원자 고교구분코드"
+        "진로선택", "전문교과", "원본 고교구분", "지원자 고교구분코드"
+    };
+    private static final String[] KBU_COURSE_COMPARISON_HEADERS = {
+        "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
+        "반영 여부", "선택순번", "학년", "학기", "교과", "과목명",
+        "석차등급", "성취도", "이수단위", "환산점수", "가중점수",
+        "진로선택", "전문교과"
+    };
+    private static final String[] INTERMEDIATE_HEADERS = {
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "최종 환산점수", "산출 구분", "교과·학기",
+        "선택 기준", "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
+        "환산점수×이수단위 합", "평균환산점수"
     };
 
     byte[] write(
         String originalFileName,
         String sourceFormat,
+        String universityName,
         int applicationRows,
         int totalRows,
         List<TranscriptImportRowError> skipped,
@@ -65,14 +74,17 @@ class TranscriptValidationExcelWriter {
         workbook.setCompressTempFiles(true);
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
-            createVerificationResultSheet(workbook, styles, verification);
-            createAllCourseSheet(workbook, styles, courses);
-            createSelectedCourseSheet(workbook, styles, verification);
-            createSummarySheet(
-                workbook, styles, originalFileName, sourceFormat, applicationRows,
-                totalRows, courses.size(), errors.size(), skipped.size(), warnings,
-                verification, skipped, errors
-            );
+            boolean kbu = isKbu(universityName);
+            if (!kbu) createVerificationResultSheet(workbook, styles, universityName, verification);
+            createIntermediateCalculationSheet(workbook, styles, universityName, verification);
+            createCourseComparisonSheet(workbook, styles, courses, verification, kbu);
+            if (!kbu) {
+                createSummarySheet(
+                    workbook, styles, originalFileName, sourceFormat, applicationRows,
+                    totalRows, courses.size(), errors.size(), skipped.size(), warnings,
+                    verification, skipped, errors
+                );
+            }
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException exception) {
@@ -177,11 +189,13 @@ class TranscriptValidationExcelWriter {
     private void createVerificationResultSheet(
         SXSSFWorkbook workbook,
         Styles styles,
+        String universityName,
         TranscriptBatchVerificationResult verification
     ) {
         Sheet sheet = workbook.createSheet("학생별 검증 결과");
         sheet.setDisplayGridlines(false);
-        title(sheet, styles, "한신대 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
+        title(sheet, styles, shortUniversityName(universityName)
+            + " 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
         header(sheet, styles, RESULT_HEADERS);
         List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
         results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
@@ -205,18 +219,80 @@ class TranscriptValidationExcelWriter {
         setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
     }
 
-    private void createSelectedCourseSheet(
+    private void createIntermediateCalculationSheet(
         SXSSFWorkbook workbook,
         Styles styles,
+        String universityName,
         TranscriptBatchVerificationResult verification
     ) {
-        Sheet sheet = workbook.createSheet("학생별 선택 과목");
+        boolean hasIntermediateCalculations = verification.successes().stream()
+            .anyMatch(success -> !success.intermediateCalculations().isEmpty());
+        boolean kbu = isKbu(universityName);
+        if (!hasIntermediateCalculations && !kbu) return;
+
+        Sheet sheet = workbook.createSheet(kbu ? "학생별 검증 결과" : "성적 산출 중간값");
         sheet.setDisplayGridlines(false);
         title(
-            sheet, styles, "학생별 선택 과목 상세 - 실제 교과성적 계산에 반영된 과목",
-            SELECTED_COURSE_HEADERS.length - 1
+            sheet, styles,
+            shortUniversityName(universityName)
+                + (kbu ? " 학생별 검증 결과" : " 성적 산출 중간값")
+                + " - 일반학과 5개 학기 중 2개, 간호·보건 5개 교과 중 3개 선택",
+            INTERMEDIATE_HEADERS.length - 1
         );
-        header(sheet, styles, SELECTED_COURSE_HEADERS);
+        header(sheet, styles, INTERMEDIATE_HEADERS);
+
+        List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
+        results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
+        int rowIndex = 3;
+        for (TranscriptBatchVerificationResult.Success success : results) {
+            for (TranscriptBatchVerificationResult.IntermediateCalculation calculation
+                : success.intermediateCalculations()) {
+                TransferApplicationRow application = success.application();
+                Row row = sheet.createRow(rowIndex++);
+                writeRow(row, new Object[] {
+                    application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                    application.recruitmentUnitName(), success.verification().finalScore(),
+                    calculation.groupType(), calculation.groupName(),
+                    selectionCriteria(calculation), calculation.selected() ? "선택됨" : "미선택",
+                    calculation.selectionOrder(),
+                    calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
+                    calculation.convertedScoreTimesCreditsSum(), calculation.averageConvertedScore()
+                }, styles, -1);
+                row.getCell(4).setCellStyle(styles.finalScore);
+                if (calculation.selected()) row.getCell(8).setCellStyle(styles.selected);
+            }
+        }
+        finishTable(sheet, rowIndex - 3, INTERMEDIATE_HEADERS.length);
+        sheet.createFreezePane(7, 3);
+        setWidths(sheet, INTERMEDIATE_HEADERS, Set.of(2, 3));
+    }
+
+    private String selectionCriteria(TranscriptBatchVerificationResult.IntermediateCalculation calculation) {
+        return "학기".equals(calculation.groupType())
+            ? "5개 학기 중 우수 2개"
+            : "5개 교과 중 우수 3개";
+    }
+
+    private void createCourseComparisonSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        List<TranscriptExcelRow> courses,
+        TranscriptBatchVerificationResult verification,
+        boolean kbu
+    ) {
+        String[] headers = kbu ? KBU_COURSE_COMPARISON_HEADERS : COURSE_COMPARISON_HEADERS;
+        Sheet sheet = workbook.createSheet("학생별 과목 비교");
+        sheet.setDisplayGridlines(false);
+        title(
+            sheet, styles, "학생별 전체 과목 및 반영 과목 비교 - 노란색 셀은 성적 계산에 선택된 과목",
+            headers.length - 1
+        );
+        header(sheet, styles, headers);
+
+        Map<String, List<TranscriptExcelRow>> coursesByApplicant = new HashMap<>();
+        for (TranscriptExcelRow course : courses) {
+            coursesByApplicant.computeIfAbsent(course.applicantNumber(), ignored -> new ArrayList<>()).add(course);
+        }
 
         List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
         results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
@@ -225,67 +301,109 @@ class TranscriptValidationExcelWriter {
             List<TranscriptBatchVerificationResult.SelectedCourse> selectedCourses =
                 new ArrayList<>(success.selectedCourses());
             selectedCourses.sort(selectedCourseComparator());
+
+            Map<TranscriptExcelRow, TranscriptBatchVerificationResult.SelectedCourse> selectedByCourse =
+                new HashMap<>();
+            Map<TranscriptExcelRow, Integer> selectionOrderByCourse = new HashMap<>();
             for (int index = 0; index < selectedCourses.size(); index++) {
                 TranscriptBatchVerificationResult.SelectedCourse selected = selectedCourses.get(index);
-                TranscriptExcelRow source = selected.source();
-                GradeVerificationResponse.CourseCalculation calculation = selected.calculation();
-                TransferApplicationRow application = success.application();
-                ApplicantSchoolInfoRow schoolInfo = success.schoolInfo();
-                writeRow(sheet.createRow(rowIndex++), new Object[] {
-                    application.rowNumber(), application.applicantNumber(), success.studentName(),
-                    application.admissionTrackName(), application.recruitmentUnitName(),
-                    index + 1, source.rowNumber(),
-                    source.schoolYear(), source.semester(),
-                    source.courseName(), source.grade(), source.achievement(), source.credits(),
-                    calculation.convertedScore(), calculation.weightedScore(),
-                    source.careerSubject() ? "Y" : "N", source.professionalCourse() ? "Y" : "N",
-                    source.studentCount(),
-                    schoolInfo == null ? null : schoolInfo.sourceHighSchoolCategory(),
-                    schoolInfo == null ? null : schoolInfo.applicantHighSchoolCategoryCode()
-                }, styles, -1);
+                selectedByCourse.put(selected.source(), selected);
+                selectionOrderByCourse.put(selected.source(), index + 1);
+            }
+
+            List<TranscriptExcelRow> applicantCourses = new ArrayList<>(coursesByApplicant.getOrDefault(
+                success.application().applicantNumber(), List.of()
+            ));
+            applicantCourses.sort(courseComparator());
+            for (TranscriptExcelRow course : applicantCourses) {
+                TranscriptBatchVerificationResult.SelectedCourse selected = selectedByCourse.get(course);
+                Row row = sheet.createRow(rowIndex++);
+                writeCourseComparisonRow(
+                    row, styles, success.application(), success.studentName(), success.schoolInfo(), course, kbu,
+                    selected == null ? "미선택" : "선택됨", selectionOrderByCourse.get(course), selected
+                );
+                if (selected != null) row.getCell(5).setCellStyle(styles.selected);
             }
         }
-        finishTable(sheet, rowIndex - 3, SELECTED_COURSE_HEADERS.length);
-        setWidths(sheet, SELECTED_COURSE_HEADERS, Set.of(3, 4, 9));
+
+        List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>(verification.failures());
+        failures.sort(Comparator.comparingInt(failure -> failure.application().rowNumber()));
+        for (TranscriptBatchVerificationResult.Failure failure : failures) {
+            List<TranscriptExcelRow> applicantCourses = new ArrayList<>(coursesByApplicant.getOrDefault(
+                failure.application().applicantNumber(), List.of()
+            ));
+            applicantCourses.sort(courseComparator());
+            for (TranscriptExcelRow course : applicantCourses) {
+                Row row = sheet.createRow(rowIndex++);
+                writeCourseComparisonRow(
+                    row, styles, failure.application(), failure.studentName(), null, course, kbu,
+                    "검증 실패", null, null
+                );
+                row.getCell(5).setCellStyle(styles.error);
+            }
+        }
+
+        finishTable(sheet, rowIndex - 3, headers.length);
+        sheet.createFreezePane(6, 3);
+        setWidths(sheet, headers, kbu ? Set.of(3, 4, 10) : Set.of(3, 4, 11, 19, 20));
         sheet.setColumnWidth(2, 24 * 256);
     }
 
-    private void createAllCourseSheet(
-        SXSSFWorkbook workbook,
+    private void writeCourseComparisonRow(
+        Row row,
         Styles styles,
-        List<TranscriptExcelRow> courses
+        TransferApplicationRow application,
+        String studentName,
+        ApplicantSchoolInfoRow schoolInfo,
+        TranscriptExcelRow course,
+        boolean kbu,
+        String status,
+        Integer selectionOrder,
+        TranscriptBatchVerificationResult.SelectedCourse selected
     ) {
-        Sheet sheet = workbook.createSheet("학생별 전체 과목");
-        sheet.setDisplayGridlines(false);
-        title(
-            sheet, styles,
-            "학생별 전체 과목 원본 - 수험번호와 원본 성적 행으로 선택 과목 시트와 비교",
-            ALL_COURSE_HEADERS.length - 1
-        );
-        header(sheet, styles, ALL_COURSE_HEADERS);
-
-        List<TranscriptExcelRow> sortedCourses = new ArrayList<>(courses);
-        sortedCourses.sort(Comparator
-            .comparing(TranscriptExcelRow::applicantNumber, Comparator.nullsLast(Comparator.naturalOrder()))
-            .thenComparingInt(TranscriptExcelRow::schoolYear)
-            .thenComparingInt(TranscriptExcelRow::semester)
-            .thenComparingInt(TranscriptExcelRow::rowNumber));
-
-        int rowIndex = 3;
-        for (TranscriptExcelRow course : sortedCourses) {
-            writeRow(sheet.createRow(rowIndex++), new Object[] {
-                course.rowNumber(), course.applicantNumber(), course.studentName(),
-                course.highSchoolCode(), course.highSchoolName(), course.graduationYear(),
-                course.schoolYear(), course.semester(), course.subjectCategory(), course.courseName(),
-                course.grade(), course.gradeScale(), course.achievement(), course.rawScore(),
-                course.meanScore(), course.standardDeviation(), course.studentCount(),
-                course.rankPosition(), course.tiedRankCount(), course.legacyAchievement(), course.credits(),
+        GradeVerificationResponse.CourseCalculation calculation = selected == null ? null : selected.calculation();
+        Object[] values = kbu
+            ? new Object[] {
+                application.rowNumber(), application.applicantNumber(), studentName,
+                application.admissionTrackName(), application.recruitmentUnitName(),
+                status, selectionOrder, course.schoolYear(), course.semester(),
+                subjectCategoryLabel(course.subjectCategory()), course.courseName(), course.grade(),
+                course.achievement(), course.credits(),
+                calculation == null ? null : calculation.convertedScore(),
+                calculation == null ? null : calculation.weightedScore(),
                 course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N"
-            }, styles, -1);
-        }
-        finishTable(sheet, sortedCourses.size(), ALL_COURSE_HEADERS.length);
-        setWidths(sheet, ALL_COURSE_HEADERS, Set.of(4, 9));
-        sheet.setColumnWidth(2, 24 * 256);
+            }
+            : new Object[] {
+                application.rowNumber(), application.applicantNumber(), studentName,
+                application.admissionTrackName(), application.recruitmentUnitName(),
+                status, selectionOrder, course.rowNumber(), course.schoolYear(), course.semester(),
+                subjectCategoryLabel(course.subjectCategory()), course.courseName(), course.grade(),
+                course.achievement(), course.credits(),
+                calculation == null ? null : calculation.convertedScore(),
+                calculation == null ? null : calculation.weightedScore(),
+                course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N",
+                schoolInfo == null ? null : schoolInfo.sourceHighSchoolCategory(),
+                schoolInfo == null ? null : schoolInfo.applicantHighSchoolCategoryCode()
+            };
+        writeRow(row, values, styles, -1);
+    }
+
+    private String subjectCategoryLabel(SubjectCategory category) {
+        if (category == null) return "";
+        return switch (category) {
+            case KOREAN -> "국어";
+            case MATH -> "수학";
+            case ENGLISH -> "영어";
+            case SOCIAL -> "사회";
+            case SCIENCE -> "과학";
+            case OTHER -> "기타";
+        };
+    }
+
+    private Comparator<TranscriptExcelRow> courseComparator() {
+        return Comparator.comparingInt(TranscriptExcelRow::schoolYear)
+            .thenComparingInt(TranscriptExcelRow::semester)
+            .thenComparingInt(TranscriptExcelRow::rowNumber);
     }
 
     private Comparator<TranscriptBatchVerificationResult.SelectedCourse> selectedCourseComparator() {
@@ -394,7 +512,20 @@ class TranscriptValidationExcelWriter {
     }
 
     private String formatLabel(String sourceFormat) {
-        return "HANSHIN_MULTI_SHEET_V1".equals(sourceFormat) ? "한신대 전달양식" : "표준 성적양식";
+        if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
+        if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
+        return "표준 성적양식";
+    }
+
+    private String shortUniversityName(String universityName) {
+        if (universityName == null || universityName.isBlank()) return "대학";
+        String name = universityName.trim();
+        if (name.endsWith("대학교")) return name.substring(0, name.length() - "대학교".length()) + "대";
+        return name;
+    }
+
+    private boolean isKbu(String universityName) {
+        return "경복대".equals(shortUniversityName(universityName));
     }
 
     private static final class Styles {
@@ -409,6 +540,8 @@ class TranscriptValidationExcelWriter {
         private final CellStyle warning;
         private final CellStyle error;
         private final CellStyle success;
+        private final CellStyle selected;
+        private final CellStyle finalScore;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, "174A37", IndexedColors.WHITE.getIndex(), true, 16);
@@ -429,6 +562,9 @@ class TranscriptValidationExcelWriter {
             error = bordered(workbook, "FCE8E6", IndexedColors.DARK_RED.getIndex(), false);
             error.setWrapText(true);
             success = bordered(workbook, "E5F3E8", IndexedColors.DARK_GREEN.getIndex(), true);
+            selected = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
+            finalScore = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
+            finalScore.setDataFormat(workbook.createDataFormat().getFormat("0.######"));
         }
 
         private static CellStyle style(

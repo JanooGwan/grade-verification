@@ -11,6 +11,7 @@ public record TranscriptImportSummaryResponse(
     Long universityId,
     String universityName,
     int admissionYear,
+    Integer sourceAdmissionYear,
     String originalFileName,
     TranscriptImportMode importMode,
     String fileSha256,
@@ -20,14 +21,19 @@ public record TranscriptImportSummaryResponse(
     TranscriptImportStatus status,
     String sourceFormat,
     String errorMessage,
+    boolean hasSavedVerificationResults,
     LocalDateTime createdAt
 ) {
-    public static TranscriptImportSummaryResponse from(StudentTranscriptImport transcriptImport) {
+    public static TranscriptImportSummaryResponse from(
+        StudentTranscriptImport transcriptImport,
+        boolean hasSavedVerificationResults
+    ) {
         return new TranscriptImportSummaryResponse(
             transcriptImport.getId(),
             transcriptImport.getUniversity().getId(),
             transcriptImport.getUniversity().getName(),
             transcriptImport.getAdmissionYear(),
+            transcriptImport.getSourceAdmissionYear(),
             transcriptImport.getOriginalFileName(),
             transcriptImport.getImportMode(),
             transcriptImport.getFileSha256(),
@@ -37,6 +43,7 @@ public record TranscriptImportSummaryResponse(
             transcriptImport.getStatus(),
             transcriptImport.getSourceFormat(),
             transcriptImport.getErrorMessage(),
+            hasSavedVerificationResults,
             transcriptImport.getCreatedAt()
         );
     }

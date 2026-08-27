@@ -11,6 +11,7 @@ import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.dto.CreateUniversityRequest;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
 import com.jinhakapply.gradevalidation.university.dto.UpdateUniversityRequest;
+import com.jinhakapply.gradevalidation.university.repository.UniversityDataCleanupRepository;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UniversityService {
 
     private final UniversityRepository universityRepository;
+    private final UniversityDataCleanupRepository dataCleanupRepository;
 
     @Transactional
     public UniversityResponse create(CreateUniversityRequest request) {
@@ -61,8 +63,11 @@ public class UniversityService {
 
     @Transactional
     public void delete(Long universityId) {
-        University university = getUniversity(universityId);
+        University university = universityRepository.findByIdForUpdate(universityId)
+            .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND, String.valueOf(universityId)));
+        dataCleanupRepository.deleteAllByUniversityId(universityId);
         universityRepository.delete(university);
+        universityRepository.flush();
     }
 
     private University getUniversity(Long universityId) {

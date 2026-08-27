@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -28,6 +29,8 @@ import lombok.NoArgsConstructor;
 public class VerificationRun {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @ManyToOne(fetch = LAZY) @JoinColumn(name = "source_import_id")
+    private StudentTranscriptImport sourceImport;
     @ManyToOne(fetch = LAZY, optional = false) @JoinColumn(name = "student_id", nullable = false)
     private Student student;
     @ManyToOne(fetch = LAZY) @JoinColumn(name = "application_id")
@@ -36,7 +39,7 @@ public class VerificationRun {
     private EvaluationRule rule;
     @Column(name = "rule_version", nullable = false) private int ruleVersion;
     @Column(name = "final_score", nullable = false, precision = 14, scale = 6) private BigDecimal finalScore;
-    @Column(name = "average_grade", nullable = false, precision = 10, scale = 6) private BigDecimal averageGrade;
+    @Column(name = "average_grade", precision = 10, scale = 6) private BigDecimal averageGrade;
     @Column(name = "included_course_count", nullable = false) private int includedCourseCount;
     @Column(name = "excluded_course_count", nullable = false) private int excludedCourseCount;
     @Lob @Column(name = "result_json", nullable = false, columnDefinition = "LONGTEXT") private String resultJson;

@@ -4,14 +4,19 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
@@ -26,6 +31,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 class TranscriptBatchVerificationService {
     private static final String HANSHIN_UNIVERSITY_CODE = "HS";
+    private static final String KBU_UNIVERSITY_CODE = "KBOK";
+    private static final String KBU_GENERAL_UNITS = "일반학과";
+    private static final String KBU_HEALTH_UNITS = "간호·치위생·작업치료·임상병리·물리치료";
+    private static final String KBU_INTERVIEW_UNITS = "항공서비스과·준오헤어디자인과";
+    private static final String KBU_PRACTICAL_UNITS = "실용음악과·공연예술과";
     private static final Set<String> COMMON_UNIT_NAMES = Set.of(
         "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
         "공통", "모든모집단위"
@@ -48,6 +58,24 @@ class TranscriptBatchVerificationService {
         List<TransferApplicationRow> applications,
         List<TranscriptExcelRow> courses,
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant
+    ) {
+        return verify(
+            universityId,
+            admissionYear,
+            applications,
+            courses,
+            schoolInfoByApplicant,
+            (application, verification) -> { }
+        );
+    }
+
+    TranscriptBatchVerificationResult verify(
+        Long universityId,
+        int admissionYear,
+        List<TransferApplicationRow> applications,
+        List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer
     ) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
@@ -103,8 +131,9 @@ class TranscriptBatchVerificationService {
                 GradeVerificationResponse verification = ineligibleVerification(
                     rule, application, gradableCourses.size()
                 );
+                verifiedResultConsumer.accept(application, verification);
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, verification, List.of(), schoolInfo
+                    application, studentName, verification, List.of(), List.of(), schoolInfo
                 ));
                 continue;
             }
@@ -125,6 +154,8 @@ class TranscriptBatchVerificationService {
             );
             try {
                 GradeVerificationResponse verification = evaluationService.verify(rule, request);
+                GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
+                verifiedResultConsumer.accept(application, annotated);
                 List<TranscriptBatchVerificationResult.SelectedCourse> selected = new ArrayList<>();
                 for (int index = 0; index < verification.calculations().size(); index++) {
                     GradeVerificationResponse.CourseCalculation calculation = verification.calculations().get(index);
@@ -135,8 +166,8 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(verification, application, admissionYear),
-                    List.copyOf(selected), schoolInfo
+                    application, studentName, compact(annotated),
+                    List.copyOf(selected), buildKbuIntermediateCalculations(rule, verification), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
@@ -144,6 +175,155 @@ class TranscriptBatchVerificationService {
             }
         }
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
+    }
+
+    List<TranscriptBatchVerificationResult.IntermediateCalculation> buildKbuIntermediateCalculations(
+        EvaluationRule rule,
+        GradeVerificationResponse verification
+    ) {
+        if (rule.getAdmissionYear() != 2026 || !isKbuRule(rule) || verification.calculations() == null) {
+            return List.of();
+        }
+        return switch (verification.selectionStrategy()) {
+            case TOP_N_SUBJECTS -> aggregateKbuGroups(rule, verification.calculations(), true);
+            case TOP_N_SEMESTERS -> aggregateKbuGroups(rule, verification.calculations(), false);
+            default -> List.of();
+        };
+    }
+
+    private List<TranscriptBatchVerificationResult.IntermediateCalculation> aggregateKbuGroups(
+        EvaluationRule rule,
+        List<GradeVerificationResponse.CourseCalculation> calculations,
+        boolean bySubject
+    ) {
+        Map<GroupKey, GroupAccumulator> groups = kbuCandidateGroups(rule, bySubject);
+        for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
+            if (calculation.effectiveGrade() == null || calculation.appliedCredits() == null
+                || calculation.appliedCredits().signum() <= 0) {
+                continue;
+            }
+            GroupKey key = bySubject ? subjectGroupKey(rule, calculation.appliedSubjectCategory())
+                : semesterGroupKey(calculation.schoolYear(), calculation.semester());
+            if (key == null) continue;
+            groups.computeIfAbsent(key, ignored -> new GroupAccumulator()).add(calculation);
+        }
+
+        List<GroupValue> values = groups.entrySet().stream()
+            .map(entry -> entry.getValue().value(entry.getKey()))
+            .toList();
+        Map<String, Integer> selectedOrder = new LinkedHashMap<>();
+        values.stream().filter(GroupValue::selected)
+            .sorted(Comparator.comparing(GroupValue::averageGrade)
+                .thenComparing(GroupValue::totalCredits, Comparator.reverseOrder())
+                .thenComparingInt(value -> value.key().selectionPriority()))
+            .forEachOrdered(value -> selectedOrder.put(value.key().name(), selectedOrder.size() + 1));
+
+        return values.stream().sorted(Comparator.comparingInt(value -> value.key().displayOrder()))
+            .map(value -> new TranscriptBatchVerificationResult.IntermediateCalculation(
+                bySubject ? "교과" : "학기", value.key().name(), value.selected(),
+                selectedOrder.get(value.key().name()), value.courseCount(), value.totalCredits(),
+                value.gradeTimesCreditsSum(), value.averageGrade(),
+                value.convertedScoreTimesCreditsSum(), value.averageConvertedScore()
+            ))
+            .toList();
+    }
+
+    private Map<GroupKey, GroupAccumulator> kbuCandidateGroups(EvaluationRule rule, boolean bySubject) {
+        Map<GroupKey, GroupAccumulator> groups = new LinkedHashMap<>();
+        if (bySubject) {
+            for (SubjectCategory category : List.of(
+                SubjectCategory.KOREAN,
+                SubjectCategory.MATH,
+                SubjectCategory.SOCIAL,
+                SubjectCategory.SCIENCE,
+                SubjectCategory.ENGLISH
+            )) {
+                groups.put(subjectGroupKey(rule, category), new GroupAccumulator());
+            }
+            return groups;
+        }
+        for (int schoolYear = 1; schoolYear <= 2; schoolYear++) {
+            for (int semester = 1; semester <= 2; semester++) {
+                groups.put(semesterGroupKey(schoolYear, semester), new GroupAccumulator());
+            }
+        }
+        groups.put(semesterGroupKey(3, 1), new GroupAccumulator());
+        return groups;
+    }
+
+    private GroupKey subjectGroupKey(EvaluationRule rule, SubjectCategory category) {
+        if (category == null || category == SubjectCategory.OTHER) {
+            return null;
+        }
+        int displayOrder = switch (category) {
+            case KOREAN -> 1;
+            case MATH -> 2;
+            case SOCIAL -> 3;
+            case SCIENCE -> 4;
+            case ENGLISH -> 5;
+            case OTHER -> 6;
+        };
+        String name = switch (category) {
+            case KOREAN -> "국어";
+            case MATH -> "수학";
+            case SOCIAL -> "사회";
+            case SCIENCE -> "과학";
+            case ENGLISH -> "영어";
+            case OTHER -> "기타";
+        };
+        return new GroupKey(name, displayOrder,
+            rule.getSubjectPriorities().getOrDefault(category, Integer.MAX_VALUE));
+    }
+
+    private GroupKey semesterGroupKey(int schoolYear, int semester) {
+        int order = schoolYear * 10 + semester;
+        return new GroupKey(schoolYear + "학년 " + semester + "학기", order, -order);
+    }
+
+    private record GroupKey(String name, int displayOrder, int selectionPriority) {}
+
+    private record GroupValue(
+        GroupKey key,
+        boolean selected,
+        int courseCount,
+        BigDecimal totalCredits,
+        BigDecimal gradeTimesCreditsSum,
+        BigDecimal averageGrade,
+        BigDecimal convertedScoreTimesCreditsSum,
+        BigDecimal averageConvertedScore
+    ) {}
+
+    private static final class GroupAccumulator {
+        private int courseCount;
+        private boolean selected;
+        private BigDecimal totalCredits = BigDecimal.ZERO;
+        private BigDecimal gradeTimesCreditsSum = BigDecimal.ZERO;
+        private BigDecimal convertedScoreTimesCreditsSum = BigDecimal.ZERO;
+
+        private void add(GradeVerificationResponse.CourseCalculation calculation) {
+            courseCount++;
+            selected |= calculation.included();
+            totalCredits = totalCredits.add(calculation.appliedCredits());
+            gradeTimesCreditsSum = gradeTimesCreditsSum.add(
+                calculation.effectiveGrade().multiply(calculation.appliedCredits())
+            );
+            if (calculation.convertedScore() != null) {
+                convertedScoreTimesCreditsSum = convertedScoreTimesCreditsSum.add(
+                    calculation.convertedScore().multiply(calculation.appliedCredits())
+                );
+            }
+        }
+
+        private GroupValue value(GroupKey key) {
+            BigDecimal averageGrade = totalCredits.signum() == 0 ? null
+                : gradeTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+            BigDecimal averageConvertedScore = totalCredits.signum() == 0 ? null
+                : convertedScoreTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+            return new GroupValue(
+                key, selected, courseCount, totalCredits, gradeTimesCreditsSum, averageGrade,
+                convertedScoreTimesCreditsSum, averageConvertedScore
+            );
+        }
     }
 
     private boolean isIneligibleSpecializedGraduateApplicant(
@@ -184,7 +364,7 @@ class TranscriptBatchVerificationService {
         );
     }
 
-    private GradeVerificationResponse compact(
+    private GradeVerificationResponse annotate(
         GradeVerificationResponse result,
         TransferApplicationRow application,
         int admissionYear
@@ -206,11 +386,24 @@ class TranscriptBatchVerificationService {
             result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
             result.averageGrade(), result.selectionStrategy(), result.scoreAggregation(), result.sourceDocument(),
             result.sourcePages(), result.includedCourseCount(), result.excludedCourseCount(),
-            result.calculationSummary(), List.of(), List.copyOf(warnings)
+            result.calculationSummary(), result.calculations(), List.copyOf(warnings)
+        );
+    }
+
+    private GradeVerificationResponse compact(GradeVerificationResponse result) {
+        return new GradeVerificationResponse(
+            result.ruleId(), result.ruleName(), result.ruleVersion(), result.universityName(),
+            result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
+            result.averageGrade(), result.selectionStrategy(), result.scoreAggregation(), result.sourceDocument(),
+            result.sourcePages(), result.includedCourseCount(), result.excludedCourseCount(),
+            result.calculationSummary(), List.of(), result.warnings()
         );
     }
 
     private List<EvaluationRule> matchRules(List<EvaluationRule> rules, TransferApplicationRow application) {
+        if (rules.stream().anyMatch(this::isKbuRule)) {
+            return matchKbuRules(rules, application);
+        }
         List<EvaluationRule> sameTrack = rules.stream()
             .filter(rule -> normalizePolicyText(rule.getAdmissionType())
                 .equals(normalizePolicyText(application.admissionTrackName())))
@@ -227,6 +420,35 @@ class TranscriptBatchVerificationService {
         return sameTrack.stream()
             .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
             .toList();
+    }
+
+    private List<EvaluationRule> matchKbuRules(
+        List<EvaluationRule> rules,
+        TransferApplicationRow application
+    ) {
+        String admissionType = normalizePolicyText(application.admissionTrackName());
+        String recruitmentUnit = normalizePolicyText(kbuRuleUnit(application.recruitmentUnitName()));
+        return rules.stream()
+            .filter(this::isKbuRule)
+            .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(admissionType))
+            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(recruitmentUnit))
+            .toList();
+    }
+
+    private boolean isKbuRule(EvaluationRule rule) {
+        return rule.getUniversity() != null
+            && KBU_UNIVERSITY_CODE.equalsIgnoreCase(rule.getUniversity().getCode());
+    }
+
+    static String kbuRuleUnit(String recruitmentUnitName) {
+        String unit = normalizePolicyText(recruitmentUnitName);
+        if (unit.contains("실용음악") || unit.contains("공연예술")) return KBU_PRACTICAL_UNITS;
+        if (unit.contains("항공서비스") || unit.contains("준오헤어디자인")) return KBU_INTERVIEW_UNITS;
+        if (unit.contains("간호") || unit.contains("치위생") || unit.contains("작업치료")
+            || unit.contains("임상병리") || unit.contains("물리치료")) {
+            return KBU_HEALTH_UNITS;
+        }
+        return KBU_GENERAL_UNITS;
     }
 
     private boolean requiresDedicatedHanshinRule(String admissionTrackName) {

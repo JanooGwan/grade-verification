@@ -8,6 +8,10 @@ import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
@@ -20,6 +24,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequ
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
+import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +38,7 @@ public class TranscriptController implements TranscriptApi {
     private final TranscriptService transcriptService;
     private final SyuSourceImportService syuSourceImportService;
     private final StoredTranscriptVerificationService storedTranscriptVerificationService;
+    private final SavedVerificationQueryService savedVerificationQueryService;
 
     @Override
     public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
@@ -62,6 +68,45 @@ public class TranscriptController implements TranscriptApi {
         Long universityId, int admissionYear
     ) {
         return ResponseEntity.ok(storedTranscriptVerificationService.verify(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<StoredVerificationPersistenceResponse> persistStoredTranscriptVerification(
+        Long universityId, int admissionYear
+    ) {
+        return ResponseEntity.ok(storedTranscriptVerificationService.persist(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<List<SavedVerificationBatchResponse>> findSavedVerificationBatches(
+        Long universityId, int admissionYear
+    ) {
+        return ResponseEntity.ok(savedVerificationQueryService.findBatches(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<SavedVerificationPageResponse> findSavedVerificationResults(
+        Long sourceImportId, String keyword, int page, int size
+    ) {
+        return ResponseEntity.ok(savedVerificationQueryService.findResults(sourceImportId, keyword, page, size));
+    }
+
+    @Override
+    public ResponseEntity<SavedVerificationDetailResponse> findSavedVerificationDetail(Long verificationRunId) {
+        return ResponseEntity.ok(savedVerificationQueryService.findDetail(verificationRunId));
+    }
+
+    @Override
+    public ResponseEntity<byte[]> exportSavedVerificationBatch(Long sourceImportId) {
+        byte[] result = savedVerificationQueryService.export(sourceImportId);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(result.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("저장검증결과-" + sourceImportId + ".xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
     }
 
     @Override

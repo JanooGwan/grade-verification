@@ -10,17 +10,23 @@ import org.junit.jupiter.api.Test;
 class SyuImportScoreExcelWriterTest {
 
     @Test
-    void exportsOnlyApplicantSummaryColumnsWithoutAdmissionOrRecruitmentScenarios() {
-        assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("지원자별 환산 결과");
+    void exportsAdmissionScenarioAndAvailableApplicationScoreComponents() {
+        assertThat(SyuImportScoreExcelWriter.resultSheetName()).isEqualTo("전형별 환산 결과");
         assertThat(SyuImportScoreExcelWriter.resultHeaders()).containsExactly(
-            "수험번호", "전체 과목수", "환산 가능 과목수", "반영 과목수",
+            "수험번호", "전형명", "모집단위", "산출 상태",
+            "전체 과목수", "환산 가능 과목수", "반영 과목수",
             "환산점수×이수단위 합", "반영 이수단위 합",
-            "1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기",
-            "최종 교과 성적"
+            "반영 교과영역",
+            "교과영역 1", "영역 1 성적(100점)", "교과영역 2", "영역 2 성적(100점)",
+            "교과영역 3", "영역 3 성적(100점)", "교과영역 4", "영역 4 성적(100점)",
+            "교과 기준점수(100점)", "교과 반영점수", "환산 결석일수", "출결 반영점수",
+            "학교폭력 감점", "현재 산출점수", "전형 최종점수", "전형 총점 만점",
+            "추가입력·미산출 요소", "경고·오류", "규칙 버전"
         );
         assertThat(SyuImportScoreExcelWriter.resultHeaders())
-            .noneMatch(header -> header.contains("전형") || header.contains("모집단위")
-                || header.contains("중간값") || header.contains("검증 상태"));
+            .contains("전형명", "모집단위", "반영 교과영역", "영역 1 성적(100점)",
+                "출결 반영점수", "추가입력·미산출 요소")
+            .doesNotContain("1-1 학기", "1-2 학기", "2-1 학기", "2-2 학기", "3-1 학기", "3-2 학기");
     }
 
     @Test

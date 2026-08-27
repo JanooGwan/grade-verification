@@ -51,6 +51,7 @@ class TranscriptValidationExcelWriterTest {
                 List.of(new TranscriptBatchVerificationResult.SelectedCourse(
                     course, verification.calculations().getFirst()
                 )),
+                List.of(),
                 null
             )),
             List.of(new TranscriptBatchVerificationResult.Failure(
@@ -60,7 +61,7 @@ class TranscriptValidationExcelWriterTest {
         );
 
         byte[] file = writer.write(
-            "테스트.xlsx", "HANSHIN_MULTI_SHEET_V1", 1, 3,
+            "테스트.xlsx", "HANSHIN_MULTI_SHEET_V1", "한신대학교", 1, 3,
             List.of(new TranscriptImportRowError(14, "편제명 없음")),
             List.of(course, unselectedCourse), List.of(new TranscriptImportRowError(13, "학기가 올바르지 않습니다.")),
             List.of("제외 행이 있습니다."), batch
@@ -68,11 +69,10 @@ class TranscriptValidationExcelWriterTest {
 
         assertThat(file).isNotEmpty();
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(3);
             assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
-            assertThat(workbook.getSheetName(1)).isEqualTo("학생별 전체 과목");
-            assertThat(workbook.getSheetName(2)).isEqualTo("학생별 선택 과목");
-            assertThat(workbook.getSheetName(3)).isEqualTo("검증 요약");
+            assertThat(workbook.getSheetName(1)).isEqualTo("학생별 과목 비교");
+            assertThat(workbook.getSheetName(2)).isEqualTo("검증 요약");
             Sheet resultSheet = workbook.getSheet("학생별 검증 결과");
             assertThat(resultSheet.getRow(2).getLastCellNum()).isEqualTo((short) 12);
             assertThat(resultSheet.getRow(2)).noneMatch(cell ->
@@ -90,30 +90,33 @@ class TranscriptValidationExcelWriterTest {
             assertThat(resultSheet.getRow(3).getCell(4).getNumericCellValue())
                 .isEqualTo(117);
             assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
-            Sheet allCourseSheet = workbook.getSheet("학생별 전체 과목");
-            assertThat(allCourseSheet.getRow(2).getLastCellNum()).isEqualTo((short) 23);
-            assertThat(allCourseSheet.getRow(2).getCell(0).getStringCellValue()).isEqualTo("원본 성적 행");
-            assertThat(allCourseSheet.getRow(2).getCell(8).getStringCellValue()).isEqualTo("교과");
-            assertThat(allCourseSheet.getRow(3).getCell(0).getNumericCellValue()).isEqualTo(12);
-            assertThat(allCourseSheet.getRow(3).getCell(9).getStringCellValue()).isEqualTo("국어");
-            assertThat(allCourseSheet.getRow(4).getCell(0).getNumericCellValue()).isEqualTo(13);
-            assertThat(allCourseSheet.getRow(4).getCell(9).getStringCellValue()).isEqualTo("영어");
-            assertThat(allCourseSheet.getLastRowNum()).isEqualTo(4);
-            Sheet selectedCourseSheet = workbook.getSheet("학생별 선택 과목");
-            assertThat(selectedCourseSheet.getRow(2).getLastCellNum()).isEqualTo((short) 20);
-            assertThat(selectedCourseSheet.getRow(2)).noneMatch(cell -> List.of(
-                "졸업연도", "고교코드", "고교명", "원본 교과", "적용 교과", "유효등급",
-                "반영 이수단위", "적용 가중치", "석차", "동석차", "학력구분",
-                "적용 고교유형", "원본 고교타입"
+            Sheet comparisonSheet = workbook.getSheet("학생별 과목 비교");
+            assertThat(comparisonSheet.getRow(2).getLastCellNum()).isEqualTo((short) 21);
+            assertThat(comparisonSheet.getRow(2)).noneMatch(cell -> List.of(
+                "등급제", "수강자수", "표준편차", "원점수", "과목평균", "석차", "동석차",
+                "졸업연도", "고교코드", "고교명"
             ).contains(cell.getStringCellValue()));
-            assertThat(selectedCourseSheet.getRow(2).getCell(9).getStringCellValue()).isEqualTo("과목명");
-            assertThat(selectedCourseSheet.getRow(3).getCell(1).getStringCellValue()).isEqualTo("A-001");
-            assertThat(selectedCourseSheet.getRow(3).getCell(5).getNumericCellValue()).isEqualTo(1);
-            assertThat(selectedCourseSheet.getRow(3).getCell(9).getStringCellValue()).isEqualTo("국어");
-            assertThat(selectedCourseSheet.getRow(3).getCell(10).getNumericCellValue()).isEqualTo(2);
-            assertThat(selectedCourseSheet.getRow(3).getCell(13).getNumericCellValue()).isEqualTo(99);
-            assertThat(selectedCourseSheet.getRow(3).getCell(14).getNumericCellValue()).isEqualTo(297);
-            assertThat(selectedCourseSheet.getLastRowNum()).isEqualTo(3);
+            assertThat(comparisonSheet.getRow(2).getCell(5).getStringCellValue()).isEqualTo("반영 여부");
+            assertThat(comparisonSheet.getRow(2).getCell(10).getStringCellValue()).isEqualTo("교과");
+            assertThat(comparisonSheet.getRow(2).getCell(11).getStringCellValue()).isEqualTo("과목명");
+            assertThat(comparisonSheet.getRow(3).getCell(1).getStringCellValue()).isEqualTo("A-001");
+            assertThat(comparisonSheet.getRow(3).getCell(5).getStringCellValue()).isEqualTo("선택됨");
+            assertThat(comparisonSheet.getRow(3).getCell(5).getCellStyle().getFillPattern())
+                .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            assertThat(comparisonSheet.getRow(3).getCell(6).getNumericCellValue()).isEqualTo(1);
+            assertThat(comparisonSheet.getRow(3).getCell(7).getNumericCellValue()).isEqualTo(12);
+            assertThat(comparisonSheet.getRow(3).getCell(10).getStringCellValue()).isEqualTo("국어");
+            assertThat(comparisonSheet.getRow(3).getCell(11).getStringCellValue()).isEqualTo("국어");
+            assertThat(comparisonSheet.getRow(3).getCell(12).getNumericCellValue()).isEqualTo(2);
+            assertThat(comparisonSheet.getRow(3).getCell(15).getNumericCellValue()).isEqualTo(99);
+            assertThat(comparisonSheet.getRow(3).getCell(16).getNumericCellValue()).isEqualTo(297);
+            assertThat(comparisonSheet.getRow(4).getCell(5).getStringCellValue()).isEqualTo("미선택");
+            assertThat(comparisonSheet.getRow(4).getCell(7).getNumericCellValue()).isEqualTo(13);
+            assertThat(comparisonSheet.getRow(4).getCell(10).getStringCellValue()).isEqualTo("영어");
+            assertThat(comparisonSheet.getRow(4).getCell(11).getStringCellValue()).isEqualTo("영어");
+            assertThat(comparisonSheet.getLastRowNum()).isEqualTo(4);
+            assertThat(workbook.getSheet("학생별 전체 과목")).isNull();
+            assertThat(workbook.getSheet("학생별 선택 과목")).isNull();
             assertThat(workbook.getSheet("검증 요약").getRow(3).getCell(1).getStringCellValue())
                 .isEqualTo("테스트.xlsx");
             Sheet summarySheet = workbook.getSheet("검증 요약");
@@ -122,6 +125,93 @@ class TranscriptValidationExcelWriterTest {
                 .isTrue();
             assertThat(containsCellValue(summarySheet, "편제명 없음")).isTrue();
             assertThat(containsCellValue(summarySheet, "학기가 올바르지 않습니다.")).isTrue();
+        }
+    }
+
+    @Test
+    void writesKbuTitleAndIntermediateCalculationSheet() throws Exception {
+        TranscriptExcelRow scienceCourse = new TranscriptExcelRow(
+            12, "K-001", "경복 학생", null, null, 2026,
+            1, 1, SubjectCategory.SCIENCE, "통합과학", 2, GradeScale.NINE_LEVEL,
+            AchievementLevel.A, new BigDecimal("92"), new BigDecimal("70"),
+            new BigDecimal("12.5"), 100, 2, 1, null, new BigDecimal("3"), false, false
+        );
+        TranscriptExcelRow otherCourse = new TranscriptExcelRow(
+            13, "K-001", "경복 학생", null, null, 2026,
+            1, 2, SubjectCategory.OTHER, "정보", 3, GradeScale.NINE_LEVEL,
+            AchievementLevel.B, new BigDecimal("85"), new BigDecimal("68"),
+            new BigDecimal("10.2"), 100, 20, 1, null, new BigDecimal("2"), false, true
+        );
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "K-001", "01", "수시 일반고", "10", "(주)간호학과", 2026
+        );
+        TranscriptBatchVerificationResult batch = new TranscriptBatchVerificationResult(
+            List.of(new TranscriptBatchVerificationResult.Success(
+                application, "경복 학생", verification(), List.of(),
+                List.of(
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "교과", "국어", true, 2, 8, new BigDecimal("24"),
+                        new BigDecimal("48"), new BigDecimal("2"),
+                        new BigDecimal("2352"), new BigDecimal("98")
+                    ),
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "교과", "영어", false, null, 6, new BigDecimal("18"),
+                        new BigDecimal("72"), new BigDecimal("4"),
+                        new BigDecimal("1692"), new BigDecimal("94")
+                    ),
+                    new TranscriptBatchVerificationResult.IntermediateCalculation(
+                        "학기", "3학년 1학기", true, 1, 7, new BigDecimal("21"),
+                        new BigDecimal("31.5"), new BigDecimal("1.5"),
+                        new BigDecimal("2079"), new BigDecimal("99")
+                    )
+                ),
+                null
+            )),
+            List.of()
+        );
+
+        byte[] file = writer.write(
+            "경복대 성적검증 파일.xlsx", "KOREAN_MULTI_SHEET_V1", "경복대학교", 1, 2,
+            List.of(), List.of(scienceCourse, otherCourse), List.of(), List.of(), batch
+        );
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
+            assertThat(workbook.getSheetName(0)).isEqualTo("학생별 검증 결과");
+            assertThat(workbook.getSheetName(1)).isEqualTo("학생별 과목 비교");
+            assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
+                .startsWith("경복대 학생별 검증 결과");
+            assertThat(workbook.getSheet("성적 산출 중간값")).isNull();
+            assertThat(workbook.getSheet("검증 요약")).isNull();
+            Sheet intermediate = workbook.getSheet("학생별 검증 결과");
+            assertThat(intermediate).isNotNull();
+            assertThat(intermediate.getRow(2).getLastCellNum()).isEqualTo((short) 15);
+            assertThat(intermediate.getRow(2)).noneMatch(cell ->
+                "평균등급".equals(cell.getStringCellValue())
+            );
+            assertThat(intermediate.getRow(2).getCell(4).getStringCellValue()).isEqualTo("최종 환산점수");
+            assertThat(intermediate.getRow(3).getCell(4).getNumericCellValue()).isEqualTo(530.36);
+            assertThat(intermediate.getRow(3).getCell(4).getCellStyle().getFillPattern())
+                .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            assertThat(intermediate.getRow(2).getCell(13).getStringCellValue())
+                .isEqualTo("환산점수×이수단위 합");
+            assertThat(intermediate.getRow(2).getCell(14).getStringCellValue()).isEqualTo("평균환산점수");
+            assertThat(intermediate.getRow(3).getCell(6).getStringCellValue()).isEqualTo("국어");
+            assertThat(intermediate.getRow(3).getCell(7).getStringCellValue()).isEqualTo("5개 교과 중 우수 3개");
+            assertThat(intermediate.getRow(3).getCell(8).getStringCellValue()).isEqualTo("선택됨");
+            assertThat(intermediate.getRow(3).getCell(8).getCellStyle().getFillPattern())
+                .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            assertThat(intermediate.getRow(3).getCell(14).getNumericCellValue()).isEqualTo(98);
+            assertThat(intermediate.getRow(4).getCell(8).getStringCellValue()).isEqualTo("미선택");
+            assertThat(intermediate.getRow(5).getCell(6).getStringCellValue()).isEqualTo("3학년 1학기");
+            assertThat(intermediate.getRow(5).getCell(7).getStringCellValue()).isEqualTo("5개 학기 중 우수 2개");
+
+            Sheet comparison = workbook.getSheet("학생별 과목 비교");
+            assertThat(comparison.getRow(2).getLastCellNum()).isEqualTo((short) 18);
+            assertThat(comparison.getRow(2)).noneMatch(cell -> List.of(
+                "원본 성적 행", "원본 고교구분", "지원자 고교구분코드"
+            ).contains(cell.getStringCellValue()));
+            assertThat(comparison.getRow(3).getCell(9).getStringCellValue()).isEqualTo("과학");
+            assertThat(comparison.getRow(4).getCell(9).getStringCellValue()).isEqualTo("기타");
         }
     }
 

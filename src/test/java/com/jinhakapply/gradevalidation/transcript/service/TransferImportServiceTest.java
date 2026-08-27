@@ -1,11 +1,14 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,14 +33,64 @@ import com.jinhakapply.gradevalidation.transcript.domain.Student;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import com.jinhakapply.gradevalidation.university.domain.University;
+import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class TransferImportServiceTest {
+
+    @Test
+    void canonicalizesKbuAdmissionTypesUsingRecruitmentPeriod() {
+        assertThat(TransferImportService.canonicalKbuAdmissionType("수시1차", "일반고"))
+            .isEqualTo("수시 일반고");
+        assertThat(TransferImportService.canonicalKbuAdmissionType("수시2차", "기회균형선발"))
+            .isEqualTo("수시 기회균형");
+        assertThat(TransferImportService.canonicalKbuAdmissionType("수시1차", "수시 기회균형선발"))
+            .isEqualTo("수시 기회균형");
+        assertThat(TransferImportService.canonicalKbuAdmissionType("정시", "일반"))
+            .isEqualTo("정시 일반(학생부)");
+    }
+
+    @Test
+    void locksUniversityAfterParsingBeforeReplacingStoredSnapshot() {
+        TransferExcelParser parser = mock(TransferExcelParser.class);
+        UniversityRepository universityRepository = mock(UniversityRepository.class);
+        StudentTranscriptImportRepository importRepository = mock(StudentTranscriptImportRepository.class);
+        MultipartFile file = mock(MultipartFile.class);
+        University university = University.create("KBOK", "경복대학교");
+        ReflectionTestUtils.setField(university, "id", 1L);
+        RuntimeException stopAfterLock = new RuntimeException("stop after lock");
+        when(universityRepository.findById(1L)).thenReturn(java.util.Optional.of(university));
+        when(parser.parse(file)).thenReturn(new TransferExcelParseResult(
+            "KOREAN_MULTI_SHEET_V1", List.of(), List.of(), 0, 0, List.of(), List.of(), List.of()
+        ));
+        when(universityRepository.findByIdForUpdate(1L)).thenReturn(java.util.Optional.of(university));
+        when(importRepository.findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+            eq(1L), eq(2026), any()
+        )).thenThrow(stopAfterLock);
+        TransferImportService service = new TransferImportService(
+            parser, universityRepository, null, null, null, null, null, importRepository, null, null
+        );
+
+        assertThatThrownBy(() -> service.importExcel(
+            2026, 1L, TranscriptImportMode.ALL_OR_NOTHING, file, "sha256", ApplicantSchoolInfoParseResult.empty()
+        )).isSameAs(stopAfterLock);
+
+        InOrder order = inOrder(parser, universityRepository, importRepository);
+        order.verify(universityRepository).findById(1L);
+        order.verify(parser).parse(file);
+        order.verify(universityRepository).findByIdForUpdate(1L);
+        order.verify(importRepository).findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
+            eq(1L), eq(2026), any()
+        );
+    }
 
     @Test
     void classifiesCreatedUpdatedUnchangedAndUnknownBatchResultsSeparately() {

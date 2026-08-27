@@ -279,6 +279,48 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void tuk2026CareerCourseAlsoUsesOneAppliedCredit() {
+        EvaluationRule tukRule = rule(SelectionStrategy.CORE_SCIENCE_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(tukRule.getUniversity(), "name", "한국공학대학교");
+        ReflectionTestUtils.setField(tukRule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(tukRule, "applyGradeWeights", false);
+        mockRule(tukRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.SCIENCE, "과학", 3, "3"),
+            careerCourse(1, 1, SubjectCategory.SCIENCE, "과학 진로", AchievementLevel.A, "5")
+        )));
+
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학 진로"))
+            .extracting(GradeVerificationResponse.CourseCalculation::credits,
+                GradeVerificationResponse.CourseCalculation::appliedCredits)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(new BigDecimal("5"), BigDecimal.ONE));
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("4");
+    }
+
+    @Test
+    void tuk2026LegacyRankPercentileRoundsToTwoDecimalPlaces() {
+        EvaluationRule tukRule = rule(SelectionStrategy.ALL_COURSES, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "1"));
+        ReflectionTestUtils.setField(tukRule.getUniversity(), "name", "한국공학대학교");
+        ReflectionTestUtils.setField(tukRule, "admissionYear", 2026);
+        ReflectionTestUtils.setField(tukRule, "applyGradeWeights", false);
+        mockRule(tukRule);
+        VerifyGradeRequest.CourseGrade ranked = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.KOREAN, "구교육과정 국어", null, GradeScale.LEGACY, null,
+            null, null, null, 126, 30, 1, null, false, false, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(ranked)));
+
+        assertThat(response.calculations().getFirst().rankPercentile()).isEqualByComparingTo("23.81");
+        assertThat(response.calculations().getFirst().effectiveGrade()).isEqualByComparingTo("4");
+    }
+
+    @Test
     void syuTopSubjectsAreChosenByConvertedDomainScoreNotRawAverageGrade() {
         EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 1,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
