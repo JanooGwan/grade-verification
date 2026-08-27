@@ -1,12 +1,18 @@
 package com.jinhakapply.gradevalidation.transcript.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.transcript.domain.Student;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
+import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 
 public record StudentTranscriptResponse(
     Long studentId,
@@ -16,11 +22,19 @@ public record StudentTranscriptResponse(
     String highSchoolCode,
     String highSchoolName,
     Integer graduationYear,
+    EducationBackground educationBackground,
+    HighSchoolType highSchoolType,
+    GraduationStatus graduationStatus,
+    BigDecimal gedAverageScore,
+    List<AttendanceResponse> attendance,
+    List<SchoolViolenceActionResponse> schoolViolenceActions,
     List<CourseResponse> courses,
     List<String> dataQualityWarnings
 ) {
     public static StudentTranscriptResponse of(
         Student student,
+        List<StudentAttendance> attendance,
+        List<StudentSchoolViolenceAction> schoolViolenceActions,
         List<StudentTranscriptCourse> courses
     ) {
         return new StudentTranscriptResponse(
@@ -31,9 +45,47 @@ public record StudentTranscriptResponse(
             student.getHighSchoolCode(),
             student.getHighSchoolName(),
             student.getGraduationYear(),
+            student.getEducationBackground(),
+            student.getHighSchoolType(),
+            student.getGraduationStatus(),
+            student.getGedAverageScore(),
+            attendance.stream().map(AttendanceResponse::from).toList(),
+            schoolViolenceActions.stream().map(SchoolViolenceActionResponse::from).toList(),
             courses.stream().map(CourseResponse::from).toList(),
             qualityWarnings(courses)
         );
+    }
+
+    public record AttendanceResponse(
+        int schoolYear,
+        int unexcusedAbsenceDays,
+        int unexcusedTardyCount,
+        int unexcusedEarlyLeaveCount,
+        int unexcusedClassAbsenceCount
+    ) {
+        public static AttendanceResponse from(StudentAttendance attendance) {
+            return new AttendanceResponse(
+                attendance.getSchoolYear(), attendance.getUnexcusedAbsenceDays(),
+                attendance.getUnexcusedTardyCount(), attendance.getUnexcusedEarlyLeaveCount(),
+                attendance.getUnexcusedClassAbsenceCount()
+            );
+        }
+    }
+
+    public record SchoolViolenceActionResponse(
+        Long id,
+        Integer schoolYear,
+        int actionNumber,
+        LocalDate actionDate,
+        boolean active,
+        String note
+    ) {
+        public static SchoolViolenceActionResponse from(StudentSchoolViolenceAction action) {
+            return new SchoolViolenceActionResponse(
+                action.getId(), action.getSchoolYear(), action.getActionNumber(), action.getActionDate(),
+                action.isActive(), action.getNote()
+            );
+        }
     }
 
     private static List<String> qualityWarnings(List<StudentTranscriptCourse> courses) {

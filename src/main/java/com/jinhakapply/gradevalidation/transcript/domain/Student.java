@@ -3,9 +3,12 @@ package com.jinhakapply.gradevalidation.transcript.domain;
 import static lombok.AccessLevel.PROTECTED;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -48,6 +51,21 @@ public class Student {
     @Column(name = "graduation_year")
     private Integer graduationYear;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "education_background", nullable = false, length = 40)
+    private EducationBackground educationBackground;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "high_school_type", nullable = false, length = 40)
+    private HighSchoolType highSchoolType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "graduation_status", nullable = false, length = 30)
+    private GraduationStatus graduationStatus;
+
+    @Column(name = "ged_average_score", precision = 5, scale = 2)
+    private BigDecimal gedAverageScore;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -65,6 +83,9 @@ public class Student {
         this.admissionYear = admissionYear;
         this.applicantNumber = applicantNumber;
         updateProfile(name, highSchoolCode, highSchoolName, graduationYear);
+        this.educationBackground = EducationBackground.DOMESTIC_HIGH_SCHOOL;
+        this.highSchoolType = HighSchoolType.GENERAL;
+        this.graduationStatus = inferGraduationStatus(graduationYear);
         this.createdAt = this.updatedAt;
     }
 
@@ -96,6 +117,33 @@ public class Student {
         this.highSchoolCode = highSchoolCode;
         this.highSchoolName = highSchoolName;
         this.graduationYear = graduationYear;
+        this.graduationStatus = inferGraduationStatus(graduationYear);
         this.updatedAt = LocalDateTime.now();
+    }
+
+    private GraduationStatus inferGraduationStatus(Integer graduationYear) {
+        return graduationYear != null && graduationYear < admissionYear
+            ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
+    }
+
+    public void updateCommonEvaluationProfile(
+        EducationBackground educationBackground,
+        HighSchoolType highSchoolType,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore
+    ) {
+        this.educationBackground = educationBackground;
+        this.highSchoolType = highSchoolType;
+        this.graduationStatus = graduationStatus;
+        this.gedAverageScore = gedAverageScore;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateCommonEvaluationProfile(
+        EducationBackground educationBackground,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore
+    ) {
+        updateCommonEvaluationProfile(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore);
     }
 }

@@ -24,6 +24,54 @@ class ReadOnlySqlValidatorTest {
     }
 
     @Test
+    void rejectsUnquotedMySqlReservedWordUsedAsTableAlias() {
+        Set<String> achievementTables = Set.of(
+            "evaluation_rule_achievement_grade",
+            "evaluation_rule_achievement_score"
+        );
+
+        assertThatThrownBy(() -> validator.validate(
+            "SELECT t_grade.achievement_level, t_grade.converted_grade, as.converted_score "
+                + "FROM evaluation_rule_achievement_grade t_grade "
+                + "JOIN evaluation_rule_achievement_score as "
+                + "ON as.rule_id = t_grade.rule_id",
+            achievementTables
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("reserved words");
+
+        assertThatThrownBy(() -> validator.validate(
+            "SELECT order.id FROM student AS order",
+            allowedTables
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reserved words");
+
+        assertThatThrownBy(() -> validator.validate(
+            "SELECT order.id FROM student order",
+            allowedTables
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reserved words");
+    }
+
+    @Test
+    void ignoresReservedAliasTextInsideStringLiteral() {
+        Set<String> tables = validator.validate(
+            "SELECT 'order.' AS label, s.id FROM student s WHERE s.admission_year = 2027 ORDER BY s.id",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
+    }
+
+    @Test
+    void allowsCommentMarkersAndSeparatorsInsideStringLiterals() {
+        Set<String> tables = validator.validate(
+            "SELECT 'memo; -- text' AS label, s.id FROM student s",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
+    }
+
+    @Test
     void rejectsWildcardProjection() {
         assertThatThrownBy(() -> validator.validate("SELECT * FROM student", allowedTables))
             .isInstanceOf(IllegalArgumentException.class);

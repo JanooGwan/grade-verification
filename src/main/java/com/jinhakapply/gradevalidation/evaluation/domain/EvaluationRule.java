@@ -92,6 +92,9 @@ public class EvaluationRule {
     @Column(name = "achievement_selection_count", nullable = false)
     private int achievementSelectionCount;
 
+    @Column(name = "minimum_course_count", nullable = false)
+    private int minimumCourseCount;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "score_aggregation", nullable = false, length = 40)
     private ScoreAggregation scoreAggregation;
@@ -108,6 +111,9 @@ public class EvaluationRule {
 
     @Column(name = "include_professional_courses", nullable = false)
     private boolean includeProfessionalCourses;
+
+    @Column(name = "apply_grade_weights", nullable = false)
+    private boolean applyGradeWeights;
 
     @Column(name = "normalize_grade_weights", nullable = false)
     private boolean normalizeGradeWeights;
@@ -205,10 +211,11 @@ public class EvaluationRule {
     public static EvaluationRule create(University university, String name, int admissionYear,
         String admissionType, String recruitmentUnit, int version, List<BigDecimal> gradeWeights,
         List<BigDecimal> subjectWeights, List<BigDecimal> gradeScores, SelectionStrategy selectionStrategy,
-        int selectionCount, int achievementSelectionCount, ScoreAggregation scoreAggregation,
+        int selectionCount, int achievementSelectionCount, int minimumCourseCount, ScoreAggregation scoreAggregation,
         AchievementConversion achievementConversion, boolean includeThirdYearSecondSemester,
         boolean includeThirdYearSecondSemesterForGraduates,
-        boolean includeProfessionalCourses, boolean normalizeGradeWeights, int intermediateScale,
+        boolean includeProfessionalCourses, boolean applyGradeWeights, boolean normalizeGradeWeights,
+        int intermediateScale,
         RoundingMode intermediateRounding,
         int finalScale, RoundingMode finalRounding, BigDecimal scoreMultiplier,
         List<BigDecimal> achievementGrades, List<BigDecimal> achievementScores, List<Integer> subjectPriorities,
@@ -234,11 +241,13 @@ public class EvaluationRule {
         rule.selectionStrategy = selectionStrategy;
         rule.selectionCount = selectionCount;
         rule.achievementSelectionCount = achievementSelectionCount;
+        rule.minimumCourseCount = minimumCourseCount;
         rule.scoreAggregation = scoreAggregation;
         rule.achievementConversion = achievementConversion;
         rule.includeThirdYearSecondSemester = includeThirdYearSecondSemester;
         rule.includeThirdYearSecondSemesterForGraduates = includeThirdYearSecondSemesterForGraduates;
         rule.includeProfessionalCourses = includeProfessionalCourses;
+        rule.applyGradeWeights = applyGradeWeights;
         rule.normalizeGradeWeights = normalizeGradeWeights;
         rule.intermediateScale = intermediateScale;
         rule.intermediateRounding = intermediateRounding;

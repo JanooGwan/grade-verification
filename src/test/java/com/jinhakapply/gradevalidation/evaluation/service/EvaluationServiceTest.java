@@ -22,6 +22,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import org.junit.jupiter.api.Test;
@@ -177,6 +178,51 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void tukCareerCourseUsesOneAppliedCreditAndExposesItInTrace() {
+        EvaluationRule tukRule = rule(SelectionStrategy.CORE_SCIENCE_TOP_N, 4,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(tukRule.getUniversity(), "name", "한국공학대학교");
+        ReflectionTestUtils.setField(tukRule, "applyGradeWeights", false);
+        mockRule(tukRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.SCIENCE, "과학", 3, "3"),
+            careerCourse(1, 1, SubjectCategory.SCIENCE, "과학 진로", AchievementLevel.A, "5")
+        )));
+
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학 진로"))
+            .extracting(GradeVerificationResponse.CourseCalculation::credits,
+                GradeVerificationResponse.CourseCalculation::appliedCredits)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(new BigDecimal("5"), BigDecimal.ONE));
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("4");
+    }
+
+    @Test
+    void syuTopSubjectsAreChosenByConvertedDomainScoreNotRawAverageGrade() {
+        EvaluationRule syuRule = rule(SelectionStrategy.TOP_N_SUBJECTS, 1,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(syuRule.getUniversity(), "name", "삼육대학교");
+        ReflectionTestUtils.setField(syuRule, "applyGradeWeights", false);
+        syuRule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "100", "99", "99", "98", "90", "90", "70", "70");
+        for (int grade = 1; grade <= 9; grade++) syuRule.getGradeScores().put(grade, scores.get(grade - 1));
+        mockRule(syuRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어1", 1, "1"),
+            course(1, 2, SubjectCategory.KOREAN, "국어2", 8, "1"),
+            course(1, 1, SubjectCategory.MATH, "수학1", 5, "1"),
+            course(1, 2, SubjectCategory.MATH, "수학2", 5, "1")
+        )));
+
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::subjectCategory)
+            .containsOnly(SubjectCategory.MATH);
+    }
+
+    @Test
     void includesThirdYearSecondSemesterOnlyForGraduatesWhenConfigured() {
         EvaluationRule graduateRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
@@ -192,6 +238,123 @@ class EvaluationServiceTest {
 
         assertThat(expectedGraduate.includedCourseCount()).isEqualTo(2);
         assertThat(expectedGraduation.includedCourseCount()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsApplicantsBelowConfiguredMinimumCourseCount() {
+        EvaluationRule minimumTwelveRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(minimumTwelveRule, "minimumCourseCount", 12);
+        mockRule(minimumTwelveRule);
+        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.rangeClosed(1, 11)
+            .mapToObj(index -> course(1 + (index - 1) / 4, 1, SubjectCategory.KOREAN,
+                "국어" + index, 3, "3"))
+            .toList();
+
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, false, courses)))
+            .isInstanceOf(CustomException.class)
+            .satisfies(exception -> assertThat(((CustomException) exception).getDetail())
+                .contains("최소 12과목"));
+    }
+
+    @Test
+    void reproducesHanshinPublishedCalculationExample() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        hanshinRule.getGradeScores().clear();
+        List<BigDecimal> convertedScores = decimals("100", "99", "98", "97", "96", "95", "94", "80", "50");
+        for (int grade = 1; grade <= convertedScores.size(); grade++) {
+            hanshinRule.getGradeScores().put(grade, convertedScores.get(grade - 1));
+        }
+        ReflectionTestUtils.setField(hanshinRule, "minimumCourseCount", 12);
+        ReflectionTestUtils.setField(hanshinRule, "applyGradeWeights", false);
+        ReflectionTestUtils.setField(hanshinRule, "intermediateScale", 3);
+        ReflectionTestUtils.setField(hanshinRule, "finalScale", 2);
+        ReflectionTestUtils.setField(hanshinRule, "scoreMultiplier", new BigDecimal("10"));
+        mockRule(hanshinRule);
+        int[] grades = {3, 2, 4, 3, 2, 3, 2, 2, 2, 3, 3, 3};
+        int[] credits = {5, 3, 5, 5, 3, 3, 2, 3, 3, 2, 5, 3};
+        List<VerifyGradeRequest.CourseGrade> courses = java.util.stream.IntStream.range(0, grades.length)
+            .mapToObj(index -> course(1 + index / 4, 1, SubjectCategory.KOREAN,
+                "반영과목" + (index + 1), grades[index], Integer.toString(credits[index])))
+            .toList();
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false, courses));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("982.14");
+        assertThat(response.calculationSummary().gradeTimesCreditsSum()).isEqualByComparingTo("117");
+        assertThat(response.calculationSummary().convertedScoreTimesCreditsSum()).isEqualByComparingTo("4125");
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("42");
+        assertThat(response.calculationSummary().gradeTimesWeightSum()).isEqualByComparingTo("117");
+        assertThat(response.calculationSummary().convertedScoreTimesWeightSum()).isEqualByComparingTo("4125");
+        assertThat(response.calculationSummary().totalAppliedWeight()).isEqualByComparingTo("42");
+        assertThat(response.calculationSummary().baseScore()).isEqualByComparingTo("98.214");
+        assertThat(response.calculationSummary().scoreBeforeFinalRounding()).isEqualByComparingTo("982.140");
+        assertThat(response.calculationSummary().formula()).contains("이수단위 × 교과가중치");
+    }
+
+    @Test
+    void hanshinSpecializedHighSchoolUsesAllOrdinaryCoursesInsteadOfTopTwelve() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "admissionType", "학생부교과(학생부우수자)");
+        mockRule(hanshinRule);
+        List<VerifyGradeRequest.CourseGrade> courses = new java.util.ArrayList<>(java.util.stream.IntStream.rangeClosed(1, 12)
+            .mapToObj(index -> course(1 + (index - 1) / 5, 1, SubjectCategory.KOREAN,
+                "보통교과" + index, 1 + index % 9, "3"))
+            .toList());
+        courses.add(course(3, 1, SubjectCategory.OTHER, "예술교과", 3, "2"));
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, courses
+        ));
+
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
+        assertThat(response.includedCourseCount()).isEqualTo(13);
+    }
+
+    @Test
+    void allSubjectScopeUsesOneForNormalizedYearDenominator() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "normalizeGradeWeights", true);
+        mockRule(hanshinRule);
+        VerifyGradeRequest.CourseGrade other = course(1, 1, SubjectCategory.OTHER, "예술 교과", 2, "3");
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, List.of(other)
+        ));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("95.0000");
+        assertThat(response.calculationSummary().yearWeightDenominators())
+            .containsEntry(1, new BigDecimal("3"));
+    }
+
+    @Test
+    void hanshinSpecializedGraduateTrackIncludesProfessionalCourses() {
+        EvaluationRule hanshinRule = rule(SelectionStrategy.TOP_N_COURSES, 12,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
+            decimals("1", "1", "1", "1", "1", "0"));
+        ReflectionTestUtils.setField(hanshinRule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(hanshinRule, "admissionType", "특성화고교졸업자전형");
+        mockRule(hanshinRule);
+        VerifyGradeRequest.CourseGrade professional = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.KOREAN, "전문교과", 2, null,
+            null, null, null, null, false, true, new BigDecimal("3")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.SPECIALIZED, List.of(professional)
+        ));
+
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
+        assertThat(response.includedCourseCount()).isEqualTo(1);
     }
 
     @Test
@@ -244,7 +407,7 @@ class EvaluationServiceTest {
         University university = University.create("TEST", "테스트대학교");
         EvaluationRule rule = EvaluationRule.create(university, "테스트 규칙", 2027, "학생부교과", "전체", 1,
             gradeWeights, subjectWeights, decimals("100", "95", "90", "85", "80", "70", "60", "50", "40"),
-            selection, selectionCount, 2, aggregation, achievementConversion, false, false, false, false,
+            selection, selectionCount, 2, 0, aggregation, achievementConversion, false, false, false, true, false,
             4, RoundingMode.HALF_UP,
             4, RoundingMode.HALF_UP, BigDecimal.ONE, decimals("1", "3", "5"), decimals("100", "95", "90"),
             List.of(1, 2, 3, 4, 5, 6), "테스트 모집요강", "1-2", null, null);

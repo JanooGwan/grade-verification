@@ -12,6 +12,7 @@ import java.util.List;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
+import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import lombok.RequiredArgsConstructor;
@@ -81,6 +82,13 @@ public class TranscriptController implements TranscriptApi {
     @Override
     public ResponseEntity<StudentTranscriptResponse> updateStudent(Long studentId, UpdateStudentRequest request) {
         return ResponseEntity.ok(transcriptService.updateStudent(studentId, request));
+    }
+
+    @Override
+    public ResponseEntity<StudentTranscriptResponse> updateStudentCommonData(
+        Long studentId, UpdateStudentCommonDataRequest request
+    ) {
+        return ResponseEntity.ok(transcriptService.updateStudentCommonData(studentId, request));
     }
 
     @Override

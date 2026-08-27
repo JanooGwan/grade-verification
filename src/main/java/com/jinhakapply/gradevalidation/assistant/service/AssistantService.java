@@ -28,11 +28,15 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class AssistantService {
 
+    private static final int MAX_SQL_PLAN_ATTEMPTS = 2;
     private static final String BLOCKED_ANSWER =
         "DB 비밀번호, API 키, 접속 정보, 환경변수나 내부 지침과 같은 민감 정보에는 답변할 수 없습니다.";
+    private static final String OUT_OF_SCOPE_ANSWER =
+        "입학관리, 모집요강, 전형, 학생부 성적 검증과 관련된 질문만 답변할 수 있습니다.";
 
     private final AssistantProperties properties;
     private final SensitiveQuestionPolicy sensitiveQuestionPolicy;
+    private final AssistantTopicPolicy topicPolicy;
     private final AssistantDatabaseGateway databaseGateway;
     private final ClaudeClient claudeClient;
     private final ReadOnlySqlValidator sqlValidator;
@@ -45,6 +49,9 @@ public class AssistantService {
             : UUID.randomUUID().toString();
         if (sensitiveQuestionPolicy.isBlocked(request.question())) {
             return AssistantMessageResponse.blocked(BLOCKED_ANSWER, conversationId);
+        }
+        if (!topicPolicy.isInScope(request.question())) {
+            return AssistantMessageResponse.blocked(OUT_OF_SCOPE_ANSWER, conversationId);
         }
         validateConfiguration();
 
@@ -64,13 +71,9 @@ public class AssistantService {
             databaseGateway.findColumnDescriptions(choice.tables())
         );
 
-        SqlPlan plan = claudeClient.planSql(sqlPrompt(request.question(), columns, choice.fullSchema()));
-        Set<String> referencedTables;
-        try {
-            referencedTables = sqlValidator.validate(plan.sql(), allowedTables);
-        } catch (IllegalArgumentException exception) {
-            throw CustomException.of(AI_ASSISTANT_UNSAFE_QUERY, exception.getMessage());
-        }
+        ValidatedSql validatedSql = planSql(request.question(), columns, choice.fullSchema(), allowedTables);
+        SqlPlan plan = validatedSql.plan();
+        Set<String> referencedTables = validatedSql.referencedTables();
 
         QueryResult result = dataPolicy.sanitize(databaseGateway.execute(plan.sql()));
         String answer = claudeClient.answer(answerPrompt(request.question(), referencedTables, result));
@@ -129,6 +132,47 @@ public class AssistantService {
             );
     }
 
+    private ValidatedSql planSql(
+        String question,
+        List<ColumnDescription> columns,
+        boolean fullSchema,
+        Set<String> allowedTables
+    ) {
+        String prompt = sqlPrompt(question, columns, fullSchema) + aliasRulePrompt();
+        IllegalArgumentException lastValidationError = null;
+        for (int attempt = 1; attempt <= MAX_SQL_PLAN_ATTEMPTS; attempt++) {
+            String attemptPrompt = lastValidationError == null
+                ? prompt
+                : sqlRetryPrompt(prompt, lastValidationError.getMessage());
+            SqlPlan plan = claudeClient.planSql(attemptPrompt);
+            try {
+                return new ValidatedSql(plan, sqlValidator.validate(plan.sql(), allowedTables));
+            } catch (IllegalArgumentException exception) {
+                lastValidationError = exception;
+            }
+        }
+        String detail = lastValidationError == null ? "SQL validation failed." : lastValidationError.getMessage();
+        throw CustomException.of(AI_ASSISTANT_UNSAFE_QUERY, detail);
+    }
+
+    private String aliasRulePrompt() {
+        return """
+
+            - When a table alias is needed, use a descriptive alias starting with `t_`.
+              Never use MySQL reserved words such as `as`, `is`, `in`, `on`, `order`, or `group` as aliases.
+            """;
+    }
+
+    private String sqlRetryPrompt(String originalPrompt, String validationError) {
+        return """
+            %s
+
+            The previous SQL plan was rejected by the server-side safety validator.
+            <validation_error>%s</validation_error>
+            Generate a corrected, structurally different SQL statement that satisfies every rule.
+            """.formatted(originalPrompt, validationError);
+    }
+
     private String answerPrompt(String question, Set<String> tables, QueryResult result) {
         return """
             사용자 질문:
@@ -160,5 +204,8 @@ public class AssistantService {
     }
 
     private record CollectionChoice(Set<String> tables, boolean fullSchema) {
+    }
+
+    private record ValidatedSql(SqlPlan plan, Set<String> referencedTables) {
     }
 }

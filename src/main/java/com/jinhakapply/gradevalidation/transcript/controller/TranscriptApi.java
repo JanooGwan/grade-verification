@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import jakarta.validation.Valid;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
+import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -89,6 +90,14 @@ public interface TranscriptApi {
     ResponseEntity<StudentTranscriptResponse> updateStudent(
         @PathVariable Long studentId,
         @Valid @RequestBody UpdateStudentRequest request
+    );
+
+    @Operation(summary = "대학 공통 지원자 평가 데이터 수정",
+        description = "학력·졸업 상태, 학년별 출결과 학교폭력 조치 원천데이터를 한 번 등록해 모든 대학 전형 계산에서 사용합니다.")
+    @PutMapping("/students/{studentId}/common-data")
+    ResponseEntity<StudentTranscriptResponse> updateStudentCommonData(
+        @PathVariable Long studentId,
+        @Valid @RequestBody UpdateStudentCommonDataRequest request
     );
 
     @Operation(summary = "학생 및 학생부 데이터 삭제")

@@ -2,13 +2,13 @@ package com.jinhakapply.gradevalidation;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class GradeValidationApplicationTests {
 
 	@Test
 	void applicationClassIsAvailable() {
-		assertNotNull(GradeValidationApplication.class);
+		assertThat(GradeValidationApplication.class).isNotNull();
 	}
 
 }

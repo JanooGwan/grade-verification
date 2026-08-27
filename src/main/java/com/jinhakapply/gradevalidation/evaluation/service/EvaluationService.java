@@ -5,6 +5,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.DUPLIC
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_EVALUATION_RULE_STATUS;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
+import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -31,9 +32,11 @@ import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleActionReques
 import com.jinhakapply.gradevalidation.evaluation.dto.EvaluationRuleResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CourseCalculation;
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CalculationSummary;
 import com.jinhakapply.gradevalidation.evaluation.dto.VerifyGradeRequest;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
@@ -65,9 +68,11 @@ public class EvaluationService {
         EvaluationRule rule = EvaluationRule.create(university, request.name(), request.admissionYear(),
             request.admissionType(), request.recruitmentUnit(), request.version(), request.gradeWeights(),
             request.subjectWeights(), request.gradeScores(), request.selectionStrategy(), request.selectionCount(),
-            request.achievementSelectionCount(), request.scoreAggregation(), request.achievementConversion(),
+            request.achievementSelectionCount(), request.minimumCourseCount(), request.scoreAggregation(),
+            request.achievementConversion(),
             request.includeThirdYearSecondSemester(), request.includeThirdYearSecondSemesterForGraduates(),
-            request.includeProfessionalCourses(), request.normalizeGradeWeights(), request.intermediateScale(),
+            request.includeProfessionalCourses(), request.applyGradeWeights(), request.normalizeGradeWeights(),
+            request.intermediateScale(),
             request.intermediateRounding(), request.finalScale(), request.finalRounding(), request.scoreMultiplier(),
             request.achievementGrades(), request.achievementScores(), request.subjectPriorities(),
             request.sourceDocument(), request.sourcePages(), request.interpretationNote(), request.changeSummary());
@@ -131,26 +136,44 @@ public class EvaluationService {
         if (!rule.isPublished()) {
             throw CustomException.of(INVALID_EVALUATION_RULE_STATUS, "게시된 규칙만 성적 계산에 사용할 수 있습니다.");
         }
-        List<Candidate> candidates = prepareCandidates(rule, request.courses(), request.graduated());
-        CourseSelection selection = selectCourses(rule, candidates.stream().filter(Candidate::eligible).toList());
+        EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType());
+        List<Candidate> candidates = prepareCandidates(
+            rule, request.courses(), request.graduated(), scope.includeProfessionalCourses(),
+            scope.includeAllSubjectCategories()
+        );
+        CourseSelection selection = selectCourses(
+            rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
+        );
         Set<Integer> selectedIndexes = selection.indexes();
-        Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(rule, candidates, selection);
+        if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
+            throw CustomException.of(INVALID_EVALUATION_RULE,
+                "반영 가능한 교과성적이 최소 " + rule.getMinimumCourseCount() + "과목 이상이어야 합니다.");
+        }
+        Map<Integer, BigDecimal> yearWeightDenominators = calculateYearWeightDenominators(
+            rule, candidates, selection, scope.includeAllSubjectCategories()
+        );
 
         BigDecimal totalWeight = BigDecimal.ZERO;
         BigDecimal totalConvertedScore = BigDecimal.ZERO;
         BigDecimal totalGrade = BigDecimal.ZERO;
+        BigDecimal totalGradeTimesCredits = BigDecimal.ZERO;
+        BigDecimal totalConvertedScoreTimesCredits = BigDecimal.ZERO;
+        BigDecimal totalIncludedCredits = BigDecimal.ZERO;
         List<CourseCalculation> calculations = new ArrayList<>();
         int included = 0;
 
         for (Candidate candidate : candidates) {
             VerifyGradeRequest.CourseGrade course = candidate.course();
-            BigDecimal gradeWeight = rule.gradeWeight(course.schoolYear());
+            BigDecimal gradeWeight = rule.isApplyGradeWeights()
+                ? rule.gradeWeight(course.schoolYear()) : BigDecimal.ONE;
             SubjectCategory appliedSubjectCategory = selection.appliedSubjectCategory(candidate);
-            BigDecimal subjectWeight = rule.subjectWeight(appliedSubjectCategory);
+            BigDecimal subjectWeight = scope.includeAllSubjectCategories()
+                ? BigDecimal.ONE : rule.subjectWeight(appliedSubjectCategory);
             boolean selected = candidate.eligible() && selectedIndexes.contains(candidate.index());
-            BigDecimal appliedWeight = course.credits().multiply(gradeWeight).multiply(subjectWeight);
-            if (selected && rule.isNormalizeGradeWeights()) {
-                appliedWeight = course.credits().multiply(subjectWeight).multiply(gradeWeight)
+            BigDecimal appliedCredits = appliedCredits(rule, course);
+            BigDecimal appliedWeight = appliedCredits.multiply(gradeWeight).multiply(subjectWeight);
+            if (selected && rule.isApplyGradeWeights() && rule.isNormalizeGradeWeights()) {
+                appliedWeight = appliedCredits.multiply(subjectWeight).multiply(gradeWeight)
                     .divide(yearWeightDenominators.get(course.schoolYear()), 12, RoundingMode.HALF_UP);
             }
             String exclusionReason = candidate.exclusionReason();
@@ -159,13 +182,20 @@ public class EvaluationService {
             if (selected) {
                 included++;
                 totalWeight = totalWeight.add(appliedWeight);
+                totalIncludedCredits = totalIncludedCredits.add(appliedCredits);
+                totalGradeTimesCredits = totalGradeTimesCredits.add(
+                    candidate.effectiveGrade().multiply(appliedCredits)
+                );
+                totalConvertedScoreTimesCredits = totalConvertedScoreTimesCredits.add(
+                    candidate.convertedScore().multiply(appliedCredits)
+                );
                 totalGrade = totalGrade.add(candidate.effectiveGrade().multiply(appliedWeight));
                 weightedScore = candidate.convertedScore().multiply(appliedWeight);
                 totalConvertedScore = totalConvertedScore.add(weightedScore);
             }
             calculations.add(new CourseCalculation(course.courseName().trim(), course.schoolYear(), course.semester(),
                 course.subjectCategory(), appliedSubjectCategory, course.grade(), course.achievement(), candidate.effectiveGrade(),
-                candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedWeight,
+                candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedCredits, appliedWeight,
                 weightedScore, selected, exclusionReason));
         }
 
@@ -179,27 +209,47 @@ public class EvaluationService {
             : totalConvertedScore.divide(totalWeight, rule.getIntermediateScale(), rule.getIntermediateRounding());
         BigDecimal finalScore = baseScore.multiply(rule.getScoreMultiplier())
             .setScale(rule.getFinalScale(), rule.getFinalRounding());
+        BigDecimal scoreBeforeFinalRounding = baseScore.multiply(rule.getScoreMultiplier());
+        CalculationSummary calculationSummary = new CalculationSummary(
+            calculationFormula(rule.getScoreAggregation(), rule.isApplyGradeWeights()),
+            totalGradeTimesCredits, totalConvertedScoreTimesCredits,
+            totalGrade, totalConvertedScore, totalWeight, totalIncludedCredits, averageGrade, baseScore,
+            rule.getScoreMultiplier(), scoreBeforeFinalRounding,
+            rule.getIntermediateScale(), rule.getIntermediateRounding(), rule.getFinalScale(), rule.getFinalRounding(),
+            Map.copyOf(yearWeightDenominators)
+        );
 
         List<String> warnings = buildWarnings(rule, request.courses(), candidates, included);
         return new GradeVerificationResponse(rule.getId(), rule.getName(), rule.getVersion(), rule.getUniversity().getName(),
-            rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, averageGrade,
-            rule.getSelectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
-            included, calculations.size() - included, calculations, warnings);
+            rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, baseScore, averageGrade,
+            scope.selectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
+            included, calculations.size() - included, calculationSummary, calculations, warnings);
+    }
+
+    private String calculationFormula(ScoreAggregation aggregation, boolean applyGradeWeights) {
+        String weight = applyGradeWeights ? "적용가중치" : "이수단위 × 교과가중치";
+        return aggregation == ScoreAggregation.AVERAGE_GRADE_THEN_SCORE
+            ? "Σ(유효등급 × " + weight + ") ÷ Σ(" + weight + ") → 등급 환산표 × 점수 배율"
+            : "Σ(과목 환산점수 × " + weight + ") ÷ Σ(" + weight + ") × 점수 배율";
     }
 
     private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,
-        boolean graduated) {
+        boolean graduated, boolean includeProfessionalCourses, boolean includeAllSubjectCategories) {
         List<Candidate> candidates = new ArrayList<>();
         for (int index = 0; index < courses.size(); index++) {
             VerifyGradeRequest.CourseGrade course = courses.get(index);
             String exclusionReason = null;
-            if (rule.gradeWeight(course.schoolYear()).signum() == 0) exclusionReason = "학년 반영 비율이 0입니다.";
-            else if (!hasEligibleSubjectWeight(rule, course)) exclusionReason = "반영하지 않는 교과입니다.";
+            if (rule.isApplyGradeWeights() && rule.gradeWeight(course.schoolYear()).signum() == 0)
+                exclusionReason = "학년 반영 비율이 0입니다.";
+            else if (!includeAllSubjectCategories && !hasEligibleSubjectWeight(rule, course))
+                exclusionReason = "반영하지 않는 교과입니다.";
             else if (course.schoolYear() == 3 && course.semester() == 2
                 && !includesThirdYearSecondSemester(rule, graduated))
                 exclusionReason = "3학년 2학기는 이 규칙의 반영 범위가 아닙니다.";
-            else if (course.professionalCourse() && !rule.isIncludeProfessionalCourses())
+            else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
+            else if (course.careerSubject() && rule.getAchievementConversion() == AchievementConversion.EXCLUDE)
+                exclusionReason = "진로선택과목은 이 규칙에서 제외됩니다.";
 
             BigDecimal effectiveGrade = exclusionReason == null ? resolveEffectiveGrade(rule, course) : null;
             if (exclusionReason == null && effectiveGrade == null) exclusionReason = "등급 또는 환산 가능한 성취도 정보가 없습니다.";
@@ -225,12 +275,14 @@ public class EvaluationService {
     }
 
     private Map<Integer, BigDecimal> calculateYearWeightDenominators(EvaluationRule rule, List<Candidate> candidates,
-        CourseSelection selection) {
-        if (!rule.isNormalizeGradeWeights()) return Map.of();
+        CourseSelection selection, boolean includeAllSubjectCategories) {
+        if (!rule.isApplyGradeWeights() || !rule.isNormalizeGradeWeights()) return Map.of();
         Map<Integer, BigDecimal> denominators = new HashMap<>();
         candidates.stream().filter(candidate -> selection.indexes().contains(candidate.index())).forEach(candidate -> {
             VerifyGradeRequest.CourseGrade course = candidate.course();
-            BigDecimal weight = course.credits().multiply(rule.subjectWeight(selection.appliedSubjectCategory(candidate)));
+            BigDecimal subjectWeight = includeAllSubjectCategories
+                ? BigDecimal.ONE : rule.subjectWeight(selection.appliedSubjectCategory(candidate));
+            BigDecimal weight = appliedCredits(rule, course).multiply(subjectWeight);
             denominators.merge(course.schoolYear(), weight, BigDecimal::add);
         });
         return denominators;
@@ -266,9 +318,10 @@ public class EvaluationService {
         return lowerScore.add(upperScore.subtract(lowerScore).multiply(fraction));
     }
 
-    private CourseSelection selectCourses(EvaluationRule rule, List<Candidate> eligible) {
+    private CourseSelection selectCourses(EvaluationRule rule, SelectionStrategy selectionStrategy,
+        List<Candidate> eligible) {
         if (eligible.isEmpty()) return CourseSelection.empty();
-        return switch (rule.getSelectionStrategy()) {
+        return switch (selectionStrategy) {
             case ALL_COURSES -> CourseSelection.of(indexesOf(eligible));
             case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
             case TOP_N_COURSES_PER_SUBJECT -> CourseSelection.of(selectTopCoursesPerSubject(rule, eligible));
@@ -280,6 +333,25 @@ public class EvaluationService {
                 rule.getSelectionCount(), rule.getSubjectPriorities()));
             case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
         };
+    }
+
+    private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType) {
+        HighSchoolType resolvedType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
+        if (!isHanshin2027(rule) || !resolvedType.usesHanshinAllOrdinaryCoursesPolicy()) {
+            return new EvaluationScope(rule.getSelectionStrategy(), rule.isIncludeProfessionalCourses(), false);
+        }
+        return new EvaluationScope(SelectionStrategy.ALL_COURSES, isSpecializedGraduateTrack(rule), true);
+    }
+
+    private boolean isHanshin2027(EvaluationRule rule) {
+        return rule.getAdmissionYear() == 2027
+            && normalizePolicyText(rule.getUniversity().getName()).contains("한신");
+    }
+
+    private boolean isSpecializedGraduateTrack(EvaluationRule rule) {
+        String admissionType = normalizePolicyText(rule.getAdmissionType());
+        return admissionType.contains("특성화고교졸업자")
+            || admissionType.contains("특성화고졸업자");
     }
 
     private Set<Integer> selectTopCoursesPerSubject(EvaluationRule rule, List<Candidate> eligible) {
@@ -375,8 +447,9 @@ public class EvaluationService {
     private <K> Set<Integer> selectTopGroups(EvaluationRule rule, List<Candidate> eligible,
         Function<Candidate, K> classifier, int count, Map<K, Integer> priorities) {
         Map<K, List<Candidate>> groups = eligible.stream().collect(Collectors.groupingBy(classifier));
-        Comparator<Map.Entry<K, List<Candidate>>> comparator = Comparator
-            .comparing(entry -> groupAverageGrade(entry.getValue()));
+        Comparator<Map.Entry<K, List<Candidate>>> comparator = rule.getScoreAggregation() == ScoreAggregation.COURSE_SCORE_AVERAGE
+            ? Comparator.comparing((Map.Entry<K, List<Candidate>> entry) -> groupAverageConvertedScore(entry.getValue())).reversed()
+            : Comparator.comparing(entry -> groupAverageGrade(entry.getValue()));
         if (priorities != null) comparator = comparator.thenComparing(entry -> priorities.getOrDefault(entry.getKey(), Integer.MAX_VALUE));
         return groups.entrySet().stream().sorted(comparator).limit(count).flatMap(entry -> entry.getValue().stream())
             .map(Candidate::index).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -404,6 +477,15 @@ public class EvaluationService {
         return grades.divide(credits, 8, RoundingMode.HALF_UP);
     }
 
+    private BigDecimal groupAverageConvertedScore(List<Candidate> candidates) {
+        BigDecimal credits = candidates.stream().map(candidate -> candidate.course().credits())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal scores = candidates.stream()
+            .map(candidate -> candidate.convertedScore().multiply(candidate.course().credits()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return scores.divide(credits, 8, RoundingMode.HALF_UP);
+    }
+
     private Comparator<Candidate> courseComparator() {
         return Comparator.comparing(Candidate::effectiveGrade)
             .thenComparing(candidate -> candidate.course().credits(), Comparator.reverseOrder())
@@ -416,11 +498,23 @@ public class EvaluationService {
     }
 
     private int gradeFromZScore(BigDecimal raw, BigDecimal mean, BigDecimal standardDeviation) {
-        double z = raw.subtract(mean).divide(standardDeviation, 10, RoundingMode.HALF_UP).doubleValue();
+        if (standardDeviation.signum() == 0) return 9;
+        double z = raw.subtract(mean).divide(standardDeviation, 10, RoundingMode.HALF_UP)
+            .setScale(2, RoundingMode.HALF_UP).doubleValue();
         double percentile = (1.0 - normalCdf(z)) * 100.0;
         double[] limits = {4, 11, 23, 40, 60, 77, 89, 96, 100};
         for (int index = 0; index < limits.length; index++) if (percentile <= limits[index]) return index + 1;
         return 9;
+    }
+
+    private BigDecimal appliedCredits(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
+        if (isTuk2027(rule) && course.careerSubject()) return BigDecimal.ONE;
+        return course.credits();
+    }
+
+    private boolean isTuk2027(EvaluationRule rule) {
+        return rule.getAdmissionYear() == 2027
+            && normalizePolicyText(rule.getUniversity().getName()).contains("한국공학");
     }
 
     private double normalCdf(double value) {
@@ -446,10 +540,16 @@ public class EvaluationService {
 
     private void validateRule(CreateEvaluationRuleRequest request) {
         BigDecimal gradeSum = request.gradeWeights().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (gradeSum.compareTo(ONE_HUNDRED) != 0)
+        if (request.applyGradeWeights() && gradeSum.compareTo(ONE_HUNDRED) != 0)
             throw CustomException.of(INVALID_EVALUATION_RULE, "학년 반영 비율의 합은 100이어야 합니다.");
+        if (!request.applyGradeWeights() && request.normalizeGradeWeights())
+            throw CustomException.of(INVALID_EVALUATION_RULE,
+                "학년별 가중치를 적용하지 않는 규칙은 학년별 평균 정규화를 사용할 수 없습니다.");
         if (request.subjectWeights().stream().allMatch(value -> value.signum() == 0))
             throw CustomException.of(INVALID_EVALUATION_RULE, "교과 반영 가중치는 하나 이상 0보다 커야 합니다.");
+        if (request.minimumCourseCount() > 0 && request.selectionStrategy() == SelectionStrategy.TOP_N_COURSES
+            && request.minimumCourseCount() > request.selectionCount())
+            throw CustomException.of(INVALID_EVALUATION_RULE, "최소 반영과목 수는 선택 과목 수보다 클 수 없습니다.");
         if (request.selectionStrategy() != SelectionStrategy.ALL_COURSES
             && request.selectionStrategy() != SelectionStrategy.BEST_SEMESTER_PER_GRADE
             && request.selectionCount() < 1)
@@ -481,6 +581,12 @@ public class EvaluationService {
             return exclusionReason == null;
         }
     }
+
+    private record EvaluationScope(
+        SelectionStrategy selectionStrategy,
+        boolean includeProfessionalCourses,
+        boolean includeAllSubjectCategories
+    ) {}
 
     private record CourseSelection(
         Set<Integer> indexes,

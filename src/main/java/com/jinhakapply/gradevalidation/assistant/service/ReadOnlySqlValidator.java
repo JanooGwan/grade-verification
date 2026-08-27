@@ -29,6 +29,16 @@ public class ReadOnlySqlValidator {
     private static final Pattern FROM_CLAUSE = Pattern.compile(
         "(?is)\\bfrom\\b(.*?)(?=\\bwhere\\b|\\bgroup\\s+by\\b|\\border\\s+by\\b|\\bhaving\\b|\\blimit\\b|$)"
     );
+    private static final Pattern UNQUOTED_RESERVED_ALIAS_REFERENCE = Pattern.compile(
+        "(?i)(?<!`)\\b(?:as|by|case|group|in|is|join|key|limit|on|order|references|select|table|where)\\s*\\."
+    );
+    private static final Pattern TABLE_ALIAS_DECLARATION = Pattern.compile(
+        "(?i)\\b(?:from|join)\\s+`?[a-zA-Z0-9_]+`?\\s+(?:(as)\\s+)?(`?[a-zA-Z_][a-zA-Z0-9_]*`?)"
+    );
+    private static final Set<String> RESERVED_ALIASES = Set.of(
+        "as", "by", "case", "group", "in", "is", "join", "key", "limit", "on", "order",
+        "references", "select", "table", "where"
+    );
     private static final Set<String> SYSTEM_SCHEMAS = Set.of(
         "information_schema", "mysql", "performance_schema", "sys"
     );
@@ -38,16 +48,23 @@ public class ReadOnlySqlValidator {
             throw new IllegalArgumentException("SQL이 비어 있습니다.");
         }
         String normalized = sql.strip();
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        if (!lower.matches("(?s)^select\\s+.*") || normalized.contains(";") || normalized.contains("--")
-            || normalized.contains("/*") || normalized.contains("#") || FORBIDDEN.matcher(normalized).find()) {
+        String syntaxOnly = withoutStringLiterals(normalized);
+        String lower = syntaxOnly.toLowerCase(Locale.ROOT);
+        if (!lower.matches("(?s)^select\\s+.*") || syntaxOnly.contains(";") || syntaxOnly.contains("--")
+            || syntaxOnly.contains("/*") || syntaxOnly.contains("#") || FORBIDDEN.matcher(syntaxOnly).find()) {
             throw new IllegalArgumentException("SELECT 한 문장만 허용됩니다.");
         }
         if (lower.matches("(?s).*\\bfor\\s+update\\b.*")) {
             throw new IllegalArgumentException("잠금 조회는 허용되지 않습니다.");
         }
-        if (SENSITIVE_IDENTIFIER.matcher(normalized).find()) {
+        if (SENSITIVE_IDENTIFIER.matcher(syntaxOnly).find()) {
             throw new IllegalArgumentException("민감정보 컬럼은 조회할 수 없습니다.");
+        }
+        if (UNQUOTED_RESERVED_ALIAS_REFERENCE.matcher(syntaxOnly).find()
+            || hasReservedAliasDeclaration(syntaxOnly)) {
+            throw new IllegalArgumentException(
+                "MySQL reserved words cannot be used as unquoted table aliases. Use an alias starting with t_."
+            );
         }
         Matcher selectClause = SELECT_CLAUSE.matcher(normalized);
         if (!selectClause.find() || WILDCARD_PROJECTION.matcher(selectClause.group(1)).find()) {
@@ -78,5 +95,27 @@ public class ReadOnlySqlValidator {
             throw new IllegalArgumentException("조회 대상 테이블을 확인할 수 없습니다.");
         }
         return Set.copyOf(referenced);
+    }
+
+    private boolean hasReservedAliasDeclaration(String sql) {
+        Matcher matcher = TABLE_ALIAS_DECLARATION.matcher(sql);
+        while (matcher.find()) {
+            boolean explicitAlias = matcher.group(1) != null;
+            String alias = matcher.group(2);
+            String lowerAlias = alias.toLowerCase(Locale.ROOT);
+            if (!explicitAlias && isClauseKeyword(sql, matcher.end(2), lowerAlias)) continue;
+            if (!alias.startsWith("`") && RESERVED_ALIASES.contains(lowerAlias)) return true;
+        }
+        return false;
+    }
+
+    private boolean isClauseKeyword(String sql, int tokenEnd, String token) {
+        if (Set.of("where", "join", "on", "limit").contains(token)) return true;
+        if (!Set.of("group", "order").contains(token)) return false;
+        return sql.substring(tokenEnd).matches("(?is)^\\s+by\\b.*");
+    }
+
+    private String withoutStringLiterals(String sql) {
+        return sql.replaceAll("'(?:''|[^'])*'", "''");
     }
 }

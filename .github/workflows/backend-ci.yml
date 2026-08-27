@@ -1,0 +1,73 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test with MySQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Run verification
+        run: ./gradlew check --no-daemon
+
+      - name: Report test failures
+        if: failure()
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          def escape(value: str) -> str:
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          reported = False
+          for report in Path("build/test-results").glob("**/TEST-*.xml"):
+              root = ET.parse(report).getroot()
+              for case in root.findall(".//testcase"):
+                  problem = case.find("failure")
+                  if problem is None:
+                      problem = case.find("error")
+                  if problem is None:
+                      continue
+
+                  reported = True
+                  title = f"{case.get('classname', 'test')}.{case.get('name', 'failure')}"
+                  detail = problem.get("message") or problem.text or "Test failed without a message"
+                  print(f"::error title={escape(title)}::{escape(detail[:4000])}")
+
+          if not reported:
+              print("::error title=Backend verification failed::No JUnit failure details were generated.")
+          PY

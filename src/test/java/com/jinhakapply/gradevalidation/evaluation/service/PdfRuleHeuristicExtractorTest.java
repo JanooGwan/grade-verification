@@ -24,7 +24,8 @@ class PdfRuleHeuristicExtractorTest {
 
         assertThat(result.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
         assertThat(result.gradeWeights()).containsExactly(
-            new BigDecimal("33.3333"), new BigDecimal("33.3333"), new BigDecimal("33.3334"));
+            BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
+        assertThat(result.applyGradeWeights()).isFalse();
         assertThat(result.gradeScores()).hasSize(9);
         assertThat(result.achievementScores()).containsExactly(
             new BigDecimal("100"), new BigDecimal("95"), new BigDecimal("90"));
