@@ -7,15 +7,18 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
+import com.jinhakapply.gradevalidation.admission.domain.ScoreCalculationStep;
 import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
+import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
 import org.springframework.stereotype.Component;
 
 /** 모집요강에서 정량식이 확정된 한국공학대·명지전문대·경복대·삼육대 전형 계산기. */
@@ -40,17 +43,23 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         StudentCommonEvaluationSnapshot commonData
     ) {
         String university = normalizePolicyText(rule.getUniversity().getName());
+        String admissionTrack = normalizePolicyText(admissionTrackName);
+        String recruitmentUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String track = normalizePolicyText(admissionTrackName + " " + rule.getAdmissionType() + " " + rule.getRecruitmentUnit());
         List<String> pending = new ArrayList<>();
         List<String> ineligible = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        List<ScoreCalculationStep> steps = new ArrayList<>();
 
-        BigDecimal baseScore = resolveBaseScore(rule, university, track, gradeVerification, commonData, request, pending);
+        BigDecimal baseScore = resolveBaseScore(
+            rule, university, track, gradeVerification, commonData, request, pending, warnings, steps
+        );
         BigDecimal academicScore = baseScore == null ? ZERO : score(baseScore.multiply(rule.getScoreMultiplier()));
         BigDecimal attendanceScore = null;
         Integer equivalentAbsenceDays = null;
         BigDecimal additionalScore = null;
         BigDecimal maximumTotal = score(new BigDecimal("100").multiply(rule.getScoreMultiplier()));
+        BigDecimal maximumQuantitative = maximumTotal;
 
         if (university.contains("명지전문") && track.contains("항공서비스")) {
             pending.add("면접 정성평가 600점");
@@ -59,36 +68,63 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         if (university.contains("경복")) {
             BigDecimal allowedBonus = isKbuHealthTrack(track) ? new BigDecimal("5") : new BigDecimal("10");
             BigDecimal requestedBonus = request.bonusScore() == null ? BigDecimal.ZERO : request.bonusScore();
-            if (requestedBonus.compareTo(allowedBonus) > 0) {
+            if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0) {
                 throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
-                    "경복대학교 해당 모집단위의 KBU입시드림포인트 상한은 " + allowedBonus + "점입니다.");
+                    "경복대학교 해당 모집단위의 KBU입시드림포인트는 0점 이상 " + allowedBonus + "점 이하여야 합니다.");
             }
             additionalScore = score(requestedBonus);
             maximumTotal = score(new BigDecimal("100").add(allowedBonus));
+            maximumQuantitative = maximumTotal;
         }
-        if (university.contains("삼육") && isSyuArtTrack(track)) {
+        if (university.contains("삼육") && isSyuAthleticTalent(admissionTrack, recruitmentUnit)) {
             equivalentAbsenceDays = equivalentAbsenceDays(commonData);
-            attendanceScore = score(syuAttendanceBase(equivalentAbsenceDays).multiply(new BigDecimal("0.10")));
-            academicScore = score(baseScore.multiply(new BigDecimal("0.90")));
-            maximumTotal = new BigDecimal("100.00");
+            BigDecimal attendanceBase = syuAttendanceBase(equivalentAbsenceDays);
+            attendanceScore = score(attendanceBase.multiply(new BigDecimal("0.40")));
+            steps.add(step("SYU_ATTENDANCE_SCORE", "삼육대 출결 반영점수", "출결 기본점수 × 40%",
+                Map.of("환산결석일수", BigDecimal.valueOf(equivalentAbsenceDays),
+                    "출결기본점수", attendanceBase,
+                    "반영비율", new BigDecimal("0.40")), attendanceScore));
+            maximumQuantitative = new BigDecimal("400.00");
+            maximumTotal = new BigDecimal("1000.00");
+            pending.add("1단계 수상실적 600점");
+            pending.add("2단계 면접 200점");
+            warnings.add("예체능인재 체육학과 2단계는 1단계 성적 80%와 면접 20%를 합산합니다.");
+        } else if (university.contains("삼육")
+            && isSyuPracticalTrack(admissionTrack, recruitmentUnit)) {
+            BigDecimal practicalMaximum = recruitmentUnit.contains("아트앤디자인")
+                ? new BigDecimal("800.00") : new BigDecimal("600.00");
+            maximumQuantitative = score(new BigDecimal("100").multiply(rule.getScoreMultiplier()));
+            maximumTotal = new BigDecimal("1000.00");
+            pending.add("실기고사 " + practicalMaximum.setScale(0).toPlainString() + "점");
         }
 
         int action = commonData.highestActiveSchoolViolenceAction();
-        BigDecimal violenceDeduction = schoolViolenceDeduction(university, track, action, ineligible);
+        BigDecimal violenceDeduction = schoolViolenceDeduction(
+            university, track, admissionTrack, action, ineligible
+        );
         BigDecimal subtotal = academicScore
             .add(attendanceScore == null ? BigDecimal.ZERO : attendanceScore)
             .add(additionalScore == null ? BigDecimal.ZERO : additionalScore)
             .setScale(2, RoundingMode.HALF_UP);
         BigDecimal afterDeduction = subtotal.subtract(violenceDeduction).max(BigDecimal.ZERO)
             .setScale(2, RoundingMode.HALF_UP);
+        steps.add(step("ACADEMIC_SCORE", "교과 반영점수", "기초점수 × 배수",
+            Map.of("기초점수", baseScore == null ? BigDecimal.ZERO : baseScore,
+                "배수", rule.getScoreMultiplier()), academicScore));
+        steps.add(step("QUANTITATIVE_SUBTOTAL", "정량평가 소계", "교과 + 출결 + 추가점수",
+            Map.of("교과", academicScore,
+                "출결", attendanceScore == null ? BigDecimal.ZERO : attendanceScore,
+                "추가점수", additionalScore == null ? BigDecimal.ZERO : additionalScore), subtotal));
+        steps.add(step("SCHOOL_VIOLENCE", "학교폭력 반영 후 점수", "정량평가 소계 - 학교폭력 감점",
+            Map.of("정량평가소계", subtotal, "학교폭력감점", violenceDeduction), afterDeduction));
 
         ApplicationScoreStatus status = !ineligible.isEmpty() ? ApplicationScoreStatus.INELIGIBLE
             : !pending.isEmpty() ? ApplicationScoreStatus.QUALITATIVE_PENDING : ApplicationScoreStatus.COMPLETE;
         BigDecimal finalScore = status == ApplicationScoreStatus.COMPLETE ? afterDeduction : null;
         return new ApplicationScoreResult(status, score(baseScore == null ? BigDecimal.ZERO : baseScore), academicScore,
             equivalentAbsenceDays, attendanceScore, additionalScore, violenceDeduction, subtotal, afterDeduction,
-            finalScore, maximumTotal, maximumTotal, List.copyOf(pending), List.copyOf(ineligible),
-            List.copyOf(warnings));
+            finalScore, maximumQuantitative, maximumTotal, List.copyOf(pending), List.copyOf(ineligible),
+            List.copyOf(warnings), List.copyOf(steps));
     }
 
     private BigDecimal resolveBaseScore(
@@ -98,7 +134,9 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         GradeVerificationResponse verification,
         StudentCommonEvaluationSnapshot commonData,
         CalculateApplicationScoreRequest request,
-        List<String> pending
+        List<String> pending,
+        List<String> warnings,
+        List<ScoreCalculationStep> steps
     ) {
         if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
             if (verification == null) {
@@ -108,10 +146,19 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         }
         if (university.contains("명지전문")) {
             if (commonData.educationBackground() == EducationBackground.FOREIGN_HIGH_SCHOOL) return new BigDecimal("20");
+            if (!commonData.gedSubjectScores().isEmpty()) {
+                return scoreForAverageGrade(rule, weightedGedAverageGrade(
+                    commonData, this::mjcGedGrade, true, "MJC_GED_WEIGHTED_AVERAGE", steps));
+            }
+            warnings.add("과목별 검정고시 점수가 없어 기존 전 과목 평균점수로 임시 환산했습니다.");
             return scoreForGrade(rule, mjcGedGrade(requiredGedAverage(commonData)));
         }
         if (university.contains("한국공학")) {
             if (commonData.educationBackground() == EducationBackground.GED) {
+                if (!commonData.gedSubjectScores().isEmpty()) {
+                    return tukGedAverageScore(rule, track, commonData, steps);
+                }
+                warnings.add("과목별 검정고시 점수가 없어 기존 전 과목 평균점수로 임시 환산했습니다.");
                 return scoreForGrade(rule, tukGedGrade(requiredGedAverage(commonData)));
             }
             if (track.contains("논술") && request.essayScore() != null) {
@@ -119,6 +166,15 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             }
         }
         if (university.contains("경복") && commonData.educationBackground() == EducationBackground.GED) {
+            if (!commonData.gedSubjectScores().isEmpty()) {
+                BigDecimal averageGrade = weightedGedAverageGrade(
+                    commonData, this::kbuGedGrade, false, "KBU_GED_AVERAGE", steps);
+                BigDecimal grade = averageGrade.setScale(1, RoundingMode.DOWN);
+                steps.add(step("KBU_GED_TRUNCATION", "경복대 검정고시 평균등급 절사",
+                    "평균등급을 소수 첫째 자리까지 절사", Map.of("절사전평균등급", averageGrade), grade));
+                return scoreForAverageGrade(rule, grade);
+            }
+            warnings.add("과목별 검정고시 점수가 없어 기존 전 과목 평균점수로 임시 환산했습니다.");
             return scoreForGrade(rule, kbuGedGrade(requiredGedAverage(commonData)));
         }
         pending.add("모집요강상 별도 심의 또는 제출서류 확인이 필요한 비교내신");
@@ -176,6 +232,84 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         return convertedScore;
     }
 
+    private BigDecimal scoreForAverageGrade(EvaluationRule rule, BigDecimal grade) {
+        BigDecimal bounded = grade.max(BigDecimal.ONE).min(new BigDecimal("9"));
+        int lower = bounded.setScale(0, RoundingMode.FLOOR).intValue();
+        int upper = bounded.setScale(0, RoundingMode.CEILING).intValue();
+        BigDecimal lowerScore = rule.getGradeScores().get(lower);
+        if (lower == upper) return lowerScore;
+        BigDecimal fraction = bounded.subtract(BigDecimal.valueOf(lower));
+        return lowerScore.add(rule.getGradeScores().get(upper).subtract(lowerScore).multiply(fraction));
+    }
+
+    private BigDecimal weightedGedAverageGrade(
+        StudentCommonEvaluationSnapshot data,
+        java.util.function.ToIntFunction<BigDecimal> gradeConverter,
+        boolean useMjcWeights,
+        String stepKey,
+        List<ScoreCalculationStep> steps
+    ) {
+        java.util.Set<GedSubjectType> available = data.gedSubjectScores().stream()
+            .map(StudentCommonEvaluationSnapshot.GedSubjectScore::subjectType)
+            .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<GedSubjectType> required = java.util.Set.of(
+            GedSubjectType.KOREAN, GedSubjectType.ENGLISH, GedSubjectType.MATH,
+            GedSubjectType.KOREAN_HISTORY, GedSubjectType.SOCIAL, GedSubjectType.SCIENCE
+        );
+        if (!available.containsAll(required)) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                "검정고시 환산에는 국어·영어·수학·한국사·사회·과학 점수가 모두 필요합니다.");
+        }
+        BigDecimal gradeTimesUnits = BigDecimal.ZERO;
+        BigDecimal units = BigDecimal.ZERO;
+        for (StudentCommonEvaluationSnapshot.GedSubjectScore subject : data.gedSubjectScores()) {
+            if (!useMjcWeights && subject.subjectType() == GedSubjectType.ELECTIVE) continue;
+            BigDecimal weight = BigDecimal.valueOf(useMjcWeights ? gedUnits(subject.subjectType()) : 1);
+            gradeTimesUnits = gradeTimesUnits.add(
+                BigDecimal.valueOf(gradeConverter.applyAsInt(subject.score())).multiply(weight)
+            );
+            units = units.add(weight);
+        }
+        if (units.signum() == 0) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT, "반영 가능한 검정고시 과목별 점수가 없습니다.");
+        }
+        BigDecimal average = gradeTimesUnits.divide(units, 5, RoundingMode.HALF_UP);
+        steps.add(step(stepKey, "검정고시 과목별 환산등급 가중평균",
+            "Σ(환산등급 × 단위수) ÷ Σ(단위수)",
+            Map.of("환산등급단위합", gradeTimesUnits, "단위수합", units), average));
+        return average;
+    }
+
+    private int gedUnits(GedSubjectType type) {
+        return switch (type) {
+            case KOREAN, ENGLISH, MATH -> 6;
+            case KOREAN_HISTORY, SOCIAL, SCIENCE -> 4;
+            case ELECTIVE -> 2;
+        };
+    }
+
+    private BigDecimal tukGedAverageScore(EvaluationRule rule, String track,
+        StudentCommonEvaluationSnapshot data, List<ScoreCalculationStep> steps) {
+        java.util.Set<GedSubjectType> reflected = track.contains("경영")
+            ? java.util.Set.of(GedSubjectType.KOREAN, GedSubjectType.ENGLISH, GedSubjectType.MATH, GedSubjectType.SOCIAL)
+            : java.util.Set.of(GedSubjectType.KOREAN, GedSubjectType.ENGLISH, GedSubjectType.MATH, GedSubjectType.SCIENCE);
+        List<BigDecimal> scores = data.gedSubjectScores().stream()
+            .filter(subject -> reflected.contains(subject.subjectType()))
+            .map(subject -> scoreForGrade(rule, tukGedGrade(subject.score())))
+            .toList();
+        if (scores.size() != 4) {
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                "한국공학대학교 검정고시 환산에는 국어·영어·수학과 계열별 과학/사회 점수가 모두 필요합니다.");
+        }
+        BigDecimal convertedScoreSum = scores.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal result = convertedScoreSum.divide(
+            BigDecimal.valueOf(scores.size()), rule.getIntermediateScale(), rule.getIntermediateRounding());
+        steps.add(step("TUK_GED_SUBJECT_AVERAGE", "한국공학대 검정고시 반영과목 평균",
+            "Σ(과목별 환산점수) ÷ 반영과목수",
+            Map.of("과목별환산점수합", convertedScoreSum, "반영과목수", BigDecimal.valueOf(scores.size())), result));
+        return result;
+    }
+
     private BigDecimal tukEssayComparisonScore(BigDecimal essayScore) {
         if (essayScore.compareTo(new BigDecimal("395")) >= 0) return new BigDecimal("100");
         if (essayScore.compareTo(new BigDecimal("390")) >= 0) return new BigDecimal("99");
@@ -191,6 +325,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     private BigDecimal schoolViolenceDeduction(
         String university,
         String track,
+        String admissionTrack,
         int action,
         List<String> ineligible
     ) {
@@ -215,16 +350,16 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             if (action <= 3) return ZERO;
             return action <= 5 ? new BigDecimal("5.00") : new BigDecimal("10.00");
         }
-        if (university.contains("삼육")) return syuSchoolViolence(track, action, ineligible);
+        if (university.contains("삼육")) return syuSchoolViolence(admissionTrack, action, ineligible);
         return ZERO;
     }
 
-    private BigDecimal syuSchoolViolence(String track, int action, List<String> ineligible) {
-        if (track.contains("학교장추천")) {
+    private BigDecimal syuSchoolViolence(String admissionTrack, int action, List<String> ineligible) {
+        if (admissionTrack.equals("학교장추천")) {
             if (action >= 4) ineligible.add("학교장추천전형은 학교폭력 4호 이상 처분 시 지원 자격이 제한됩니다.");
             return action <= 3 ? new BigDecimal("5.00") : ZERO;
         }
-        if (track.contains("논술") || track.contains("실기우수자")) {
+        if (admissionTrack.contains("논술") || admissionTrack.contains("실기우수자")) {
             if (action <= 3) return new BigDecimal("10.00");
             if (action <= 5) return new BigDecimal("30.00");
             if (action <= 7) return new BigDecimal("50.00");
@@ -259,12 +394,23 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             || track.contains("임상병리") || track.contains("물리치료");
     }
 
-    private boolean isSyuArtTrack(String track) {
-        return track.contains("예체능인재") || track.contains("아트앤디자인") || track.contains("체육학과");
+    private boolean isSyuAthleticTalent(String admissionTrack, String recruitmentUnit) {
+        return admissionTrack.equals("예체능인재") && recruitmentUnit.contains("체육학과");
+    }
+
+    private boolean isSyuPracticalTrack(String admissionTrack, String recruitmentUnit) {
+        boolean practicalUnit = recruitmentUnit.contains("아트앤디자인")
+            || recruitmentUnit.contains("체육학과");
+        return practicalUnit && (admissionTrack.equals("학교장추천") || admissionTrack.equals("농어촌"));
     }
 
     private BigDecimal score(BigDecimal value) {
         return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private ScoreCalculationStep step(String key, String description, String formula,
+        Map<String, BigDecimal> operands, BigDecimal result) {
+        return new ScoreCalculationStep(key, description, formula, operands, result);
     }
 
 }

@@ -120,4 +120,14 @@ public interface AdmissionApi {
         @PathVariable Long studentId,
         @PathVariable Long runId
     );
+
+    @Operation(summary = "성적 검증 결과 Excel 다운로드")
+    @GetMapping(
+        value = "/students/{studentId}/verifications/{runId}/excel",
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<byte[]> exportVerificationResult(
+        @PathVariable Long studentId,
+        @PathVariable Long runId
+    );
 }

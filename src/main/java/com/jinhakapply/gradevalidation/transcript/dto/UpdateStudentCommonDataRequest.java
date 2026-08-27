@@ -7,6 +7,8 @@ import java.util.List;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
+import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -20,9 +22,16 @@ public record UpdateStudentCommonDataRequest(
     @NotNull HighSchoolType highSchoolType,
     @NotNull GraduationStatus graduationStatus,
     @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal gedAverageScore,
+    @Size(max = 20) List<@Valid GedSubjectScore> gedSubjectScores,
+    @Size(max = 6) List<@Valid LegacyGradeSummary> legacyGradeSummaries,
     @NotNull @Size(max = 3) List<@Valid Attendance> attendance,
     @NotNull @Size(max = 20) List<@Valid SchoolViolenceAction> schoolViolenceActions
 ) {
+    public UpdateStudentCommonDataRequest {
+        gedSubjectScores = gedSubjectScores == null ? List.of() : List.copyOf(gedSubjectScores);
+        legacyGradeSummaries = legacyGradeSummaries == null ? List.of() : List.copyOf(legacyGradeSummaries);
+    }
+
     public UpdateStudentCommonDataRequest(
         EducationBackground educationBackground,
         GraduationStatus graduationStatus,
@@ -30,9 +39,37 @@ public record UpdateStudentCommonDataRequest(
         List<Attendance> attendance,
         List<SchoolViolenceAction> schoolViolenceActions
     ) {
-        this(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore,
+        this(educationBackground, HighSchoolType.GENERAL, graduationStatus, gedAverageScore, List.of(), List.of(),
             attendance, schoolViolenceActions);
     }
+
+    public UpdateStudentCommonDataRequest(
+        EducationBackground educationBackground,
+        HighSchoolType highSchoolType,
+        GraduationStatus graduationStatus,
+        BigDecimal gedAverageScore,
+        List<Attendance> attendance,
+        List<SchoolViolenceAction> schoolViolenceActions
+    ) {
+        this(educationBackground, highSchoolType, graduationStatus, gedAverageScore, List.of(), List.of(),
+            attendance, schoolViolenceActions);
+    }
+
+    public record GedSubjectScore(
+        @NotNull GedSubjectType subjectType,
+        @NotNull @Size(min = 1, max = 100) String subjectName,
+        @NotNull @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal score
+    ) {}
+
+    public record LegacyGradeSummary(
+        @NotNull LegacySummaryType summaryType,
+        @Min(1) @Max(3) int schoolYear,
+        @Min(1) @Max(2) Integer semester,
+        @Min(1) int rankPosition,
+        @Min(1) Integer tiedRankCount,
+        @Min(1) int cohortSize,
+        @NotNull @DecimalMin("0.01") BigDecimal credits
+    ) {}
 
     public record Attendance(
         @Min(1) @Max(3) int schoolYear,

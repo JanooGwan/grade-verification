@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.admission.controller;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import com.jinhakapply.gradevalidation.admission.dto.AdmissionTrackResponse;
@@ -20,6 +21,9 @@ import com.jinhakapply.gradevalidation.admission.dto.VerificationHistoryDetailRe
 import com.jinhakapply.gradevalidation.admission.service.AdmissionService;
 import com.jinhakapply.gradevalidation.admission.service.ApplicationScoreService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -105,5 +109,19 @@ public class AdmissionController implements AdmissionApi {
     @Override
     public ResponseEntity<VerificationHistoryDetailResponse> findVerificationHistoryDetail(Long studentId, Long runId) {
         return ResponseEntity.ok(admissionService.findVerificationHistoryDetail(studentId, runId));
+    }
+
+    @Override
+    public ResponseEntity<byte[]> exportVerificationResult(Long studentId, Long runId) {
+        byte[] file = admissionService.exportVerificationResult(studentId, runId);
+        String filename = "성적검증결과-" + runId + ".xlsx";
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(file.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(file);
     }
 }

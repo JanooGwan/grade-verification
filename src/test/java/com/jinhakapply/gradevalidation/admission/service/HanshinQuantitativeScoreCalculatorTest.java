@@ -18,9 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-class Hanshin2027QuantitativeScoreCalculatorTest {
-    private final Hanshin2027QuantitativeScoreCalculator calculator =
-        new Hanshin2027QuantitativeScoreCalculator();
+class HanshinQuantitativeScoreCalculatorTest {
+    private final HanshinQuantitativeScoreCalculator calculator =
+        new HanshinQuantitativeScoreCalculator();
 
     @Test
     void convertsGedAverageAfterTruncatingToOneDecimal() {
@@ -42,6 +42,44 @@ class Hanshin2027QuantitativeScoreCalculatorTest {
 
         assertThat(result.academicBaseScore()).isEqualByComparingTo("96.00");
         assertThat(result.finalScore()).isEqualByComparingTo("960.00");
+    }
+
+    @Test
+    void appliesYearSpecificPhysicalEducationRatios() {
+        var commonData = common(
+            EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0, 0, 0, 0
+        );
+
+        var result2026 = calculator.calculate(
+            "한신대학교", 2026, "체육실기", new BigDecimal("98"),
+            request(null, "400"), commonData
+        );
+        var result2027 = calculator.calculate(
+            "한신대학교", 2027, "체육실기", new BigDecimal("98"),
+            request(null, "550"), commonData
+        );
+
+        assertThat(result2026.academicScore()).isEqualByComparingTo("588.00");
+        assertThat(result2026.additionalScore()).isEqualByComparingTo("400.00");
+        assertThat(result2026.finalScore()).isEqualByComparingTo("988.00");
+        assertThat(result2027.academicScore()).isEqualByComparingTo("441.00");
+        assertThat(result2027.additionalScore()).isEqualByComparingTo("550.00");
+        assertThat(result2027.finalScore()).isEqualByComparingTo("991.00");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "2026, 401",
+        "2027, 551",
+        "2027, -1"
+    })
+    void rejectsPhysicalEducationScoresOutsideYearSpecificRange(int admissionYear, String practicalScore) {
+        assertThatThrownBy(() -> calculator.calculate(
+            "한신대학교", admissionYear, "체육실기", new BigDecimal("98"),
+            request(null, practicalScore),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0, 0, 0, 0)
+        )).isInstanceOfSatisfying(CustomException.class, exception ->
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
     }
 
     @Test

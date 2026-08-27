@@ -98,12 +98,54 @@ class MySqlRepositoryIntegrationTest {
               AND TABLE_NAME = 'evaluation_rule'
               AND COLUMN_NAME = 'status'
             """, String.class);
+        List<String> legacySummaryUniqueColumns = jdbcTemplate.queryForList("""
+            SELECT COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'student_legacy_grade_summary'
+              AND INDEX_NAME = 'uk_student_legacy_grade_summary'
+            ORDER BY SEQ_IN_INDEX
+            """, String.class);
 
         assertThat(appliedVersions).containsExactly(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-            "17", "18", "19"
+            "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31"
         );
         assertThat(statusDefault).isEqualTo("DRAFT");
+        assertThat(legacySummaryUniqueColumns).containsExactly(
+            "student_id", "summary_type", "school_year", "semester_key"
+        );
+    }
+
+    @Test
+    void separatesHanshinRulesByAdmissionYearWhenSeedDataExists() {
+        List<Map<String, Object>> rules = jdbcTemplate.queryForList("""
+            SELECT rule.admission_year, rule.admission_type, rule.minimum_course_count, rule.score_multiplier
+            FROM evaluation_rule rule
+            JOIN university university ON university.id = rule.university_id
+            WHERE university.code = 'HS'
+              AND rule.admission_year IN (2026, 2027)
+              AND rule.status = 'PUBLISHED'
+              AND rule.admission_type IN (
+                  '학생부우수자', '학교장추천', '사회배려자', '고른기회', '기회균형선발',
+                  '농어촌학생', '특성화고교졸업자', '참인재', '논술', '체육실기'
+              )
+            """);
+
+        assertThat(rules.size()).isIn(0, 20);
+        assertThat(rules).allSatisfy(rule -> {
+            int admissionYear = ((Number) rule.get("admission_year")).intValue();
+            int minimumCourseCount = ((Number) rule.get("minimum_course_count")).intValue();
+            assertThat(minimumCourseCount).isEqualTo(admissionYear == 2026 ? 0 : 12);
+            String admissionType = (String) rule.get("admission_type");
+            String expectedMultiplier = switch (admissionType) {
+                case "참인재" -> "5.4000";
+                case "논술" -> "2.0000";
+                case "체육실기" -> admissionYear == 2026 ? "6.0000" : "4.5000";
+                default -> "10.0000";
+            };
+            assertThat((BigDecimal) rule.get("score_multiplier")).isEqualByComparingTo(expectedMultiplier);
+        });
     }
 
     @Test

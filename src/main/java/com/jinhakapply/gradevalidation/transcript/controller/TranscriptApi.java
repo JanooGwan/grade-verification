@@ -46,15 +46,33 @@ public interface TranscriptApi {
     ResponseEntity<TranscriptImportResponse> importExcel(
         @RequestParam int admissionYear,
         @RequestParam(defaultValue = "VALID_ROWS_ONLY") TranscriptImportMode mode,
-        @Parameter(description = ".xlsx 또는 .xls, 최대 10MB")
-        @RequestPart("file") MultipartFile file
+        @RequestParam(required = false) Long universityId,
+        @Parameter(description = ".xlsx 또는 .xls, 최대 40MB")
+        @RequestPart("file") MultipartFile file,
+        @Parameter(description = "선택: 수험번호별 출신고교 추가정보 Excel")
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
     @Operation(summary = "학생부 Excel 저장 전 미리보기")
     @PostMapping(value = "/imports/excel/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<TranscriptPreviewResponse> previewExcel(
         @RequestParam int admissionYear,
-        @RequestPart("file") MultipartFile file
+        @RequestParam(required = false) Long universityId,
+        @RequestPart("file") MultipartFile file,
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
+    );
+
+    @Operation(summary = "학생부 Excel 가져오기 검증 결과 다운로드")
+    @PostMapping(
+        value = "/imports/excel/preview/export",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<byte[]> exportExcelValidation(
+        @RequestParam int admissionYear,
+        @RequestParam(required = false) Long universityId,
+        @RequestPart("file") MultipartFile file,
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
     );
 
     @Operation(summary = "학생부 Excel 업로드 양식 다운로드")

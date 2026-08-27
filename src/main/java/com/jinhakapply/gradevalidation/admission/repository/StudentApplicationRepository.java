@@ -16,6 +16,9 @@ public interface StudentApplicationRepository extends JpaRepository<StudentAppli
     })
     List<StudentApplication> findAllByStudentIdOrderByCreatedAtDesc(Long studentId);
 
+    @EntityGraph(attributePaths = {"student", "recruitmentUnit"})
+    List<StudentApplication> findAllByStudent_IdIn(List<Long> studentIds);
+
     @EntityGraph(attributePaths = {
         "student", "recruitmentUnit", "recruitmentUnit.admissionTrack",
         "recruitmentUnit.admissionTrack.university"

@@ -8,21 +8,24 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreStatus;
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreResult;
 import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
+import com.jinhakapply.gradevalidation.admission.domain.ScoreCalculationStep;
 import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRequest;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import org.springframework.stereotype.Component;
 
 @Component
-public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScoreCalculator {
+public class HanshinQuantitativeScoreCalculator implements QuantitativeScoreCalculator {
     private static final BigDecimal MAX_TOTAL = new BigDecimal("1000");
 
     public boolean supports(String universityName, int admissionYear) {
-        return admissionYear == 2027 && normalizePolicyText(universityName).contains("한신");
+        return (admissionYear == 2026 || admissionYear == 2027)
+            && normalizePolicyText(universityName).contains("한신");
     }
 
     @Override
@@ -52,7 +55,10 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
         StudentCommonEvaluationSnapshot commonData
     ) {
         if (!supports(universityName, admissionYear)) {
-            throw CustomException.of(APPLICATION_SCORE_POLICY_NOT_FOUND, "2027학년도 한신대학교 전형만 지원합니다.");
+            throw CustomException.of(
+                APPLICATION_SCORE_POLICY_NOT_FOUND,
+                "한신대학교 2026·2027학년도 전형만 지원합니다."
+            );
         }
         String track = normalizePolicyText(admissionTrackName);
         boolean essay = track.contains("논술");
@@ -87,8 +93,19 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
             additionalScore = score(essayScore);
             maximumQuantitativeScore = MAX_TOTAL;
         } else if (physical) {
-            academicScore = scale(baseScore, "4.5");
-            additionalScore = score(required(request.practicalScore(), "체육실기전형은 550점 만점 실기점수가 필요합니다."));
+            String academicMultiplier = admissionYear == 2026 ? "6" : "4.5";
+            String practicalMaximum = admissionYear == 2026 ? "400" : "550";
+            BigDecimal practicalScore = required(
+                request.practicalScore(),
+                "체육실기전형은 " + practicalMaximum + "점 만점 실기점수가 필요합니다."
+            );
+            BigDecimal practicalUpperBound = new BigDecimal(practicalMaximum);
+            if (practicalScore.signum() < 0 || practicalScore.compareTo(practicalUpperBound) > 0) {
+                throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                    "체육실기전형 실기점수는 0점 이상 " + practicalMaximum + "점 이하여야 합니다.");
+            }
+            academicScore = scale(baseScore, academicMultiplier);
+            additionalScore = score(practicalScore);
             maximumQuantitativeScore = MAX_TOTAL;
         } else {
             academicScore = scale(baseScore, "10");
@@ -125,11 +142,22 @@ public class Hanshin2027QuantitativeScoreCalculator implements QuantitativeScore
             status = ApplicationScoreStatus.COMPLETE;
             finalScore = afterDeduction;
         }
+        List<ScoreCalculationStep> steps = List.of(
+            new ScoreCalculationStep("ACADEMIC_SCORE", "교과 반영점수", "기초점수 × 전형별 반영배수",
+                Map.of("기초점수", baseScore), academicScore),
+            new ScoreCalculationStep("QUANTITATIVE_SUBTOTAL", "정량평가 소계", "교과 + 출결 + 추가점수",
+                Map.of("교과", academicScore,
+                    "출결", attendanceScore == null ? BigDecimal.ZERO : attendanceScore,
+                    "추가점수", additionalScore == null ? BigDecimal.ZERO : additionalScore), subtotal),
+            new ScoreCalculationStep("SCHOOL_VIOLENCE", "학교폭력 반영 후 점수",
+                "정량평가 소계 - 학교폭력 감점",
+                Map.of("정량평가소계", subtotal, "학교폭력감점", violenceDeduction), afterDeduction)
+        );
 
         return new ApplicationScoreResult(
             status, score(baseScore), academicScore, equivalentAbsenceDays, attendanceScore, additionalScore,
             violenceDeduction, subtotal, afterDeduction, finalScore, maximumQuantitativeScore, MAX_TOTAL,
-            List.copyOf(pending), List.copyOf(ineligibilityReasons), List.copyOf(warnings)
+            List.copyOf(pending), List.copyOf(ineligibilityReasons), List.copyOf(warnings), steps
         );
     }
 

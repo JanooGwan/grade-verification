@@ -15,8 +15,10 @@ import com.jinhakapply.gradevalidation.admission.dto.CalculateApplicationScoreRe
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
+import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import org.junit.jupiter.api.Test;
 
@@ -77,6 +79,34 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
+    void reproducesMjcGuidebookGedThirtyFourUnitGoldenExample() {
+        var common = new StudentCommonEvaluationSnapshot(
+            EducationBackground.GED, com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType.GENERAL,
+            GraduationStatus.GRADUATE, null, null,
+            List.of(
+                ged(GedSubjectType.KOREAN, "국어", "87"), ged(GedSubjectType.ENGLISH, "영어", "82"),
+                ged(GedSubjectType.MATH, "수학", "78"), ged(GedSubjectType.KOREAN_HISTORY, "한국사", "84"),
+                ged(GedSubjectType.SOCIAL, "사회", "94"), ged(GedSubjectType.SCIENCE, "과학", "73"),
+                ged(GedSubjectType.ELECTIVE, "선택1", "77"), ged(GedSubjectType.ELECTIVE, "선택2", "95")
+            ), List.of(), List.of(), List.of()
+        );
+        var result = calculator.calculate(
+            rule("MJC", "명지전문대학교", 2027, "4", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)),
+            "정원내 일반전형", null, request(null), common
+        );
+
+        assertThat(result.academicBaseScore()).isEqualByComparingTo("41.76");
+        assertThat(result.academicScore()).isEqualByComparingTo("167.06");
+        assertThat(result.warnings()).isEmpty();
+        assertThat(result.calculationSteps()).filteredOn(step -> step.key().equals("MJC_GED_WEIGHTED_AVERAGE"))
+            .singleElement().satisfies(step -> {
+                assertThat(step.operands().get("환산등급단위합")).isEqualByComparingTo("232");
+                assertThat(step.operands().get("단위수합")).isEqualByComparingTo("34");
+                assertThat(step.result()).isEqualByComparingTo("6.82353");
+            });
+    }
+
+    @Test
     void appliesKbuBonusLimitAndViolenceDeduction() {
         EvaluationRule rule = rule("KBOK", "경복대학교", 2026, "1", scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0));
         var result = calculator.calculate(rule, "학생부교과 일반학과", verification("87.5"), request("8"),
@@ -86,20 +116,77 @@ class GuidebookQuantitativeScoreCalculatorTest {
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("5.00");
         assertThat(result.finalScore()).isEqualByComparingTo("90.50");
 
+        var healthBoundary = calculator.calculate(rule, "간호학과", verification("87.5"), request("5"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+        var generalBoundary = calculator.calculate(rule, "일반학과", verification("87.5"), request("10"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0));
+        assertThat(healthBoundary.additionalScore()).isEqualByComparingTo("5.00");
+        assertThat(generalBoundary.additionalScore()).isEqualByComparingTo("10.00");
+
         assertThatThrownBy(() -> calculator.calculate(rule, "간호학과", verification("87.5"), request("6"),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
-            .isInstanceOf(CustomException.class);
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
+        assertThatThrownBy(() -> calculator.calculate(rule, "일반학과", verification("87.5"), request("-1"),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INVALID_APPLICATION_SCORE_INPUT));
     }
 
     @Test
-    void appliesSyuArtAcademicNinetyPercentAndAttendanceTenPercent() {
-        var result = calculator.calculate(rule("SY", "삼육대학교", 2027, "1", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)),
-            "예체능인재 체육학과", verification("99"), request(null),
+    void appliesSyuAthleticTalentAcademicAndAttendanceWithinFourHundredPoints() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "3.6", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("체육학과");
+
+        var result = calculator.calculate(rule, "예체능인재", verification("99"), request(null),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 8, 0));
 
-        assertThat(result.academicScore()).isEqualByComparingTo("89.10");
-        assertThat(result.attendanceScore()).isEqualByComparingTo("9.60");
-        assertThat(result.finalScore()).isEqualByComparingTo("98.70");
+        assertThat(result.academicScore()).isEqualByComparingTo("356.40");
+        assertThat(result.attendanceScore()).isEqualByComparingTo("38.40");
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("400.00");
+        assertThat(result.maximumTotalScore()).isEqualByComparingTo("1000.00");
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
+        assertThat(result.finalScore()).isNull();
+        assertThat(result.pendingComponents()).containsExactly("1단계 수상실적 600점", "2단계 면접 200점");
+        assertThat(result.calculationSteps()).filteredOn(step -> step.key().equals("SYU_ATTENDANCE_SCORE"))
+            .singleElement().satisfies(step -> {
+                assertThat(step.operands().get("환산결석일수")).isEqualByComparingTo("8");
+                assertThat(step.operands().get("출결기본점수")).isEqualByComparingTo("96");
+                assertThat(step.result()).isEqualByComparingTo("38.40");
+            });
+    }
+
+    @Test
+    void syuSchoolRecommendationPhysicalEducationDoesNotApplyAttendance() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "4", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("체육학과");
+
+        var result = calculator.calculate(rule, "학교장추천", verification("99"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 8, 0));
+
+        assertThat(result.academicScore()).isEqualByComparingTo("396.00");
+        assertThat(result.attendanceScore()).isNull();
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("400.00");
+        assertThat(result.pendingComponents()).containsExactly("실기고사 600점");
+    }
+
+    @Test
+    void syuRuralTrackUsesPointDeductionInsteadOfSchoolRecommendationIneligibility() {
+        EvaluationRule rule = rule(
+            "SY", "삼육대학교", 2027, "10", scores(100, 100, 99, 99, 98, 90, 90, 70, 70)
+        );
+        when(rule.getRecruitmentUnit()).thenReturn("일반학과(부)");
+
+        var result = calculator.calculate(rule, "농어촌", verification("99"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 4));
+
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.COMPLETE);
+        assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("10.00");
+        assertThat(result.finalScore()).isEqualByComparingTo("980.00");
     }
 
     private EvaluationRule rule(String code, String name, int year, String multiplier, Map<Integer, BigDecimal> scores) {
@@ -145,5 +232,11 @@ class GuidebookQuantitativeScoreCalculatorTest {
             result.put(index + 1, BigDecimal.valueOf(values[index]));
         }
         return result;
+    }
+
+    private StudentCommonEvaluationSnapshot.GedSubjectScore ged(
+        GedSubjectType type, String name, String score
+    ) {
+        return new StudentCommonEvaluationSnapshot.GedSubjectScore(type, name, new BigDecimal(score));
     }
 }

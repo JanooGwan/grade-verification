@@ -32,6 +32,10 @@ import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentAttendanceRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolenceActionRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +59,8 @@ public class ApplicationScoreService {
     private final ObjectMapper objectMapper;
     private final StudentAttendanceRepository attendanceRepository;
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
+    private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
+    private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
 
     @Transactional
     public ApplicationScoreResponse calculate(
@@ -74,11 +80,16 @@ public class ApplicationScoreService {
         if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
             List<StudentTranscriptCourse> courses = courseRepository
                 .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
+            List<VerifyGradeRequest.CourseGrade> gradeCourses = new java.util.ArrayList<>(
+                courses.stream().map(this::toCourseGrade).toList()
+            );
+            commonData.legacyGradeSummaries().stream().map(this::toCourseGrade).forEach(gradeCourses::add);
             VerifyGradeRequest gradeRequest = new VerifyGradeRequest(
                 rule.getId(),
                 commonData.graduationStatus() == GraduationStatus.GRADUATE,
                 commonData.highSchoolType(),
-                courses.stream().map(this::toCourseGrade).toList()
+                commonData.graduationYear(),
+                gradeCourses
             );
             gradeVerification = evaluationService.verify(gradeRequest);
         }
@@ -127,9 +138,21 @@ public class ApplicationScoreService {
     private VerifyGradeRequest.CourseGrade toCourseGrade(StudentTranscriptCourse course) {
         return new VerifyGradeRequest.CourseGrade(
             course.getSchoolYear(), course.getSemester(), course.getSubjectCategory(), course.getCourseName(),
-            course.getGrade(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
-            course.getStandardDeviation(), course.getStudentCount(), course.isCareerSubject(),
-            course.isProfessionalCourse(), course.getCredits()
+            course.getGrade(), course.getGradeScale(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
+            course.getStandardDeviation(), course.getStudentCount(), course.getRankPosition(), course.getTiedRankCount(),
+            course.getLegacyAchievement(), course.isCareerSubject(), course.isProfessionalCourse(), course.getCredits()
+        );
+    }
+
+    private VerifyGradeRequest.CourseGrade toCourseGrade(StudentCommonEvaluationSnapshot.LegacyGradeSummary summary) {
+        int semester = summary.semester() == null ? 1 : summary.semester();
+        String name = summary.summaryType() == com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType.YEAR
+            ? summary.schoolYear() + "학년 석차 요약"
+            : summary.schoolYear() + "학년 " + semester + "학기 계열석차 요약";
+        return new VerifyGradeRequest.CourseGrade(
+            summary.schoolYear(), semester, SubjectCategory.OTHER, name, null, GradeScale.LEGACY,
+            null, null, null, null, summary.cohortSize(), summary.rankPosition(), summary.tiedRankCount(),
+            null, false, false, summary.credits()
         );
     }
 
@@ -145,9 +168,18 @@ public class ApplicationScoreService {
             .map(item -> new StudentCommonEvaluationSnapshot.SchoolViolenceAction(
                 item.getSchoolYear(), item.getActionNumber(), item.getActionDate(), item.isActive(), item.getNote()
             )).toList();
+        var gedScores = gedSubjectScoreRepository.findAllByStudent_IdOrderBySubjectTypeAscSubjectNameAsc(student.getId())
+            .stream().map(item -> new StudentCommonEvaluationSnapshot.GedSubjectScore(
+                item.getSubjectType(), item.getSubjectName(), item.getScore()
+            )).toList();
+        var legacySummaries = legacyGradeSummaryRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAsc(student.getId())
+            .stream().map(item -> new StudentCommonEvaluationSnapshot.LegacyGradeSummary(
+                item.getSummaryType(), item.getSchoolYear(), item.getSemester(), item.getRankPosition(),
+                item.getTiedRankCount(), item.getCohortSize(), item.getCredits()
+            )).toList();
         return new StudentCommonEvaluationSnapshot(
-            student.getEducationBackground(), student.getHighSchoolType(), student.getGraduationStatus(), student.getGedAverageScore(),
-            attendance, actions
+            student.getEducationBackground(), student.getHighSchoolType(), student.getGraduationStatus(),
+            student.getGraduationYear(), student.getGedAverageScore(), gedScores, legacySummaries, attendance, actions
         );
     }
 

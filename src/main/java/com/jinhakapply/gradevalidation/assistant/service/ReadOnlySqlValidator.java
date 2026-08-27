@@ -66,11 +66,11 @@ public class ReadOnlySqlValidator {
                 "MySQL reserved words cannot be used as unquoted table aliases. Use an alias starting with t_."
             );
         }
-        Matcher selectClause = SELECT_CLAUSE.matcher(normalized);
+        Matcher selectClause = SELECT_CLAUSE.matcher(syntaxOnly);
         if (!selectClause.find() || WILDCARD_PROJECTION.matcher(selectClause.group(1)).find()) {
             throw new IllegalArgumentException("조회할 컬럼을 명시해 주세요.");
         }
-        Matcher fromClause = FROM_CLAUSE.matcher(normalized);
+        Matcher fromClause = FROM_CLAUSE.matcher(syntaxOnly);
         while (fromClause.find()) {
             if (fromClause.group(1).contains(",")) {
                 throw new IllegalArgumentException("쉼표 조인은 허용되지 않습니다. 명시적 JOIN을 사용하세요.");
@@ -83,7 +83,7 @@ public class ReadOnlySqlValidator {
         }
 
         Set<String> referenced = new HashSet<>();
-        Matcher matcher = TABLE_REFERENCE.matcher(normalized);
+        Matcher matcher = TABLE_REFERENCE.matcher(syntaxOnly);
         while (matcher.find()) {
             String table = matcher.group(1).toLowerCase(Locale.ROOT);
             if (!allowedTables.contains(table)) {
@@ -116,6 +116,6 @@ public class ReadOnlySqlValidator {
     }
 
     private String withoutStringLiterals(String sql) {
-        return sql.replaceAll("'(?:''|[^'])*'", "''");
+        return sql.replaceAll("'(?:''|\\\\.|[^'\\\\])*'", "''");
     }
 }

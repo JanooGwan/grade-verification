@@ -48,6 +48,7 @@ class AdmissionServiceTest {
     @Mock EvaluationService evaluationService;
     @Mock VerificationRunRepository verificationRunRepository;
     @Mock ObjectMapper objectMapper;
+    @Mock VerificationResultExcelWriter verificationResultExcelWriter;
     @Mock StudentApplication application;
     @Mock Student student;
     @Mock RecruitmentUnit unit;
@@ -61,7 +62,7 @@ class AdmissionServiceTest {
         service = new AdmissionService(
             trackRepository, unitRepository, applicationRepository, universityRepository,
             studentRepository, courseRepository, ruleRepository, evaluationService,
-            verificationRunRepository, objectMapper
+            verificationRunRepository, objectMapper, verificationResultExcelWriter
         );
         when(applicationRepository.findOneById(20L)).thenReturn(Optional.of(application));
         when(application.getStudent()).thenReturn(student);

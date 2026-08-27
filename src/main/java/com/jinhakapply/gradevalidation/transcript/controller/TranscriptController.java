@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.controller;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
@@ -10,6 +11,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.MediaType;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentRequest;
 import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataRequest;
@@ -30,17 +32,48 @@ public class TranscriptController implements TranscriptApi {
     public ResponseEntity<TranscriptImportResponse> importExcel(
         int admissionYear,
         TranscriptImportMode mode,
-        MultipartFile file
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
     ) {
-        TranscriptImportResponse response = transcriptService.importExcel(admissionYear, mode, file);
+        TranscriptImportResponse response = transcriptService.importExcel(
+            admissionYear, mode, universityId, file, schoolInfoFile
+        );
         return ResponseEntity
             .created(URI.create("/api/transcripts/imports/" + response.importId()))
             .body(response);
     }
 
     @Override
-    public ResponseEntity<TranscriptPreviewResponse> previewExcel(int admissionYear, MultipartFile file) {
-        return ResponseEntity.ok(transcriptService.previewExcel(admissionYear, file));
+    public ResponseEntity<TranscriptPreviewResponse> previewExcel(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
+        return ResponseEntity.ok(
+            transcriptService.previewExcel(admissionYear, universityId, file, schoolInfoFile)
+        );
+    }
+
+    @Override
+    public ResponseEntity<byte[]> exportExcelValidation(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
+        byte[] result = transcriptService.exportExcelValidation(
+            admissionYear, universityId, file, schoolInfoFile
+        );
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(result.length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("가져오기-검증결과.xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
     }
 
     @Override

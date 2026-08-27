@@ -13,6 +13,12 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
+import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacyAchievement;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentGedSubjectScore;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentLegacyGradeSummary;
+import com.jinhakapply.gradevalidation.transcript.domain.GedSubjectType;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 
 public record StudentTranscriptResponse(
     Long studentId,
@@ -26,6 +32,8 @@ public record StudentTranscriptResponse(
     HighSchoolType highSchoolType,
     GraduationStatus graduationStatus,
     BigDecimal gedAverageScore,
+    List<GedSubjectScoreResponse> gedSubjectScores,
+    List<LegacyGradeSummaryResponse> legacyGradeSummaries,
     List<AttendanceResponse> attendance,
     List<SchoolViolenceActionResponse> schoolViolenceActions,
     List<CourseResponse> courses,
@@ -33,6 +41,8 @@ public record StudentTranscriptResponse(
 ) {
     public static StudentTranscriptResponse of(
         Student student,
+        List<StudentGedSubjectScore> gedSubjectScores,
+        List<StudentLegacyGradeSummary> legacyGradeSummaries,
         List<StudentAttendance> attendance,
         List<StudentSchoolViolenceAction> schoolViolenceActions,
         List<StudentTranscriptCourse> courses
@@ -49,11 +59,28 @@ public record StudentTranscriptResponse(
             student.getHighSchoolType(),
             student.getGraduationStatus(),
             student.getGedAverageScore(),
+            gedSubjectScores.stream().map(GedSubjectScoreResponse::from).toList(),
+            legacyGradeSummaries.stream().map(LegacyGradeSummaryResponse::from).toList(),
             attendance.stream().map(AttendanceResponse::from).toList(),
             schoolViolenceActions.stream().map(SchoolViolenceActionResponse::from).toList(),
             courses.stream().map(CourseResponse::from).toList(),
             qualityWarnings(courses)
         );
+    }
+
+    public record GedSubjectScoreResponse(Long id, GedSubjectType subjectType, String subjectName, BigDecimal score) {
+        static GedSubjectScoreResponse from(StudentGedSubjectScore value) {
+            return new GedSubjectScoreResponse(value.getId(), value.getSubjectType(), value.getSubjectName(), value.getScore());
+        }
+    }
+
+    public record LegacyGradeSummaryResponse(Long id, LegacySummaryType summaryType, int schoolYear,
+        Integer semester, int rankPosition, Integer tiedRankCount, int cohortSize, BigDecimal credits) {
+        static LegacyGradeSummaryResponse from(StudentLegacyGradeSummary value) {
+            return new LegacyGradeSummaryResponse(value.getId(), value.getSummaryType(), value.getSchoolYear(),
+                value.getSemester(), value.getRankPosition(), value.getTiedRankCount(), value.getCohortSize(),
+                value.getCredits());
+        }
     }
 
     public record AttendanceResponse(
@@ -116,11 +143,15 @@ public record StudentTranscriptResponse(
         SubjectCategory subjectCategory,
         String courseName,
         Integer grade,
+        GradeScale gradeScale,
         AchievementLevel achievement,
         BigDecimal rawScore,
         BigDecimal meanScore,
         BigDecimal standardDeviation,
         Integer studentCount,
+        Integer rankPosition,
+        Integer tiedRankCount,
+        LegacyAchievement legacyAchievement,
         BigDecimal credits,
         boolean careerSubject,
         boolean professionalCourse
@@ -133,11 +164,15 @@ public record StudentTranscriptResponse(
                 course.getSubjectCategory(),
                 course.getCourseName(),
                 course.getGrade(),
+                course.getGradeScale(),
                 course.getAchievement(),
                 course.getRawScore(),
                 course.getMeanScore(),
                 course.getStandardDeviation(),
                 course.getStudentCount(),
+                course.getRankPosition(),
+                course.getTiedRankCount(),
+                course.getLegacyAchievement(),
                 course.getCredits(),
                 course.isCareerSubject(),
                 course.isProfessionalCourse()

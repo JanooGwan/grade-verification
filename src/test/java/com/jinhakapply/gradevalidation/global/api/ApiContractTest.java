@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -61,7 +62,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
-@WebMvcTest({
+@WebMvcTest(properties = "app.security.admin-api.enabled=false", controllers = {
     UniversityController.class,
     AdmissionController.class,
     EvaluationController.class,
@@ -83,6 +84,52 @@ class ApiContractTest {
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
+
+    @Test
+    void downloadsTranscriptValidationResultAsExcel() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            new byte[] {1, 2, 3}
+        );
+        when(transcriptService.exportExcelValidation(
+            anyInt(), anyLong(), any(MultipartFile.class), isNull()
+        ))
+            .thenReturn(new byte[] {4, 5, 6});
+
+        mockMvc.perform(multipart("/api/transcripts/imports/excel/preview/export")
+                .file(file)
+                .param("admissionYear", "2027")
+                .param("universityId", "1"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {4, 5, 6}));
+    }
+
+    @Test
+    void downloadsVerificationResultAsExcel() throws Exception {
+        when(admissionService.exportVerificationResult(10L, 20L)).thenReturn(new byte[] {1, 2, 3});
+
+        mockMvc.perform(get("/api/admissions/students/10/verifications/20/excel"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string(
+                HttpHeaders.CONTENT_DISPOSITION,
+                org.hamcrest.Matchers.allOf(
+                    org.hamcrest.Matchers.containsString("attachment"),
+                    org.hamcrest.Matchers.containsString(".xlsx")
+                )
+            ))
+            .andExpect(content().bytes(new byte[] {1, 2, 3}));
+
+        verify(admissionService).exportVerificationResult(10L, 20L);
+    }
 
     @Test
     void createsUniversityAndReturnsResourceLocation() throws Exception {
@@ -271,8 +318,11 @@ class ApiContractTest {
             "file", "transcript.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[]{1, 2, 3}
         );
-        when(transcriptService.importExcel(anyInt(), any(), any())).thenReturn(new TranscriptImportResponse(
-            41L, TranscriptImportStatus.COMPLETED, 1, 1, 0, 1, 0, 1, 0, List.of()
+        when(transcriptService.importExcel(
+            anyInt(), any(), isNull(), any(), isNull()
+        )).thenReturn(new TranscriptImportResponse(
+            41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
+            1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, List.of(), List.of()
         ));
 
         mockMvc.perform(multipart("/api/transcripts/imports/excel")

@@ -25,14 +25,20 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 30MB
-      max-request-size: 30MB
+      max-file-size: 40MB
+      max-request-size: 42MB
 
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
+
+app:
+  security:
+    admin-api:
+      enabled: ${ADMIN_API_AUTH_ENABLED:true}
+      key: ${ADMIN_API_KEY:}
 
 logging:
   file:

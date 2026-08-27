@@ -62,9 +62,20 @@ class ReadOnlySqlValidatorTest {
     }
 
     @Test
-    void allowsCommentMarkersAndSeparatorsInsideStringLiterals() {
+    void allowsStatementSeparatorsInsideStringLiterals() {
         Set<String> tables = validator.validate(
-            "SELECT 'memo; -- text' AS label, s.id FROM student s",
+            "SELECT 'memo; -- text' AS label, s.id FROM student s WHERE s.admission_year = 2027",
+            allowedTables
+        );
+
+        assertThat(tables).containsExactly("student");
+    }
+
+    @Test
+    void ignoresTableReferencesInsideStandardAndBackslashEscapedStringLiterals() {
+        Set<String> tables = validator.validate(
+            "SELECT 'FROM users' AS first_label, 'O\\'Reilly FROM users' AS second_label, s.id "
+                + "FROM student s",
             allowedTables
         );
 

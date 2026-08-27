@@ -18,6 +18,7 @@ public record ApplicationScoreResult(
     BigDecimal maximumTotalScore,
     List<String> pendingComponents,
     List<String> ineligibilityReasons,
-    List<String> warnings
+    List<String> warnings,
+    List<ScoreCalculationStep> calculationSteps
 ) {
 }

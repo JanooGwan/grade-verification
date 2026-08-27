@@ -32,6 +32,9 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentAttendance;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentSchoolViolenceAction;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptCourse;
 import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentGedSubjectScore;
+import com.jinhakapply.gradevalidation.transcript.domain.StudentLegacyGradeSummary;
+import com.jinhakapply.gradevalidation.transcript.domain.LegacySummaryType;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
@@ -48,6 +51,8 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentSchoolViolen
 import com.jinhakapply.gradevalidation.transcript.repository.StudentCourseSummaryProjection;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptCourseRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentGedSubjectScoreRepository;
+import com.jinhakapply.gradevalidation.transcript.repository.StudentLegacyGradeSummaryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,23 +67,57 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 @RequiredArgsConstructor
 public class TranscriptService {
 
-    private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final long MAX_FILE_SIZE = 40L * 1024 * 1024;
 
     private final TranscriptExcelParser excelParser;
+    private final TransferExcelParser transferExcelParser;
+    private final ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
+    private final TransferImportService transferImportService;
+    private final TranscriptValidationExcelWriter validationExcelWriter;
+    private final TranscriptBatchVerificationService batchVerificationService;
     private final StudentRepository studentRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final StudentTranscriptImportRepository importRepository;
     private final StudentAttendanceRepository attendanceRepository;
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
+    private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
+    private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, MultipartFile file) {
-        return importExcel(admissionYear, TranscriptImportMode.VALID_ROWS_ONLY, file);
+        return importExcel(admissionYear, TranscriptImportMode.VALID_ROWS_ONLY, null, file);
     }
 
     @Transactional
     public TranscriptImportResponse importExcel(int admissionYear, TranscriptImportMode mode, MultipartFile file) {
+        return importExcel(admissionYear, mode, null, file);
+    }
+
+    @Transactional
+    public TranscriptImportResponse importExcel(
+        int admissionYear,
+        TranscriptImportMode mode,
+        Long universityId,
+        MultipartFile file
+    ) {
+        return importExcel(admissionYear, mode, universityId, file, null);
+    }
+
+    @Transactional
+    public TranscriptImportResponse importExcel(
+        int admissionYear,
+        TranscriptImportMode mode,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
         validateFile(admissionYear, file);
+        if (transferExcelParser.supports(file)) {
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
+            return transferImportService.importExcel(
+                admissionYear, universityId, mode, file, sha256(file), schoolInfo
+            );
+        }
         String originalFileName = safeFileName(file.getOriginalFilename());
         TranscriptExcelParseResult parseResult = excelParser.parse(file);
         if (parseResult.totalRows() == 0) {
@@ -151,11 +190,15 @@ public class TranscriptService {
 
             course.updateScore(
                 row.grade(),
+                row.gradeScale(),
                 row.achievement(),
                 row.rawScore(),
                 row.meanScore(),
                 row.standardDeviation(),
                 row.studentCount(),
+                row.rankPosition(),
+                row.tiedRankCount(),
+                row.legacyAchievement(),
                 row.credits(),
                 row.careerSubject(),
                 row.professionalCourse(),
@@ -183,32 +226,109 @@ public class TranscriptService {
         return new TranscriptImportResponse(
             transcriptImport.getId(),
             transcriptImport.getStatus(),
+            "STANDARD_TRANSCRIPT_V1",
             transcriptImport.getTotalRows(),
             transcriptImport.getImportedRows(),
             transcriptImport.getFailedRows(),
+            0,
             createdApplicants.size(),
             updatedApplicants.size(),
             createdCourses,
             updatedCourses,
-            parseResult.errors()
+            0,
+            0,
+            0,
+            0,
+            parseResult.errors(),
+            List.of()
         );
     }
 
     @Transactional(readOnly = true)
     public TranscriptPreviewResponse previewExcel(int admissionYear, MultipartFile file) {
+        return previewExcel(admissionYear, null, file);
+    }
+
+    @Transactional(readOnly = true)
+    public TranscriptPreviewResponse previewExcel(int admissionYear, Long universityId, MultipartFile file) {
+        return previewExcel(admissionYear, universityId, file, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TranscriptPreviewResponse previewExcel(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
         validateFile(admissionYear, file);
+        if (transferExcelParser.supports(file)) {
+            TransferExcelParseResult result = transferExcelParser.parse(file);
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
+            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+                universityId, admissionYear, result.applications(), result.courses(),
+                schoolInfo.byApplicantNumber()
+            );
+            requireMatchedVerificationRule(verification);
+            return transferImportService.preview(
+                file, sha256(file), result, verification,
+                schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications())
+            );
+        }
         TranscriptExcelParseResult result = excelParser.parse(file);
         return new TranscriptPreviewResponse(
             safeFileName(file.getOriginalFilename()),
             sha256(file),
+            "STANDARD_TRANSCRIPT_V1",
+            0,
             result.totalRows(),
             result.rows().size(),
             result.errors().size(),
+            0,
             result.rows().stream().limit(50).map(row -> new TranscriptPreviewResponse.PreviewRow(
                 row.rowNumber(), row.applicantNumber(), row.studentName(), row.schoolYear(), row.semester(),
                 row.subjectCategory(), row.courseName(), row.grade(), row.achievement(), row.credits()
             )).toList(),
-            result.errors()
+            null,
+            result.errors(),
+            List.of()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportExcelValidation(int admissionYear, Long universityId, MultipartFile file) {
+        return exportExcelValidation(admissionYear, universityId, file, null);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportExcelValidation(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile
+    ) {
+        validateFile(admissionYear, file);
+        String fileName = safeFileName(file.getOriginalFilename());
+        if (transferExcelParser.supports(file)) {
+            TransferExcelParseResult result = transferExcelParser.parse(file);
+            ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
+            TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+                universityId, admissionYear, result.applications(), result.courses(),
+                schoolInfo.byApplicantNumber()
+            );
+            requireMatchedVerificationRule(verification);
+            List<String> warnings = new java.util.ArrayList<>(result.warnings());
+            warnings.addAll(schoolInfoWarnings(schoolInfo, schoolInfoFile, result.applications()));
+            return validationExcelWriter.write(
+                fileName, result.sourceFormat(), result.applications().size(), result.totalRows(),
+                result.skipped(), result.courses(), result.errors(), List.copyOf(warnings), verification
+            );
+        }
+        TranscriptExcelParseResult result = excelParser.parse(file);
+        return validationExcelWriter.write(
+            fileName, "STANDARD_TRANSCRIPT_V1", 0, result.totalRows(), List.of(),
+            result.rows(), result.errors(), List.of(),
+            new TranscriptBatchVerificationResult(List.of(), List.of())
         );
     }
 
@@ -222,7 +342,8 @@ public class TranscriptService {
     public byte[] createExcelTemplate() {
         String[] headers = {
             "지원자번호", "학생명", "고교코드", "고교명", "졸업연도", "학년", "학기", "교과",
-            "과목명", "석차등급", "성취도", "원점수", "과목평균", "표준편차", "수강자수",
+            "과목명", "석차등급", "등급제", "성취도", "원점수", "과목평균", "표준편차", "수강자수",
+            "석차", "동석차인원", "구교육과정평어",
             "이수단위", "진로선택", "전문교과"
         };
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -288,6 +409,8 @@ public class TranscriptService {
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_STUDENT_NOT_FOUND));
         return StudentTranscriptResponse.of(
             student,
+            gedSubjectScoreRepository.findAllByStudent_IdOrderBySubjectTypeAscSubjectNameAsc(student.getId()),
+            legacyGradeSummaryRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAsc(student.getId()),
             attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
             schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId())
@@ -325,6 +448,19 @@ public class TranscriptService {
             StudentSchoolViolenceAction.create(
                 student, item.schoolYear(), item.actionNumber(), item.actionDate(), item.active(), clean(item.note())
             )
+        ).toList());
+
+        gedSubjectScoreRepository.deleteAllByStudent_Id(studentId);
+        gedSubjectScoreRepository.flush();
+        gedSubjectScoreRepository.saveAll(request.gedSubjectScores().stream().map(item ->
+            StudentGedSubjectScore.create(student, item.subjectType(), item.subjectName(), item.score())
+        ).toList());
+
+        legacyGradeSummaryRepository.deleteAllByStudent_Id(studentId);
+        legacyGradeSummaryRepository.flush();
+        legacyGradeSummaryRepository.saveAll(request.legacyGradeSummaries().stream().map(item ->
+            StudentLegacyGradeSummary.create(student, item.summaryType(), item.schoolYear(), item.semester(),
+                item.rankPosition(), item.tiedRankCount(), item.cohortSize(), item.credits())
         ).toList());
         return transcript(student);
     }
@@ -370,6 +506,8 @@ public class TranscriptService {
 
     private StudentTranscriptResponse transcript(Student student) {
         return StudentTranscriptResponse.of(student,
+            gedSubjectScoreRepository.findAllByStudent_IdOrderBySubjectTypeAscSubjectNameAsc(student.getId()),
+            legacyGradeSummaryRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAsc(student.getId()),
             attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()),
             schoolViolenceRepository.findAllByStudent_IdOrderBySchoolYearAscActionNumberAsc(student.getId()),
             courseRepository.findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(student.getId()));
@@ -381,30 +519,75 @@ public class TranscriptService {
             throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "출결은 학년별로 한 건만 등록할 수 있습니다.");
         }
         if (request.educationBackground() == EducationBackground.GED
-            && request.gedAverageScore() == null) {
-            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시 출신자는 전 과목 평균점수가 필요합니다.");
+            && request.gedAverageScore() == null && request.gedSubjectScores().isEmpty()) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "검정고시 출신자는 전 과목 평균점수 또는 과목별 점수가 필요합니다.");
         }
         if (request.educationBackground() != EducationBackground.GED
-            && request.gedAverageScore() != null) {
-            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시가 아닌 지원자에게 검정고시 평균점수를 입력할 수 없습니다.");
+            && (request.gedAverageScore() != null || !request.gedSubjectScores().isEmpty())) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "검정고시가 아닌 지원자에게 검정고시 점수를 입력할 수 없습니다.");
         }
         if (request.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL
             && request.highSchoolType() != HighSchoolType.GENERAL) {
             throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
                 "고교 유형은 국내 고등학교 지원자에게만 설정할 수 있습니다.");
         }
+        if (request.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL
+            && !request.legacyGradeSummaries().isEmpty()) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA,
+                "구교육과정 학기·학년 석차는 국내 고등학교 지원자에게만 입력할 수 있습니다.");
+        }
+        Set<String> gedNames = new HashSet<>();
+        if (request.gedSubjectScores().stream().anyMatch(item -> !gedNames.add(item.subjectName().trim()))) {
+            throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "검정고시 과목명은 중복될 수 없습니다.");
+        }
+        Set<String> summaries = new HashSet<>();
+        for (UpdateStudentCommonDataRequest.LegacyGradeSummary item : request.legacyGradeSummaries()) {
+            if (item.summaryType() == LegacySummaryType.SEMESTER && item.semester() == null) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "학기 석차 요약에는 학기가 필요합니다.");
+            }
+            if (item.summaryType() == LegacySummaryType.YEAR && item.semester() != null) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "학년 석차 요약에는 학기를 입력할 수 없습니다.");
+            }
+            if (item.rankPosition() > item.cohortSize()
+                || (item.tiedRankCount() != null
+                && item.rankPosition() + item.tiedRankCount() - 1 > item.cohortSize())) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "구교육과정 석차·동석차 범위가 재적수를 초과합니다.");
+            }
+            String key = item.summaryType() + ":" + item.schoolYear() + ":" + item.semester();
+            if (!summaries.add(key)) {
+                throw CustomException.of(INVALID_STUDENT_COMMON_DATA, "같은 학기 또는 학년의 석차 요약이 중복되었습니다.");
+            }
+        }
     }
 
     private void updateCourse(StudentTranscriptCourse course, UpsertTranscriptCourseRequest request) {
         course.updateCourse(request.schoolYear(), request.semester(), request.subjectCategory(), request.courseName(),
-            request.grade(), request.achievement(), request.rawScore(), request.meanScore(), request.standardDeviation(),
-            request.studentCount(), request.credits(), request.careerSubject(), request.professionalCourse(),
+            request.grade(), request.gradeScale(), request.achievement(), request.rawScore(), request.meanScore(),
+            request.standardDeviation(), request.studentCount(), request.rankPosition(), request.tiedRankCount(),
+            request.legacyAchievement(), request.credits(), request.careerSubject(), request.professionalCourse(),
             "MANUAL", 0);
     }
 
     private void validateCourse(UpsertTranscriptCourseRequest request) {
-        if (request.grade() == null && request.achievement() == null) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차등급 또는 성취도 중 하나는 필요합니다.");
+        if (request.grade() == null && request.achievement() == null && request.rankPosition() == null
+            && request.legacyAchievement() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "석차등급, 성취도, 석차 또는 구교육과정 평어 중 하나는 필요합니다.");
+        }
+        if (request.grade() != null && request.grade() > request.gradeScale().maximumGrade()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                request.gradeScale() + " 등급제에서는 " + request.gradeScale().maximumGrade() + "등급까지만 입력할 수 있습니다.");
+        }
+        if (request.rankPosition() != null && request.studentCount() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차를 입력할 때는 재적수도 필요합니다.");
+        }
+        if (request.rankPosition() != null && request.rankPosition() > request.studentCount()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "석차는 재적수 이하여야 합니다.");
+        }
+        if (request.tiedRankCount() != null && request.rankPosition() == null) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "동석차 인원을 입력할 때는 석차도 필요합니다.");
         }
     }
 
@@ -442,12 +625,82 @@ public class TranscriptService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "업로드 파일이 비어 있습니다.");
         }
         if (file.getSize() > MAX_FILE_SIZE) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 크기는 10MB를 초과할 수 없습니다.");
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "파일 크기는 40MB를 초과할 수 없습니다.");
         }
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("")
             .toLowerCase(Locale.ROOT);
         if (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원하는 확장자는 .xlsx, .xls입니다.");
+        }
+    }
+
+    private ApplicantSchoolInfoParseResult parseSchoolInfoFile(MultipartFile schoolInfoFile) {
+        if (schoolInfoFile == null || schoolInfoFile.isEmpty()) return ApplicantSchoolInfoParseResult.empty();
+        if (schoolInfoFile.getSize() > MAX_FILE_SIZE) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원자 추가정보 Excel 파일은 40MB 이하여야 합니다.");
+        }
+        String fileName = schoolInfoFile.getOriginalFilename();
+        if (fileName == null || (!fileName.toLowerCase(Locale.ROOT).endsWith(".xlsx")
+            && !fileName.toLowerCase(Locale.ROOT).endsWith(".xls"))) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원자 추가정보는 Excel 파일(.xlsx, .xls)만 가능합니다.");
+        }
+        return applicantSchoolInfoExcelParser.parse(schoolInfoFile);
+    }
+
+    private List<String> schoolInfoWarnings(
+        ApplicantSchoolInfoParseResult schoolInfo,
+        MultipartFile schoolInfoFile,
+        List<TransferApplicationRow> applications
+    ) {
+        if (schoolInfoFile == null || schoolInfoFile.isEmpty()) {
+            return List.of(
+                "지원자 추가정보 Excel이 없어 출신고교 유형을 일반고로 처리했습니다. "
+                    + "특성화고·종합고 전문계열·학력인정 평생교육시설 지원자는 추가정보 파일을 첨부해 주세요."
+            );
+        }
+        Set<String> applicationNumbers = applications.stream()
+            .map(TransferApplicationRow::applicantNumber)
+            .collect(java.util.stream.Collectors.toSet());
+        List<ApplicantSchoolInfoRow> linkedRows = schoolInfo.rows().stream()
+            .filter(row -> applicationNumbers.contains(row.applicantNumber()))
+            .toList();
+        long alternativeBackgrounds = linkedRows.stream()
+            .filter(row -> row.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL)
+            .count();
+        long allCourseTypes = linkedRows.stream()
+            .filter(row -> row.highSchoolType().usesHanshinAllOrdinaryCoursesPolicy())
+            .count();
+        long missing = applications.stream()
+            .map(TransferApplicationRow::applicantNumber)
+            .distinct()
+            .filter(applicantNumber -> !schoolInfo.byApplicantNumber().containsKey(applicantNumber))
+            .count();
+        String sourceYears = linkedRows.stream()
+            .map(ApplicantSchoolInfoRow::admissionYear)
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .sorted()
+            .map(String::valueOf)
+            .collect(java.util.stream.Collectors.joining(", "));
+        return List.of(
+            (
+                "지원자 추가정보 %,d건을 연결했습니다. 전 과목 반영 고교유형 %,d건, "
+                    + "검정고시·외국고 %,d건, 추가정보 미연결 지원자 %,d건입니다. "
+                    + "추가정보 입학연도: %s"
+            ).formatted(linkedRows.size(), allCourseTypes, alternativeBackgrounds, missing,
+                sourceYears.isBlank() ? "미확인" : sourceYears)
+        );
+    }
+
+    private void requireMatchedVerificationRule(TranscriptBatchVerificationResult verification) {
+        if (!verification.failures().isEmpty()
+            && verification.successes().isEmpty()
+            && verification.failures().stream().allMatch(failure -> "RULE_NOT_FOUND".equals(failure.code()))) {
+            throw CustomException.of(
+                INVALID_TRANSCRIPT_FILE,
+                "선택한 대학교·모집연도에 전달양식의 전형과 맞는 게시 규칙이 없습니다. "
+                    + "검증할 모집요강 연도와 대상 대학교를 확인해 주세요."
+            );
         }
     }
 
