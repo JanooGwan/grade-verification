@@ -54,17 +54,44 @@ public record VerifyGradeRequest(
         LegacyAchievement legacyAchievement,
         boolean careerSubject,
         boolean professionalCourse,
+        boolean vocationalTrainingSemester,
         @NotNull @DecimalMin(value = "0.01") BigDecimal credits
     ) {
+        public CourseGrade(
+            int schoolYear, int semester, SubjectCategory subjectCategory, String courseName, Integer grade,
+            GradeScale gradeScale, AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
+            BigDecimal standardDeviation, Integer studentCount, Integer rankPosition, Integer tiedRankCount,
+            LegacyAchievement legacyAchievement, boolean careerSubject, boolean professionalCourse,
+            BigDecimal credits
+        ) {
+            this(
+                schoolYear, semester, subjectCategory, courseName, grade, gradeScale, achievement, rawScore,
+                meanScore, standardDeviation, studentCount, rankPosition, tiedRankCount, legacyAchievement,
+                careerSubject, professionalCourse, false, credits
+            );
+        }
+
         public CourseGrade(
             int schoolYear, int semester, SubjectCategory subjectCategory, String courseName, Integer grade,
             AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
             BigDecimal standardDeviation, Integer studentCount, boolean careerSubject,
             boolean professionalCourse, BigDecimal credits
         ) {
+            this(
+                schoolYear, semester, subjectCategory, courseName, grade, achievement, rawScore, meanScore,
+                standardDeviation, studentCount, careerSubject, professionalCourse, false, credits
+            );
+        }
+
+        public CourseGrade(
+            int schoolYear, int semester, SubjectCategory subjectCategory, String courseName, Integer grade,
+            AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
+            BigDecimal standardDeviation, Integer studentCount, boolean careerSubject,
+            boolean professionalCourse, boolean vocationalTrainingSemester, BigDecimal credits
+        ) {
             this(schoolYear, semester, subjectCategory, courseName, grade, GradeScale.NINE_LEVEL,
                 achievement, rawScore, meanScore, standardDeviation, studentCount, null, null, null,
-                careerSubject, professionalCourse, credits);
+                careerSubject, professionalCourse, vocationalTrainingSemester, credits);
         }
     }
 }

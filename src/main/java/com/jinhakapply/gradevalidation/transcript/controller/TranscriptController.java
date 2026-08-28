@@ -53,10 +53,11 @@ public class TranscriptController implements TranscriptApi {
         TranscriptImportMode mode,
         Long universityId,
         MultipartFile file,
-        MultipartFile schoolInfoFile
+        MultipartFile schoolInfoFile,
+        MultipartFile vocationalTrainingFile
     ) {
         TranscriptImportResponse response = transcriptService.importExcel(
-            admissionYear, mode, universityId, file, schoolInfoFile
+            admissionYear, mode, universityId, file, schoolInfoFile, vocationalTrainingFile
         );
         return ResponseEntity
             .created(URI.create("/api/transcripts/imports/" + response.importId()))

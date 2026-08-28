@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +51,12 @@ class TranscriptValidationExcelWriter {
         "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
         "반영 여부", "선택순번", "학년", "학기", "교과", "과목명",
         "석차등급", "성취도", "이수단위", "환산점수", "가중점수",
-        "진로선택", "전문교과"
+        "진로선택", "전문교과", "직업과정 위탁학기"
+    };
+    private static final String[] KBU_RESULT_HEADERS = {
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "검증 상태", "실패 코드", "실패 사유",
+        "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위", "기준 환산점수",
+        "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수", "교과성적(1,000점 만점)"
     };
     private static final String[] INTERMEDIATE_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명", "최종 환산점수", "산출 구분", "교과·학기",
@@ -75,16 +81,15 @@ class TranscriptValidationExcelWriter {
         try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Styles styles = new Styles(workbook);
             boolean kbu = isKbu(universityName);
-            if (!kbu) createVerificationResultSheet(workbook, styles, universityName, verification);
+            if (kbu) createKbuVerificationResultSheet(workbook, styles, universityName, verification);
+            else createVerificationResultSheet(workbook, styles, universityName, verification);
             createIntermediateCalculationSheet(workbook, styles, universityName, verification);
             createCourseComparisonSheet(workbook, styles, courses, verification, kbu);
-            if (!kbu) {
-                createSummarySheet(
-                    workbook, styles, originalFileName, sourceFormat, applicationRows,
-                    totalRows, courses.size(), errors.size(), skipped.size(), warnings,
-                    verification, skipped, errors
-                );
-            }
+            createSummarySheet(
+                workbook, styles, originalFileName, sourceFormat, applicationRows,
+                totalRows, courses.size(), errors.size(), skipped.size(), warnings,
+                verification, skipped, errors
+            );
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException exception) {
@@ -219,6 +224,62 @@ class TranscriptValidationExcelWriter {
         setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
     }
 
+    private void createKbuVerificationResultSheet(
+        SXSSFWorkbook workbook,
+        Styles styles,
+        String universityName,
+        TranscriptBatchVerificationResult verification
+    ) {
+        Sheet sheet = workbook.createSheet("학생별 검증 결과");
+        sheet.setDisplayGridlines(false);
+        title(sheet, styles, shortUniversityName(universityName)
+            + " 학생별 검증 결과 - 지원자당 1행", KBU_RESULT_HEADERS.length - 1);
+        header(sheet, styles, KBU_RESULT_HEADERS);
+
+        List<KbuResultRow> results = new ArrayList<>();
+        verification.successes().forEach(success ->
+            results.add(new KbuResultRow(success.application(), success, null)));
+        verification.failures().forEach(failure ->
+            results.add(new KbuResultRow(failure.application(), null, failure)));
+        results.sort(Comparator.comparingInt(result -> result.application().rowNumber()));
+        Map<String, KbuResultRow> resultByApplicant = new LinkedHashMap<>();
+        results.forEach(result -> resultByApplicant.putIfAbsent(
+            result.application().applicantNumber(), result
+        ));
+        List<KbuResultRow> deduplicatedResults = List.copyOf(resultByApplicant.values());
+
+        int rowIndex = 3;
+        for (KbuResultRow result : deduplicatedResults) {
+            Row row = sheet.createRow(rowIndex++);
+            TransferApplicationRow application = result.application();
+            if (result.success() != null) {
+                GradeVerificationResponse verificationResult = result.success().verification();
+                GradeVerificationResponse.CalculationSummary summary = verificationResult.calculationSummary();
+                writeRow(row, new Object[] {
+                    application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                    application.recruitmentUnitName(), "성공", null, null,
+                    summary.gradeTimesCreditsSum(), summary.convertedScoreTimesCreditsSum(),
+                    summary.totalIncludedCredits(), verificationResult.baseScore(), summary.scoreMultiplier(),
+                    summary.scoreBeforeFinalRounding(), verificationResult.finalScore(),
+                    thousandPointScore(verificationResult)
+                }, styles, -1);
+                row.getCell(4).setCellStyle(styles.selected);
+                row.getCell(13).setCellStyle(styles.finalScore);
+            } else {
+                TranscriptBatchVerificationResult.Failure failure = result.failure();
+                writeRow(row, new Object[] {
+                    application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+                    application.recruitmentUnitName(), "실패", failure.code(), failure.reason(),
+                    null, null, null, null, null, null, null, null
+                }, styles, 6);
+                row.getCell(4).setCellStyle(styles.error);
+            }
+        }
+        finishTable(sheet, deduplicatedResults.size(), KBU_RESULT_HEADERS.length);
+        sheet.createFreezePane(4, 3);
+        setWidths(sheet, KBU_RESULT_HEADERS, Set.of(2, 3, 6));
+    }
+
     private void createIntermediateCalculationSheet(
         SXSSFWorkbook workbook,
         Styles styles,
@@ -230,12 +291,12 @@ class TranscriptValidationExcelWriter {
         boolean kbu = isKbu(universityName);
         if (!hasIntermediateCalculations && !kbu) return;
 
-        Sheet sheet = workbook.createSheet(kbu ? "학생별 검증 결과" : "성적 산출 중간값");
+        Sheet sheet = workbook.createSheet("성적 산출 중간값");
         sheet.setDisplayGridlines(false);
         title(
             sheet, styles,
             shortUniversityName(universityName)
-                + (kbu ? " 학생별 검증 결과" : " 성적 산출 중간값")
+                + " 성적 산출 중간값"
                 + " - 일반학과 5개 학기 중 2개, 간호·보건 5개 교과 중 3개 선택",
             INTERMEDIATE_HEADERS.length - 1
         );
@@ -371,7 +432,8 @@ class TranscriptValidationExcelWriter {
                 course.achievement(), course.credits(),
                 calculation == null ? null : calculation.convertedScore(),
                 calculation == null ? null : calculation.weightedScore(),
-                course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N"
+                course.careerSubject() ? "Y" : "N", course.professionalCourse() ? "Y" : "N",
+                course.vocationalTrainingSemester() ? "Y" : "N"
             }
             : new Object[] {
                 application.rowNumber(), application.applicantNumber(), studentName,
@@ -526,6 +588,13 @@ class TranscriptValidationExcelWriter {
 
     private boolean isKbu(String universityName) {
         return "경복대".equals(shortUniversityName(universityName));
+    }
+
+    private record KbuResultRow(
+        TransferApplicationRow application,
+        TranscriptBatchVerificationResult.Success success,
+        TranscriptBatchVerificationResult.Failure failure
+    ) {
     }
 
     private static final class Styles {

@@ -83,6 +83,19 @@ class TransferExcelParserTest {
     }
 
     @Test
+    void marksKoreanCourseTypeCode02AsCareerSubject() throws Exception {
+        MockMultipartFile file = koreanCareerCourseWorkbook();
+
+        TransferExcelParseResult result = parser.parse(file);
+
+        assertThat(result.courses()).singleElement().satisfies(course -> {
+            assertThat(course.courseName()).isEqualTo("인공지능과 미래사회");
+            assertThat(course.achievement()).isEqualTo(com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel.B);
+            assertThat(course.careerSubject()).isTrue();
+        });
+    }
+
+    @Test
     void classifiesOnlyCoreSubjectOrganizationsAsCoreSubjects() throws Exception {
         MockMultipartFile file = hanshinSubjectCategoryWorkbook();
 
@@ -199,6 +212,38 @@ class TransferExcelParserTest {
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "경복대-성적검증.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
+            );
+        }
+    }
+
+    private MockMultipartFile koreanCareerCourseWorkbook() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet applications = workbook.createSheet("지원자정보");
+            writeRow(applications.createRow(0), new Object[] {
+                "입학연도", "모집시기", "모집시기명", "수험번호", "군ID", "계열", "계열명",
+                "전형코드", "전형명", "모집단위코드", "모집단위명", "학과부코드", "졸업연도",
+                "학생부동의코드", "학생부동의"
+            });
+            writeRow(applications.createRow(1), new Object[] {
+                2026, 1, "수시1차", "K-001", 0, 2, "자연과학계열", "2000", "특성화고",
+                "3020", "간호학과", "3020", 2026, 1, "동의"
+            });
+            Sheet courses = workbook.createSheet("교과학습발달");
+            writeRow(courses.createRow(0), new Object[] {
+                "입학연도", "모집시기", "수험번호", "학년", "학기", "편제코드", "편제명", "교과코드",
+                "교과명", "과목코드", "과목명", "이수단위", "석차", "재적수", "동석차", "원점수",
+                "평균", "표준편차", "석차등급", "성취도", "과목구분코드"
+            });
+            writeRow(courses.createRow(1), new Object[] {
+                2026, 1, "K-001", 2, 1, "011122301010401", "기술·가정/제2외국어/한문/교양",
+                "000", "", "0000004365", "인공지능과 미래사회", 2, 0, 162, 0,
+                77, 76.2, null, 3, "B", "02"
+            });
+            workbook.createSheet("반영교과설정");
+            workbook.write(output);
+            return new MockMultipartFile(
+                "file", "경복대-진로선택.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()
             );
         }

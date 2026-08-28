@@ -83,6 +83,22 @@ class TransferImportService {
         String fileSha256,
         ApplicantSchoolInfoParseResult schoolInfoResult
     ) {
+        return importExcel(
+            admissionYear, universityId, mode, file, fileSha256, schoolInfoResult,
+            VocationalTrainingParseResult.empty()
+        );
+    }
+
+    @Transactional
+    TranscriptImportResponse importExcel(
+        int admissionYear,
+        Long universityId,
+        TranscriptImportMode mode,
+        MultipartFile file,
+        String fileSha256,
+        ApplicantSchoolInfoParseResult schoolInfoResult,
+        VocationalTrainingParseResult vocationalTrainingResult
+    ) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "전달양식을 가져올 대상 대학교를 선택해 주세요.");
         }
@@ -129,6 +145,9 @@ class TransferImportService {
         Map<String, TransferApplicationRow> applicationByApplicant = result.applications().stream()
             .collect(Collectors.toMap(TransferApplicationRow::applicantNumber, Function.identity(), (first, ignored) -> first));
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant = schoolInfoResult.byApplicantNumber();
+        List<TranscriptExcelRow> courseRows = applyVocationalTrainingSemesters(
+            result.courses(), vocationalTrainingResult
+        );
 
         Map<String, Student> students = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
             university.getId(), admissionYear, applicantNumbers
@@ -188,11 +207,16 @@ class TransferImportService {
             snapshot.deletedApplications()
         );
         CourseResult courses = replaceCourses(
-            result.courses(), students, sourceFileName, transcriptImport, snapshot.deletedCourses()
+            courseRows, students, sourceFileName, transcriptImport, snapshot.deletedCourses()
         );
         snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantNumbers);
         List<String> warnings = new ArrayList<>(result.warnings());
         warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
+        if (vocationalTrainingResult.applicantCount() > 0) {
+            warnings.add(vocationalTrainingImportWarning(
+                result.applications(), courseRows, vocationalTrainingResult
+            ));
+        }
         return new TranscriptImportResponse(
             transcriptImport.getId(), transcriptImport.getStatus(), result.sourceFormat(),
             result.totalRows(), result.courses().size(), result.invalidRows(),
@@ -201,6 +225,39 @@ class TransferImportService {
             result.applications().size(), catalog.createdApplications(), catalog.deletedApplications(), catalog.createdTracks(),
             catalog.createdUnits(), result.errors(), List.copyOf(warnings)
         );
+    }
+
+    List<TranscriptExcelRow> applyVocationalTrainingSemesters(
+        List<TranscriptExcelRow> courses,
+        VocationalTrainingParseResult vocationalTraining
+    ) {
+        if (vocationalTraining.applicantCount() == 0) return courses;
+        return courses.stream().map(course -> {
+            boolean marked = vocationalTraining.semesters(course.applicantNumber()).contains(
+                new VocationalTrainingSemester(course.schoolYear(), course.semester())
+            );
+            return course.withVocationalTrainingSemester(marked);
+        }).toList();
+    }
+
+    private String vocationalTrainingImportWarning(
+        List<TransferApplicationRow> applications,
+        List<TranscriptExcelRow> courses,
+        VocationalTrainingParseResult vocationalTraining
+    ) {
+        Set<String> applicationNumbers = applications.stream()
+            .map(TransferApplicationRow::applicantNumber)
+            .collect(Collectors.toSet());
+        long linkedApplicants = vocationalTraining.semestersByApplicant().keySet().stream()
+            .filter(applicationNumbers::contains)
+            .count();
+        long markedCourses = courses.stream().filter(TranscriptExcelRow::vocationalTrainingSemester).count();
+        long unlinkedApplicants = vocationalTraining.applicantCount() - linkedApplicants;
+        return "직업과정 위탁생 %,d건과 위탁학기 %,d건을 읽어 과목 %,d건에 적용했습니다. 미연결 지원자는 %,d건입니다."
+            .formatted(
+                vocationalTraining.applicantCount(), vocationalTraining.semesterCount(),
+                markedCourses, unlinkedApplicants
+            );
     }
 
     private String schoolInfoImportWarning(
@@ -336,8 +393,9 @@ class TransferImportService {
                 student_id, source_import_id, school_year, semester, subject_category, course_name, course_name_normalized,
                 grade_value, grade_scale, achievement, raw_score, mean_score, standard_deviation,
                 student_count, rank_position, tied_rank_count, legacy_achievement, credits,
-                career_subject, professional_course, source_file_name, source_row_number, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                career_subject, professional_course, vocational_training_semester,
+                source_file_name, source_row_number, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             """;
         int[][] results = jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
             statement.setLong(1, students.get(row.applicantNumber()).getId());
@@ -360,8 +418,9 @@ class TransferImportService {
             statement.setBigDecimal(18, row.credits());
             statement.setBoolean(19, row.careerSubject());
             statement.setBoolean(20, row.professionalCourse());
-            statement.setString(21, sourceFileName);
-            statement.setInt(22, row.rowNumber());
+            statement.setBoolean(21, row.vocationalTrainingSemester());
+            statement.setString(22, sourceFileName);
+            statement.setInt(23, row.rowNumber());
         });
         CourseResult result = classifyBatchResults(results);
         if (result.unknown() > 0) {

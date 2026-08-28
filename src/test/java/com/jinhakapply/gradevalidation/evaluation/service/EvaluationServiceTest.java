@@ -591,27 +591,95 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void kbuExcludesThirdYearProfessionalCoursesFromGeneralHighSchoolRecords() {
+    void kbuExcludesAllThirdYearCoursesMarkedAsVocationalTrainingSemester() {
         EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
         mockRule(kbuRule);
-        VerifyGradeRequest.CourseGrade professionalCourse = new VerifyGradeRequest.CourseGrade(
-            3, 1, SubjectCategory.OTHER, "직업과정 실무", 1, GradeScale.NINE_LEVEL,
+        VerifyGradeRequest.CourseGrade vocationalSemesterCourse = new VerifyGradeRequest.CourseGrade(
+            3, 1, SubjectCategory.KOREAN, "독서", 1, GradeScale.NINE_LEVEL,
             null, null, null, null, null, null, null, null,
-            false, true, new BigDecimal("3")
+            false, false, true, new BigDecimal("3")
         );
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, false,
             HighSchoolType.GENERAL, 2026, List.of(
                 course(1, 1, SubjectCategory.KOREAN, "국어", 3, "3"),
                 course(2, 1, SubjectCategory.MATH, "수학", 3, "3"),
-                professionalCourse
+                vocationalSemesterCourse
             )));
 
         assertThat(response.calculations()).filteredOn(calculation -> !calculation.included())
             .singleElement().satisfies(calculation -> {
-                assertThat(calculation.courseName()).isEqualTo("직업과정 실무");
+                assertThat(calculation.courseName()).isEqualTo("독서");
                 assertThat(calculation.exclusionReason()).contains("3학년 직업과정");
             });
+    }
+
+    @Test
+    void kbuUsesDirectAchievementMappingForCourseType02BeforeRecordedGradeOrZScore() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+        VerifyGradeRequest.CourseGrade career = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.OTHER, "인공지능과 미래사회", 9, GradeScale.NINE_LEVEL,
+            AchievementLevel.A, new BigDecimal("40"), new BigDecimal("80"), new BigDecimal("10"),
+            100, null, null, null, true, false, false, new BigDecimal("2")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            career,
+            course(2, 1, SubjectCategory.KOREAN, "국어", 3, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(calculation ->
+            calculation.courseName().equals("인공지능과 미래사회")
+        ).singleElement().satisfies(calculation ->
+            assertThat(calculation.effectiveGrade()).isEqualByComparingTo("1")
+        );
+    }
+
+    @Test
+    void kbuDoesNotFallBackToRecordedGradeForNonCareerAchievementWithoutZInputs() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+        VerifyGradeRequest.CourseGrade ungradable = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.OTHER, "운동과 건강", 7, GradeScale.NINE_LEVEL,
+            AchievementLevel.B, null, null, null, null, null, null, null,
+            false, false, false, new BigDecimal("2")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            ungradable,
+            course(1, 1, SubjectCategory.KOREAN, "국어", 3, "3"),
+            course(2, 1, SubjectCategory.MATH, "수학", 3, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(calculation ->
+            calculation.courseName().equals("운동과 건강")
+        ).singleElement().satisfies(calculation -> {
+            assertThat(calculation.included()).isFalse();
+            assertThat(calculation.exclusionReason()).contains("환산 가능한 성취도 정보");
+        });
+    }
+
+    @Test
+    void kbuUsesZScoreForNonCareerAchievementBeforeRecordedGrade() {
+        EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        mockRule(kbuRule);
+        VerifyGradeRequest.CourseGrade achievementCourse = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.OTHER, "운동과 건강", 9, GradeScale.NINE_LEVEL,
+            AchievementLevel.B, new BigDecimal("90"), new BigDecimal("70"), new BigDecimal("10"),
+            100, null, null, null, false, false, false, new BigDecimal("2")
+        );
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            achievementCourse,
+            course(2, 1, SubjectCategory.KOREAN, "국어", 3, "3")
+        )));
+
+        assertThat(response.calculations()).filteredOn(calculation ->
+            calculation.courseName().equals("운동과 건강")
+        ).singleElement().satisfies(calculation ->
+            assertThat(calculation.effectiveGrade()).isEqualByComparingTo("1")
+        );
     }
 
     @Test

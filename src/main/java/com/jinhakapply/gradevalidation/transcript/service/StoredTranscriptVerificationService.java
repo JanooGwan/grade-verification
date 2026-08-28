@@ -241,7 +241,8 @@ public class StoredTranscriptVerificationService {
                    course.legacy_achievement,
                    course.credits,
                    course.career_subject,
-                   course.professional_course
+                   course.professional_course,
+                   course.vocational_training_semester
             FROM student_transcript_course course
             JOIN student ON student.id = course.student_id
             WHERE student.university_id = ?
@@ -270,7 +271,8 @@ public class StoredTranscriptVerificationService {
                 nullableEnum(resultSet.getString("legacy_achievement"), LegacyAchievement.class),
                 resultSet.getBigDecimal("credits"),
                 resultSet.getBoolean("career_subject"),
-                resultSet.getBoolean("professional_course")
+                resultSet.getBoolean("professional_course"),
+                resultSet.getBoolean("vocational_training_semester")
             ), universityId, admissionYear);
     }
 

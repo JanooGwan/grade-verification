@@ -307,6 +307,8 @@ class TransferExcelParser {
         }
         Integer grade = positiveInteger(values, 16 + columnOffset);
         AchievementLevel achievement = achievement(optional(values, 17 + columnOffset));
+        String courseTypeCode = koreanLayout ? optional(values, 20) : null;
+        boolean careerSubject = "02".equals(courseTypeCode) || "2".equals(courseTypeCode);
         Integer rank = positiveInteger(values, 10 + columnOffset);
         Integer studentCount = positiveInteger(values, 11 + columnOffset);
         Integer tiedRank = positiveInteger(values, 12 + columnOffset);
@@ -332,7 +334,7 @@ class TransferExcelParser {
             tiedRank,
             null,
             credits,
-            false,
+            careerSubject,
             false
         );
     }

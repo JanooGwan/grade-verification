@@ -62,6 +62,8 @@ class TranscriptServiceTest {
     @Mock
     private ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
     @Mock
+    private VocationalTrainingExcelParser vocationalTrainingExcelParser;
+    @Mock
     private TransferImportService transferImportService;
     @Mock
     private TranscriptImportResultExcelWriter importResultExcelWriter;
@@ -107,6 +109,7 @@ class TranscriptServiceTest {
             excelParser,
             transferExcelParser,
             applicantSchoolInfoExcelParser,
+            vocationalTrainingExcelParser,
             transferImportService,
             importResultExcelWriter,
             syuImportScoreExcelWriter,

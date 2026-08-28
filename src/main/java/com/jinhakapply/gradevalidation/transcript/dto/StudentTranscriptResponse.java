@@ -158,7 +158,8 @@ public record StudentTranscriptResponse(
         LegacyAchievement legacyAchievement,
         BigDecimal credits,
         boolean careerSubject,
-        boolean professionalCourse
+        boolean professionalCourse,
+        boolean vocationalTrainingSemester
     ) {
         public static CourseResponse from(StudentTranscriptCourse course) {
             return new CourseResponse(
@@ -179,7 +180,8 @@ public record StudentTranscriptResponse(
                 course.getLegacyAchievement(),
                 course.getCredits(),
                 course.isCareerSubject(),
-                course.isProfessionalCourse()
+                course.isProfessionalCourse(),
+                course.isVocationalTrainingSemester()
             );
         }
     }

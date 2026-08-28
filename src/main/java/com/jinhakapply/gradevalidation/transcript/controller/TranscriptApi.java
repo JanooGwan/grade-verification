@@ -70,7 +70,9 @@ public interface TranscriptApi {
         @Parameter(description = ".xlsx 또는 .xls, 최대 40MB")
         @RequestPart("file") MultipartFile file,
         @Parameter(description = "선택: 수험번호별 출신고교 추가정보 Excel")
-        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile
+        @RequestPart(value = "schoolInfoFile", required = false) MultipartFile schoolInfoFile,
+        @Parameter(description = "선택: 경복대 직업과정 위탁생의 학기별 이수정보 Excel")
+        @RequestPart(value = "vocationalTrainingFile", required = false) MultipartFile vocationalTrainingFile
     );
 
     @Operation(summary = "DB 저장 학생부 성적검증", description = "최신 완료 가져오기의 DB 데이터만 사용합니다.")

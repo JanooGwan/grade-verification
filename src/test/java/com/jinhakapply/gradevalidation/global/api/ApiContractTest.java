@@ -471,7 +471,7 @@ class ApiContractTest {
             new byte[]{1, 2, 3}
         );
         when(transcriptService.importExcel(
-            anyInt(), any(), anyLong(), any(), isNull()
+            anyInt(), any(), anyLong(), any(), isNull(), isNull()
         )).thenReturn(new TranscriptImportResponse(
             41L, TranscriptImportStatus.COMPLETED, "STANDARD_TRANSCRIPT_V1",
             1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of()

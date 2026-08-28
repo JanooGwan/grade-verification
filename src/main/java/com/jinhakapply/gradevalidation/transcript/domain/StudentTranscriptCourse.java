@@ -105,6 +105,9 @@ public class StudentTranscriptCourse {
     @Column(name = "professional_course", nullable = false)
     private boolean professionalCourse;
 
+    @Column(name = "vocational_training_semester", nullable = false)
+    private boolean vocationalTrainingSemester;
+
     @Column(name = "source_file_name", nullable = false, length = 255)
     private String sourceFileName;
 
@@ -183,6 +186,31 @@ public class StudentTranscriptCourse {
         String sourceFileName,
         int sourceRowNumber
     ) {
+        updateScore(
+            grade, gradeScale, achievement, rawScore, meanScore, standardDeviation, studentCount,
+            rankPosition, tiedRankCount, legacyAchievement, credits, careerSubject, professionalCourse,
+            vocationalTrainingSemester, sourceFileName, sourceRowNumber
+        );
+    }
+
+    public void updateScore(
+        Integer grade,
+        GradeScale gradeScale,
+        AchievementLevel achievement,
+        BigDecimal rawScore,
+        BigDecimal meanScore,
+        BigDecimal standardDeviation,
+        Integer studentCount,
+        Integer rankPosition,
+        Integer tiedRankCount,
+        LegacyAchievement legacyAchievement,
+        BigDecimal credits,
+        boolean careerSubject,
+        boolean professionalCourse,
+        boolean vocationalTrainingSemester,
+        String sourceFileName,
+        int sourceRowNumber
+    ) {
         this.grade = grade;
         this.gradeScale = gradeScale == null ? GradeScale.NINE_LEVEL : gradeScale;
         this.achievement = achievement;
@@ -196,6 +224,7 @@ public class StudentTranscriptCourse {
         this.credits = credits;
         this.careerSubject = careerSubject;
         this.professionalCourse = professionalCourse;
+        this.vocationalTrainingSemester = vocationalTrainingSemester;
         this.sourceFileName = sourceFileName;
         this.sourceRowNumber = sourceRowNumber;
         this.updatedAt = LocalDateTime.now();
@@ -244,6 +273,36 @@ public class StudentTranscriptCourse {
         String sourceFileName,
         int sourceRowNumber
     ) {
+        updateCourse(
+            schoolYear, semester, subjectCategory, courseName, grade, gradeScale, achievement,
+            rawScore, meanScore, standardDeviation, studentCount, rankPosition, tiedRankCount,
+            legacyAchievement, credits, careerSubject, professionalCourse, vocationalTrainingSemester,
+            sourceFileName, sourceRowNumber
+        );
+    }
+
+    public void updateCourse(
+        int schoolYear,
+        int semester,
+        SubjectCategory subjectCategory,
+        String courseName,
+        Integer grade,
+        GradeScale gradeScale,
+        AchievementLevel achievement,
+        BigDecimal rawScore,
+        BigDecimal meanScore,
+        BigDecimal standardDeviation,
+        Integer studentCount,
+        Integer rankPosition,
+        Integer tiedRankCount,
+        LegacyAchievement legacyAchievement,
+        BigDecimal credits,
+        boolean careerSubject,
+        boolean professionalCourse,
+        boolean vocationalTrainingSemester,
+        String sourceFileName,
+        int sourceRowNumber
+    ) {
         this.schoolYear = schoolYear;
         this.semester = semester;
         this.subjectCategory = subjectCategory;
@@ -251,6 +310,6 @@ public class StudentTranscriptCourse {
         this.courseNameNormalized = TextNormalizer.normalizeCourseName(courseName);
         updateScore(grade, gradeScale, achievement, rawScore, meanScore, standardDeviation, studentCount,
             rankPosition, tiedRankCount, legacyAchievement, credits, careerSubject, professionalCourse,
-            sourceFileName, sourceRowNumber);
+            vocationalTrainingSemester, sourceFileName, sourceRowNumber);
     }
 }

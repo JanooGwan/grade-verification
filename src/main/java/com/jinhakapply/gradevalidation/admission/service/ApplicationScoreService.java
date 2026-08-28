@@ -140,7 +140,8 @@ public class ApplicationScoreService {
             course.getSchoolYear(), course.getSemester(), course.getSubjectCategory(), course.getCourseName(),
             course.getGrade(), course.getGradeScale(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
             course.getStandardDeviation(), course.getStudentCount(), course.getRankPosition(), course.getTiedRankCount(),
-            course.getLegacyAchievement(), course.isCareerSubject(), course.isProfessionalCourse(), course.getCredits()
+            course.getLegacyAchievement(), course.isCareerSubject(), course.isProfessionalCourse(),
+            course.isVocationalTrainingSemester(), course.getCredits()
         );
     }
 

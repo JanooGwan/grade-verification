@@ -77,6 +77,7 @@ public class TranscriptService {
     private final TranscriptExcelParser excelParser;
     private final TransferExcelParser transferExcelParser;
     private final ApplicantSchoolInfoExcelParser applicantSchoolInfoExcelParser;
+    private final VocationalTrainingExcelParser vocationalTrainingExcelParser;
     private final TransferImportService transferImportService;
     private final TranscriptImportResultExcelWriter importResultExcelWriter;
     private final SyuImportScoreExcelWriter syuImportScoreExcelWriter;
@@ -119,13 +120,37 @@ public class TranscriptService {
         MultipartFile file,
         MultipartFile schoolInfoFile
     ) {
+        return importExcel(admissionYear, mode, universityId, file, schoolInfoFile, null);
+    }
+
+    @Transactional
+    public TranscriptImportResponse importExcel(
+        int admissionYear,
+        TranscriptImportMode mode,
+        Long universityId,
+        MultipartFile file,
+        MultipartFile schoolInfoFile,
+        MultipartFile vocationalTrainingFile
+    ) {
         validateFile(admissionYear, file);
         University university = requireUniversity(universityId);
+        if (vocationalTrainingFile != null && !vocationalTrainingFile.isEmpty()
+            && !"KBOK".equalsIgnoreCase(university.getCode())) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "직업과정 위탁생 파일은 경복대학교 성적검증에서만 사용할 수 있습니다.");
+        }
         if (transferExcelParser.supports(file)) {
             ApplicantSchoolInfoParseResult schoolInfo = parseSchoolInfoFile(schoolInfoFile);
-            return transferImportService.importExcel(
-                admissionYear, universityId, mode, file, sha256(file), schoolInfo
+            VocationalTrainingParseResult vocationalTraining = parseVocationalTrainingFile(
+                vocationalTrainingFile, admissionYear
             );
+            return transferImportService.importExcel(
+                admissionYear, universityId, mode, file, sha256(file), schoolInfo, vocationalTraining
+            );
+        }
+        if (vocationalTrainingFile != null && !vocationalTrainingFile.isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "직업과정 위탁생 파일은 지원자정보·교과학습발달 시트가 있는 전달양식과 함께 업로드해야 합니다.");
         }
         String originalFileName = safeFileName(file.getOriginalFilename());
         String sourceFormat = "STANDARD_TRANSCRIPT_V1";
@@ -629,6 +654,25 @@ public class TranscriptService {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "지원자 추가정보는 Excel 파일(.xlsx, .xls)만 가능합니다.");
         }
         return applicantSchoolInfoExcelParser.parse(schoolInfoFile);
+    }
+
+    private VocationalTrainingParseResult parseVocationalTrainingFile(
+        MultipartFile vocationalTrainingFile,
+        int admissionYear
+    ) {
+        if (vocationalTrainingFile == null || vocationalTrainingFile.isEmpty()) {
+            return VocationalTrainingParseResult.empty();
+        }
+        if (vocationalTrainingFile.getSize() > MAX_FILE_SIZE) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "직업과정 위탁생 Excel 파일은 40MB 이하여야 합니다.");
+        }
+        String fileName = vocationalTrainingFile.getOriginalFilename();
+        if (fileName == null || (!fileName.toLowerCase(Locale.ROOT).endsWith(".xlsx")
+            && !fileName.toLowerCase(Locale.ROOT).endsWith(".xls"))) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "직업과정 위탁생 정보는 Excel 파일(.xlsx, .xls)만 가능합니다.");
+        }
+        return vocationalTrainingExcelParser.parse(vocationalTrainingFile, admissionYear);
     }
 
     private String safeFileName(String originalFileName) {

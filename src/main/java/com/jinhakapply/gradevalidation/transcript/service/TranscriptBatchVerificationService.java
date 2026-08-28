@@ -470,7 +470,8 @@ class TranscriptBatchVerificationService {
             course.schoolYear(), course.semester(), course.subjectCategory(), course.courseName(),
             course.grade(), course.gradeScale(), course.achievement(), course.rawScore(), course.meanScore(),
             course.standardDeviation(), course.studentCount(), course.rankPosition(), course.tiedRankCount(),
-            course.legacyAchievement(), course.careerSubject(), course.professionalCourse(), course.credits()
+            course.legacyAchievement(), course.careerSubject(), course.professionalCourse(),
+            course.vocationalTrainingSemester(), course.credits()
         );
     }
 

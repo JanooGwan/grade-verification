@@ -105,6 +105,30 @@ class TransferImportServiceTest {
     }
 
     @Test
+    void marksEveryCourseInADelegatedSemester() {
+        TransferImportService service = new TransferImportService(
+            null, null, null, null, null, null, null, null, null, null
+        );
+        List<TranscriptExcelRow> rows = List.of(
+            course("K-001", 3, 1, "독서"),
+            course("K-001", 3, 1, "영어Ⅱ"),
+            course("K-001", 2, 2, "수학Ⅱ")
+        );
+        VocationalTrainingParseResult vocationalTraining = new VocationalTrainingParseResult(Map.of(
+            "K-001", Set.of(new VocationalTrainingSemester(3, 1))
+        ));
+
+        List<TranscriptExcelRow> marked = service.applyVocationalTrainingSemesters(rows, vocationalTraining);
+
+        assertThat(marked).filteredOn(TranscriptExcelRow::vocationalTrainingSemester)
+            .extracting(TranscriptExcelRow::courseName)
+            .containsExactly("독서", "영어Ⅱ");
+        assertThat(marked).filteredOn(course -> !course.vocationalTrainingSemester())
+            .extracting(TranscriptExcelRow::courseName)
+            .containsExactly("수학Ⅱ");
+    }
+
+    @Test
     void keepsGraduationStatusInferredFromTransferWhenSchoolInfoHasNoGraduationYear() {
         Student student = Student.create(2027, "A-001", "미등록", null, null, 2026);
         ApplicantSchoolInfoRow schoolInfo = new ApplicantSchoolInfoRow(
@@ -203,5 +227,14 @@ class TransferImportServiceTest {
         });
         assertThat(result.createdApplications()).isEqualTo(1);
         assertThat(result.deletedApplications()).isEqualTo(2);
+    }
+
+    private TranscriptExcelRow course(String applicantNumber, int schoolYear, int semester, String name) {
+        return new TranscriptExcelRow(
+            2, applicantNumber, "미등록", null, null, 2026,
+            schoolYear, semester, SubjectCategory.KOREAN, name, 3, GradeScale.NINE_LEVEL,
+            null, null, null, null, 100, null, null, null,
+            new BigDecimal("3"), false, false
+        );
     }
 }

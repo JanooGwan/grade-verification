@@ -273,7 +273,7 @@ public class AdmissionService {
             course.getSchoolYear(), course.getSemester(), course.getSubjectCategory(), course.getCourseName(),
             course.getGrade(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
             course.getStandardDeviation(), course.getStudentCount(), course.isCareerSubject(),
-            course.isProfessionalCourse(), course.getCredits()
+            course.isProfessionalCourse(), course.isVocationalTrainingSemester(), course.getCredits()
         );
     }
 

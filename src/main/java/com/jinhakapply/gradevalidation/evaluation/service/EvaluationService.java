@@ -286,7 +286,7 @@ public class EvaluationService {
             else if (isSyuGuidebookYear(rule) && Integer.valueOf(1).equals(course.studentCount()))
                 exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
             else if (isKbu2026(rule) && resolvedHighSchoolType == HighSchoolType.GENERAL
-                && course.schoolYear() == 3 && course.professionalCourse())
+                && course.schoolYear() == 3 && course.vocationalTrainingSemester())
                 exclusionReason = "경복대학교는 일반계 고교의 3학년 직업과정 성적을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
@@ -333,6 +333,17 @@ public class EvaluationService {
 
     private BigDecimal resolveEffectiveGrade(EvaluationRule rule, VerifyGradeRequest.CourseGrade course,
         BigDecimal rankPercentile) {
+        if (isKbu2026(rule) && course.achievement() != null) {
+            if (course.careerSubject()) {
+                return rule.getAchievementGrades().get(course.achievement());
+            }
+            if (hasZScoreInputs(course)) {
+                return BigDecimal.valueOf(
+                    gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation())
+                );
+            }
+            return null;
+        }
         if (course.grade() != null) {
             if (course.gradeScale() != null && course.gradeScale() != rule.getInputGradeScale()) {
                 throw CustomException.of(INVALID_EVALUATION_RULE,
@@ -352,6 +363,10 @@ public class EvaluationService {
             return BigDecimal.valueOf(gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation()));
         }
         return rule.getAchievementGrades().get(course.achievement());
+    }
+
+    private boolean hasZScoreInputs(VerifyGradeRequest.CourseGrade course) {
+        return course.rawScore() != null && course.meanScore() != null && course.standardDeviation() != null;
     }
 
     private BigDecimal resolveRankPercentile(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
