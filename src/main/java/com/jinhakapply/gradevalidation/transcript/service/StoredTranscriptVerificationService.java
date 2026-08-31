@@ -3,6 +3,8 @@ package com.jinhakapply.gradevalidation.transcript.service;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_TRANSCRIPT_FILE;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.STORED_TRANSCRIPT_DATA_NOT_FOUND;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -76,6 +78,30 @@ public class StoredTranscriptVerificationService {
             List.of(),
             warnings(transcriptImport),
             stored.verification()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public void writeExport(Long universityId, int admissionYear, OutputStream output) throws IOException {
+        StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
+        if (isSyuSource(latestImport)) {
+            output.write(syuImportScoreExcelWriter.write(latestImport));
+            return;
+        }
+        StoredVerification stored = verifyStored(universityId, admissionYear);
+        StudentTranscriptImport transcriptImport = stored.transcriptImport();
+        validationExcelWriter.write(
+            transcriptImport.getOriginalFileName(),
+            transcriptImport.getSourceFormat(),
+            transcriptImport.getUniversity().getName(),
+            stored.applications().size(),
+            transcriptImport.getTotalRows(),
+            List.of(),
+            stored.courses(),
+            List.of(),
+            warnings(transcriptImport),
+            stored.verification(),
+            output
         );
     }
 

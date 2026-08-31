@@ -4,6 +4,7 @@ import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALI
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -76,9 +77,33 @@ class TranscriptValidationExcelWriter {
         List<String> warnings,
         TranscriptBatchVerificationResult verification
     ) {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            write(
+                originalFileName, sourceFormat, universityName, applicationRows, totalRows,
+                skipped, courses, errors, warnings, verification, output
+            );
+            return output.toByteArray();
+        } catch (IOException exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "검증 결과 Excel 파일을 생성하지 못했습니다.");
+        }
+    }
+
+    void write(
+        String originalFileName,
+        String sourceFormat,
+        String universityName,
+        int applicationRows,
+        int totalRows,
+        List<TranscriptImportRowError> skipped,
+        List<TranscriptExcelRow> courses,
+        List<TranscriptImportRowError> errors,
+        List<String> warnings,
+        TranscriptBatchVerificationResult verification,
+        OutputStream output
+    ) throws IOException {
         SXSSFWorkbook workbook = new SXSSFWorkbook(200);
         workbook.setCompressTempFiles(true);
-        try (workbook; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        try (workbook) {
             Styles styles = new Styles(workbook);
             boolean kbu = isKbu(universityName);
             if (kbu) createKbuVerificationResultSheet(workbook, styles, universityName, verification);
@@ -91,9 +116,6 @@ class TranscriptValidationExcelWriter {
                 verification, skipped, errors
             );
             workbook.write(output);
-            return output.toByteArray();
-        } catch (IOException exception) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "검증 결과 Excel 파일을 생성하지 못했습니다.");
         }
     }
 

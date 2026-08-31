@@ -111,11 +111,14 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
-    public ResponseEntity<byte[]> exportStoredTranscriptVerification(Long universityId, int admissionYear) {
-        byte[] result = storedTranscriptVerificationService.export(universityId, admissionYear);
+    public ResponseEntity<StreamingResponseBody> exportStoredTranscriptVerification(
+        Long universityId,
+        int admissionYear
+    ) {
+        StreamingResponseBody result = output ->
+            storedTranscriptVerificationService.writeExport(universityId, admissionYear, output);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-            .contentLength(result.length)
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                 .filename("DB-성적검증결과.xlsx", StandardCharsets.UTF_8)
                 .build()

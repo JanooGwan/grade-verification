@@ -123,7 +123,7 @@ public interface TranscriptApi {
         value = "/verifications/export",
         produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    ResponseEntity<byte[]> exportStoredTranscriptVerification(
+    ResponseEntity<StreamingResponseBody> exportStoredTranscriptVerification(
         @RequestParam @NotNull @Positive Long universityId,
         @RequestParam @Min(2000) @Max(2100) int admissionYear
     );

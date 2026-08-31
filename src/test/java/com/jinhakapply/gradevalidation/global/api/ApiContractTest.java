@@ -125,11 +125,18 @@ class ApiContractTest {
 
     @Test
     void downloadsStoredTranscriptValidationResultAsExcel() throws Exception {
-        when(storedTranscriptVerificationService.export(1L, 2027)).thenReturn(new byte[] {4, 5, 6});
+        doAnswer(invocation -> {
+            invocation.<OutputStream>getArgument(2).write(new byte[] {4, 5, 6});
+            return null;
+        }).when(storedTranscriptVerificationService).writeExport(eq(1L), eq(2027), any(OutputStream.class));
 
-        mockMvc.perform(get("/api/transcripts/verifications/export")
+        MvcResult async = mockMvc.perform(get("/api/transcripts/verifications/export")
                 .param("admissionYear", "2027")
                 .param("universityId", "1"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(async))
             .andExpect(status().isOk())
             .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .andExpect(header().string(
