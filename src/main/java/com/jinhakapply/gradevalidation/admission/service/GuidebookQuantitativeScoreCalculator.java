@@ -31,9 +31,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     public boolean supports(EvaluationRule rule) {
         String university = normalizePolicyText(rule.getUniversity().getName());
         return ((rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
-            && university.contains("한국공학"))
-            || (rule.getAdmissionYear() == 2027 && (university.contains("명지전문")
-            || university.contains("삼육")))
+            && (university.contains("한국공학") || university.contains("명지전문")))
+            || (rule.getAdmissionYear() == 2027 && university.contains("삼육"))
             || (rule.getAdmissionYear() == 2026 && university.contains("경복"));
     }
 
@@ -55,6 +54,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         List<ScoreCalculationStep> steps = new ArrayList<>();
 
         validateTukEligibility(university, track, commonData, ineligible);
+        validateMjcEligibility(university, track, commonData, ineligible);
         BigDecimal baseScore = ineligible.isEmpty()
             ? resolveBaseScore(rule, university, track, gradeVerification, commonData, request, pending, warnings, steps)
             : ZERO;
@@ -79,6 +79,9 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         }
         if (university.contains("명지전문") && track.contains("항공서비스")) {
             pending.add("면접 정성평가 600점");
+            maximumTotal = new BigDecimal("1000.00");
+        } else if (university.contains("명지전문") && isMjcPracticalTrack(track)) {
+            pending.add("실기고사 800점");
             maximumTotal = new BigDecimal("1000.00");
         }
         if (university.contains("경복")) {
@@ -242,6 +245,29 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         }
     }
 
+    private void validateMjcEligibility(
+        String university,
+        String track,
+        StudentCommonEvaluationSnapshot commonData,
+        List<String> ineligible
+    ) {
+        if (!university.contains("명지전문")) return;
+
+        boolean generalHighSchoolTrack = track.contains("특별전형일반고");
+        boolean specializedHighSchoolTrack = track.contains("특별전형특성화고");
+        boolean linkedEducationTrack = track.contains("협약을통한연계교육")
+            || track.contains("협약통한연계교육");
+        boolean ruralTrack = track.contains("농어촌");
+        if (commonData.educationBackground() == EducationBackground.GED
+            && (generalHighSchoolTrack || linkedEducationTrack || ruralTrack)) {
+            ineligible.add("명지전문대학 해당 전형은 검정고시 출신자가 지원할 수 없습니다.");
+        }
+        if (commonData.educationBackground() == EducationBackground.FOREIGN_HIGH_SCHOOL
+            && (generalHighSchoolTrack || specializedHighSchoolTrack || linkedEducationTrack || ruralTrack)) {
+            ineligible.add("명지전문대학 해당 전형은 외국고등학교 출신자가 지원할 수 없습니다.");
+        }
+    }
+
     private int mjcGedGrade(BigDecimal score) {
         if (score.compareTo(new BigDecimal("100")) >= 0) return 1;
         if (score.compareTo(new BigDecimal("98")) >= 0) return 2;
@@ -313,13 +339,12 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
                 "검정고시 환산에는 국어·영어·수학·한국사·사회·과학 점수가 모두 필요합니다.");
         }
-        if (!useMjcWeights) {
-            boolean duplicateRequiredSubject = required.stream().anyMatch(type -> data.gedSubjectScores().stream()
-                .filter(subject -> subject.subjectType() == type).count() != 1);
-            if (duplicateRequiredSubject) {
-                throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
-                    "경복대학교 검정고시 필수과목은 과목별로 정확히 1개 점수만 등록해야 합니다.");
-            }
+        boolean duplicateRequiredSubject = required.stream().anyMatch(type -> data.gedSubjectScores().stream()
+            .filter(subject -> subject.subjectType() == type).count() != 1);
+        if (duplicateRequiredSubject) {
+            String universityName = useMjcWeights ? "명지전문대학" : "경복대학교";
+            throw CustomException.of(INVALID_APPLICATION_SCORE_INPUT,
+                universityName + " 검정고시 필수과목은 과목별로 정확히 1개 점수만 등록해야 합니다.");
         }
         BigDecimal gradeTimesUnits = BigDecimal.ZERO;
         BigDecimal units = BigDecimal.ZERO;
@@ -470,6 +495,13 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     private boolean isKbuHealthTrack(String track) {
         return track.contains("간호") || track.contains("치위생") || track.contains("작업치료")
             || track.contains("임상병리") || track.contains("물리치료");
+    }
+
+    private boolean isMjcPracticalTrack(String track) {
+        return track.contains("실기위주") || track.contains("실기학과")
+            || track.contains("실용음악") || track.contains("연극영상")
+            || track.contains("문예창작") || track.contains("산업디자인")
+            || track.contains("사회체육");
     }
 
     private BigDecimal kbuAllowedBonus(String track) {

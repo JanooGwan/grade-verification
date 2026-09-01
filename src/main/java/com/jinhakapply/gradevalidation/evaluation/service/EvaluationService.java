@@ -358,9 +358,13 @@ public class EvaluationService {
             return rule.getLegacyAchievementGrades().get(course.legacyAchievement());
         }
         if (course.achievement() == null || rule.getAchievementConversion() == AchievementConversion.EXCLUDE) return null;
-        if (rule.getAchievementConversion() == AchievementConversion.Z_SCORE
-            && course.rawScore() != null && course.meanScore() != null && course.standardDeviation() != null) {
-            return BigDecimal.valueOf(gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation()));
+        if (rule.getAchievementConversion() == AchievementConversion.Z_SCORE) {
+            if (hasZScoreInputs(course)) {
+                return BigDecimal.valueOf(
+                    gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation())
+                );
+            }
+            if (isMjcGuidebookYear(rule)) return null;
         }
         return rule.getAchievementGrades().get(course.achievement());
     }
@@ -472,7 +476,11 @@ public class EvaluationService {
     }
 
     private boolean isMjcTwoYear(EvaluationRule rule, HighSchoolType highSchoolType) {
-        return highSchoolType == HighSchoolType.TWO_YEAR && rule.getAdmissionYear() == 2027
+        return highSchoolType == HighSchoolType.TWO_YEAR && isMjcGuidebookYear(rule);
+    }
+
+    private boolean isMjcGuidebookYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("명지전문");
     }
 

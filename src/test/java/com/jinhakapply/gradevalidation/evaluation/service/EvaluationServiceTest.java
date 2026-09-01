@@ -493,26 +493,66 @@ class EvaluationServiceTest {
 
     @Test
     void appliesMjcTwoYearHighSchoolThirtyThirtyFortySemesters() {
-        EvaluationRule mjcRule = rule(SelectionStrategy.BEST_SEMESTER_PER_GRADE, 0,
-            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("30", "30", "40"),
-            decimals("1", "1", "1", "1", "1", "1"));
-        ReflectionTestUtils.setField(mjcRule.getUniversity(), "name", "명지전문대학교");
-        ReflectionTestUtils.setField(mjcRule, "normalizeGradeWeights", true);
+        for (int admissionYear : List.of(2026, 2027)) {
+            EvaluationRule mjcRule = mjcRule(admissionYear);
+            mockRule(mjcRule);
+
+            GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+                1L, false, HighSchoolType.TWO_YEAR, List.of(
+                    course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 1, "3"),
+                    course(1, 2, SubjectCategory.KOREAN, "1-2 국어", 2, "3"),
+                    course(2, 1, SubjectCategory.KOREAN, "2-1 국어", 3, "3"),
+                    course(2, 2, SubjectCategory.KOREAN, "2-2 국어", 1, "3")
+                )
+            ));
+
+            assertThat(response.selectionStrategy()).as("%s학년도", admissionYear)
+                .isEqualTo(SelectionStrategy.ALL_COURSES);
+            assertThat(response.includedCourseCount()).isEqualTo(3);
+            assertThat(response.finalScore()).isEqualByComparingTo("89.00000");
+            assertThat(response.calculationSummary().yearWeightDenominators()).containsOnlyKeys(11, 12, 21);
+        }
+    }
+
+    @Test
+    void appliesMjc2026BestSemestersAndExcludesThirdYearSecondSemester() {
+        EvaluationRule mjcRule = mjcRule(2026);
         mockRule(mjcRule);
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
-            1L, false, HighSchoolType.TWO_YEAR, List.of(
-                course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 1, "3"),
+            1L, true, HighSchoolType.GENERAL, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 5, "3"),
                 course(1, 2, SubjectCategory.KOREAN, "1-2 국어", 2, "3"),
                 course(2, 1, SubjectCategory.KOREAN, "2-1 국어", 3, "3"),
-                course(2, 2, SubjectCategory.KOREAN, "2-2 국어", 1, "3")
+                course(2, 2, SubjectCategory.KOREAN, "2-2 국어", 1, "3"),
+                course(3, 1, SubjectCategory.KOREAN, "3-1 국어", 4, "3"),
+                course(3, 2, SubjectCategory.KOREAN, "3-2 국어", 1, "3")
             )
         ));
 
-        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
-        assertThat(response.includedCourseCount()).isEqualTo(3);
-        assertThat(response.finalScore()).isEqualByComparingTo("94.5000");
-        assertThat(response.calculationSummary().yearWeightDenominators()).containsOnlyKeys(11, 12, 21);
+        assertThat(response.finalScore()).isEqualByComparingTo("85.00000");
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("1-2 국어", "2-2 국어", "3-1 국어");
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("3-2 국어"))
+            .singleElement().extracting(GradeVerificationResponse.CourseCalculation::exclusionReason)
+            .asString().contains("3학년 2학기");
+    }
+
+    @Test
+    void excludesMjc2026AchievementCourseWithoutZScoreInputs() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 1, "3"),
+            careerCourse(1, 1, SubjectCategory.SCIENCE, "과학탐구실험", AchievementLevel.A, "3")
+        )));
+
+        assertThat(response.includedCourseCount()).isEqualTo(1);
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학탐구실험"))
+            .singleElement().extracting(GradeVerificationResponse.CourseCalculation::exclusionReason)
+            .asString().contains("환산 가능한 성취도 정보가 없습니다");
     }
 
     @Test
@@ -971,6 +1011,22 @@ class EvaluationServiceTest {
         rule.getSubjectPriorities().put(SubjectCategory.ENGLISH, 4);
         rule.getSubjectPriorities().put(SubjectCategory.SOCIAL, 5);
         rule.getSubjectPriorities().put(SubjectCategory.OTHER, 6);
+        return rule;
+    }
+
+    private EvaluationRule mjcRule(int admissionYear) {
+        EvaluationRule rule = rule(SelectionStrategy.BEST_SEMESTER_PER_GRADE, 0,
+            ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("30", "30", "40"),
+            decimals("1", "1", "1", "1", "1", "1"), AchievementConversion.Z_SCORE);
+        ReflectionTestUtils.setField(rule.getUniversity(), "name", "명지전문대학교");
+        ReflectionTestUtils.setField(rule, "admissionYear", admissionYear);
+        ReflectionTestUtils.setField(rule, "includeProfessionalCourses", true);
+        ReflectionTestUtils.setField(rule, "normalizeGradeWeights", true);
+        ReflectionTestUtils.setField(rule, "intermediateScale", 5);
+        ReflectionTestUtils.setField(rule, "finalScale", 5);
+        rule.getGradeScores().clear();
+        List<BigDecimal> scores = decimals("100", "90", "80", "70", "60", "50", "40", "30", "20");
+        for (int grade = 1; grade <= 9; grade++) rule.getGradeScores().put(grade, scores.get(grade - 1));
         return rule;
     }
 

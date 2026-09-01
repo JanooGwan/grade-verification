@@ -39,6 +39,15 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
+    void supportsBothMjcGuidebookYears() {
+        Map<Integer, BigDecimal> gradeScores = scores(100, 90, 80, 70, 60, 50, 40, 30, 20);
+
+        assertThat(calculator.supports(rule("MJC", "명지전문대학교", 2026, "10", gradeScores))).isTrue();
+        assertThat(calculator.supports(rule("MJC", "명지전문대학교", 2027, "10", gradeScores))).isTrue();
+        assertThat(calculator.supports(rule("MJC", "명지전문대학교", 2025, "10", gradeScores))).isFalse();
+    }
+
+    @Test
     void calculatesTuk2026EssayTotalWithComparisonScoreForCutoffGraduate() {
         var result = calculator.calculate(
             rule("TUK", "한국공학대학교", 2026, "1", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
@@ -186,8 +195,8 @@ class GuidebookQuantitativeScoreCalculatorTest {
     }
 
     @Test
-    void convertsMjcGedWeightedAverageAndKeepsAviationInterviewPending() {
-        var result = calculator.calculate(rule("MJC", "명지전문대학교", 2027, "4", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)),
+    void convertsMjc2026GedAverageAndKeepsAviationInterviewPending() {
+        var result = calculator.calculate(rule("MJC", "명지전문대학교", 2026, "4", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)),
             "정원내 특별전형(어학우수자) 항공서비스과", null, request(null),
             common(EducationBackground.GED, "96.4", 0, 0));
 
@@ -195,6 +204,58 @@ class GuidebookQuantitativeScoreCalculatorTest {
         assertThat(result.academicScore()).isEqualByComparingTo("320.00");
         assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
         assertThat(result.pendingComponents()).containsExactly("면접 정성평가 600점");
+    }
+
+    @Test
+    void keepsMjc2026PracticalScorePendingAndReportsThousandPointMaximum() {
+        var result = calculator.calculate(
+            rule("MJC", "명지전문대학교", 2026, "2", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)),
+            "정원내 일반전형(실기위주) 실기학과", verification("95"), request(null),
+            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0)
+        );
+
+        assertThat(result.academicScore()).isEqualByComparingTo("190.00");
+        assertThat(result.status()).isEqualTo(ApplicationScoreStatus.QUALITATIVE_PENDING);
+        assertThat(result.maximumQuantitativeScore()).isEqualByComparingTo("200.00");
+        assertThat(result.maximumTotalScore()).isEqualByComparingTo("1000.00");
+        assertThat(result.pendingComponents()).containsExactly("실기고사 800점");
+    }
+
+    @Test
+    void rejectsMjc2026GedAndForeignApplicantsFromRestrictedTracks() {
+        EvaluationRule rule = rule(
+            "MJC", "명지전문대학교", 2026, "10", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)
+        );
+
+        var ged = calculator.calculate(rule, "정원내 특별전형(일반고)", null, request(null),
+            common(EducationBackground.GED, "100", 0, 0));
+        var foreign = calculator.calculate(rule, "정원내 특별전형(특성화고)", null, request(null),
+            common(EducationBackground.FOREIGN_HIGH_SCHOOL, null, 0, 0));
+
+        assertThat(ged.status()).isEqualTo(ApplicationScoreStatus.INELIGIBLE);
+        assertThat(ged.ineligibilityReasons()).singleElement().asString().contains("검정고시");
+        assertThat(foreign.status()).isEqualTo(ApplicationScoreStatus.INELIGIBLE);
+        assertThat(foreign.ineligibilityReasons()).singleElement().asString().contains("외국고등학교");
+    }
+
+    @Test
+    void appliesMjc2026ForeignHighSchoolLowestGradeAndViolenceRestriction() {
+        EvaluationRule practicalRule = rule(
+            "MJC", "명지전문대학교", 2026, "2", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)
+        );
+        var foreign = calculator.calculate(practicalRule, "정원내 일반전형(실기위주) 실기학과",
+            null, request(null), common(EducationBackground.FOREIGN_HIGH_SCHOOL, null, 0, 0));
+
+        EvaluationRule generalRule = rule(
+            "MJC", "명지전문대학교", 2026, "10", scores(100, 90, 80, 70, 60, 50, 40, 30, 20)
+        );
+        var violence = calculator.calculate(generalRule, "정원내 특별전형(특성화고)",
+            verification("100"), request(null), common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 8));
+
+        assertThat(foreign.academicScore()).isEqualByComparingTo("40.00");
+        assertThat(foreign.pendingComponents()).containsExactly("실기고사 800점");
+        assertThat(violence.status()).isEqualTo(ApplicationScoreStatus.INELIGIBLE);
+        assertThat(violence.ineligibilityReasons()).singleElement().asString().contains("8호 또는 9호");
     }
 
     @Test
