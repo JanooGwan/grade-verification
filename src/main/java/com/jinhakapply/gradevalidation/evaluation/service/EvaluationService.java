@@ -337,7 +337,7 @@ public class EvaluationService {
             if (course.careerSubject()) {
                 return rule.getAchievementGrades().get(course.achievement());
             }
-            if (hasZScoreInputs(course)) {
+            if (hasValidZScoreInputs(course)) {
                 return BigDecimal.valueOf(
                     gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation())
                 );
@@ -359,18 +359,21 @@ public class EvaluationService {
         }
         if (course.achievement() == null || rule.getAchievementConversion() == AchievementConversion.EXCLUDE) return null;
         if (rule.getAchievementConversion() == AchievementConversion.Z_SCORE) {
-            if (hasZScoreInputs(course)) {
+            if (hasValidZScoreInputs(course)) {
                 return BigDecimal.valueOf(
                     gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation())
                 );
             }
-            if (isMjcGuidebookYear(rule)) return null;
+            return null;
         }
         return rule.getAchievementGrades().get(course.achievement());
     }
 
-    private boolean hasZScoreInputs(VerifyGradeRequest.CourseGrade course) {
-        return course.rawScore() != null && course.meanScore() != null && course.standardDeviation() != null;
+    private boolean hasValidZScoreInputs(VerifyGradeRequest.CourseGrade course) {
+        return course.rawScore() != null
+            && course.meanScore() != null
+            && course.standardDeviation() != null
+            && course.standardDeviation().signum() > 0;
     }
 
     private BigDecimal resolveRankPercentile(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
@@ -757,7 +760,6 @@ public class EvaluationService {
     }
 
     private int gradeFromZScore(BigDecimal raw, BigDecimal mean, BigDecimal standardDeviation) {
-        if (standardDeviation.signum() == 0) return 9;
         double z = raw.subtract(mean).divide(standardDeviation, 10, RoundingMode.HALF_UP)
             .setScale(2, RoundingMode.HALF_UP).doubleValue();
         double percentile = (1.0 - normalCdf(z)) * 100.0;

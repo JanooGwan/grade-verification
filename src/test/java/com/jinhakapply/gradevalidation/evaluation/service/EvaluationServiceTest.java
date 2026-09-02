@@ -125,7 +125,7 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void convertsZeroStandardDeviationToNinthGradeDefensively() {
+    void excludesAchievementWithZeroStandardDeviationFromZScoreConversion() {
         EvaluationRule zScoreRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE,
             decimals("33.3333", "33.3333", "33.3334"), decimals("1", "1", "1", "1", "1", "1"),
@@ -137,10 +137,16 @@ class EvaluationServiceTest {
             true, false, new BigDecimal("3")
         );
 
-        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(course)));
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course,
+            course(1, 1, SubjectCategory.KOREAN, "국어", 3, "3")
+        )));
 
-        assertThat(response.calculations().getFirst().effectiveGrade()).isEqualByComparingTo("9");
-        assertThat(response.finalScore()).isEqualByComparingTo("40.0000");
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학탐구실험"))
+            .singleElement().satisfies(calculation -> {
+                assertThat(calculation.included()).isFalse();
+                assertThat(calculation.exclusionReason()).contains("환산 가능한 성취도 정보가 없습니다");
+            });
     }
 
     @Test
@@ -540,19 +546,24 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void excludesMjc2026AchievementCourseWithoutZScoreInputs() {
+    void excludesMjc2026AchievementCoursesWithoutCompletePositiveZScoreInputs() {
         EvaluationRule mjcRule = mjcRule(2026);
         mockRule(mjcRule);
 
         GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
             course(1, 1, SubjectCategory.KOREAN, "국어", 1, "3"),
-            careerCourse(1, 1, SubjectCategory.SCIENCE, "과학탐구실험", AchievementLevel.A, "3")
+            achievementCourse("원점수 누락", null, "80", "10"),
+            achievementCourse("평균 누락", "90", null, "10"),
+            achievementCourse("표준편차 누락", "90", "80", null),
+            achievementCourse("표준편차 0", "90", "80", "0")
         )));
 
         assertThat(response.includedCourseCount()).isEqualTo(1);
-        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("과학탐구실험"))
-            .singleElement().extracting(GradeVerificationResponse.CourseCalculation::exclusionReason)
-            .asString().contains("환산 가능한 성취도 정보가 없습니다");
+        assertThat(response.calculations()).filteredOn(item -> !item.included())
+            .hasSize(4)
+            .allSatisfy(calculation ->
+                assertThat(calculation.exclusionReason()).contains("환산 가능한 성취도 정보가 없습니다")
+            );
     }
 
     @Test
@@ -1040,6 +1051,20 @@ class EvaluationServiceTest {
         String name, AchievementLevel achievement, String credits) {
         return new VerifyGradeRequest.CourseGrade(year, semester, category, name, null, achievement,
             null, null, null, null, true, false, new BigDecimal(credits));
+    }
+
+    private static VerifyGradeRequest.CourseGrade achievementCourse(
+        String name, String rawScore, String meanScore, String standardDeviation
+    ) {
+        return new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.SCIENCE, name, null, AchievementLevel.A,
+            decimalOrNull(rawScore), decimalOrNull(meanScore), decimalOrNull(standardDeviation), 100,
+            true, false, new BigDecimal("3")
+        );
+    }
+
+    private static BigDecimal decimalOrNull(String value) {
+        return value == null ? null : new BigDecimal(value);
     }
 
     private static List<BigDecimal> decimals(String... values) {
