@@ -2,6 +2,7 @@ package com.jinhakapply.gradevalidation.transcript.controller;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentTranscriptResponse;
@@ -12,6 +13,8 @@ import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersiste
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStartResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStatusResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
@@ -25,6 +28,7 @@ import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
+import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,6 +43,7 @@ public class TranscriptController implements TranscriptApi {
     private final SyuSourceImportService syuSourceImportService;
     private final StoredTranscriptVerificationService storedTranscriptVerificationService;
     private final SavedVerificationQueryService savedVerificationQueryService;
+    private final SavedVerificationExportService savedVerificationExportService;
 
     @Override
     public ResponseEntity<SourceImportStartResponse> importSyuSourceExcel(
@@ -103,6 +108,29 @@ public class TranscriptController implements TranscriptApi {
             output.flush();
             output.write(savedVerificationQueryService.export(sourceImportId));
         };
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("저장검증결과-" + sourceImportId + ".xlsx", StandardCharsets.UTF_8)
+                .build()
+                .toString())
+            .body(result);
+    }
+
+    @Override
+    public ResponseEntity<SavedVerificationExportStartResponse> startSavedVerificationExport(Long sourceImportId) {
+        return ResponseEntity.accepted().body(savedVerificationExportService.start(sourceImportId));
+    }
+
+    @Override
+    public ResponseEntity<SavedVerificationExportStatusResponse> findSavedVerificationExport(UUID exportId) {
+        return ResponseEntity.ok(savedVerificationExportService.status(exportId));
+    }
+
+    @Override
+    public ResponseEntity<StreamingResponseBody> downloadSavedVerificationExport(UUID exportId) {
+        Long sourceImportId = savedVerificationExportService.sourceImportId(exportId);
+        StreamingResponseBody result = output -> savedVerificationExportService.writeFile(exportId, output);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()

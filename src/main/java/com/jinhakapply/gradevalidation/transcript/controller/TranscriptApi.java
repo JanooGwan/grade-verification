@@ -9,9 +9,12 @@ import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersiste
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStartResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStatusResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportMode;
 import java.util.List;
+import java.util.UUID;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -117,6 +120,27 @@ public interface TranscriptApi {
         produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     ResponseEntity<StreamingResponseBody> exportSavedVerificationBatch(@PathVariable Long sourceImportId);
+
+    @Operation(summary = "저장된 성적검증 결과 Excel 생성 시작")
+    @PostMapping("/saved-verifications/batches/{sourceImportId}/exports")
+    ResponseEntity<SavedVerificationExportStartResponse> startSavedVerificationExport(
+        @PathVariable Long sourceImportId
+    );
+
+    @Operation(summary = "저장된 성적검증 결과 Excel 생성 상태 조회")
+    @GetMapping("/saved-verifications/exports/{exportId}")
+    ResponseEntity<SavedVerificationExportStatusResponse> findSavedVerificationExport(
+        @PathVariable UUID exportId
+    );
+
+    @Operation(summary = "준비된 성적검증 결과 Excel 다운로드")
+    @GetMapping(
+        value = "/saved-verifications/exports/{exportId}/file",
+        produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    ResponseEntity<StreamingResponseBody> downloadSavedVerificationExport(
+        @PathVariable UUID exportId
+    );
 
     @Operation(summary = "DB 저장 학생부 성적검증 결과 다운로드")
     @GetMapping(

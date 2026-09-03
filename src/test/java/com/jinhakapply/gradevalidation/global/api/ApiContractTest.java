@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import com.jinhakapply.gradevalidation.admission.controller.AdmissionController;
 import com.jinhakapply.gradevalidation.admission.dto.AdmissionTrackResponse;
@@ -56,11 +57,14 @@ import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
+import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStartResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStatusResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationResultRow;
 import com.jinhakapply.gradevalidation.university.controller.UniversityController;
 import com.jinhakapply.gradevalidation.university.dto.UniversityResponse;
@@ -99,6 +103,7 @@ class ApiContractTest {
     @MockitoBean SyuSourceImportService syuSourceImportService;
     @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
     @MockitoBean SavedVerificationQueryService savedVerificationQueryService;
+    @MockitoBean SavedVerificationExportService savedVerificationExportService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
     @MockitoBean OperationalMetrics operationalMetrics;
@@ -170,6 +175,41 @@ class ApiContractTest {
             .andExpect(content().bytes(new byte[] {7, 8, 9}));
 
         verify(savedVerificationQueryService).export(80L);
+    }
+
+    @Test
+    void preparesAndDownloadsSavedVerificationBatchWithoutHoldingTheRequest() throws Exception {
+        UUID exportId = UUID.randomUUID();
+        when(savedVerificationExportService.start(80L)).thenReturn(
+            new SavedVerificationExportStartResponse(exportId, 80L, "PROCESSING")
+        );
+        when(savedVerificationExportService.status(exportId)).thenReturn(
+            new SavedVerificationExportStatusResponse(exportId, 80L, "READY", null)
+        );
+        when(savedVerificationExportService.sourceImportId(exportId)).thenReturn(80L);
+        doAnswer(invocation -> {
+            invocation.<OutputStream>getArgument(1).write(new byte[] {7, 8, 9});
+            return null;
+        }).when(savedVerificationExportService).writeFile(eq(exportId), any(OutputStream.class));
+
+        mockMvc.perform(post("/api/transcripts/saved-verifications/batches/80/exports"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.exportId").value(exportId.toString()))
+            .andExpect(jsonPath("$.status").value("PROCESSING"));
+
+        mockMvc.perform(get("/api/transcripts/saved-verifications/exports/{exportId}", exportId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("READY"));
+
+        MvcResult async = mockMvc.perform(get(
+                "/api/transcripts/saved-verifications/exports/{exportId}/file", exportId
+            ))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(async))
+            .andExpect(status().isOk())
+            .andExpect(content().bytes(new byte[] {7, 8, 9}));
     }
 
     @Test
