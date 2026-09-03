@@ -153,7 +153,11 @@ class ApiContractTest {
     void downloadsSavedVerificationBatchAsExcel() throws Exception {
         when(savedVerificationQueryService.export(80L)).thenReturn(new byte[] {7, 8, 9});
 
-        mockMvc.perform(get("/api/transcripts/saved-verifications/batches/80/export"))
+        MvcResult async = mockMvc.perform(get("/api/transcripts/saved-verifications/batches/80/export"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(async))
             .andExpect(status().isOk())
             .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
             .andExpect(header().string(

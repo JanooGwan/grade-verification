@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -67,6 +68,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiErrorResponse> handleMaxUploadSize() {
         return handleCustomException(CustomException.of(ApiResponseCode.UPLOAD_TOO_LARGE));
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleDisconnectedClient(AsyncRequestNotUsableException exception) {
+        log.debug("Client disconnected before the response completed: {}", exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

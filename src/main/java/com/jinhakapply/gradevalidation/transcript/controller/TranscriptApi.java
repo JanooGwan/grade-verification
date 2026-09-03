@@ -116,7 +116,7 @@ public interface TranscriptApi {
         value = "/saved-verifications/batches/{sourceImportId}/export",
         produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    ResponseEntity<byte[]> exportSavedVerificationBatch(@PathVariable Long sourceImportId);
+    ResponseEntity<StreamingResponseBody> exportSavedVerificationBatch(@PathVariable Long sourceImportId);
 
     @Operation(summary = "DB 저장 학생부 성적검증 결과 다운로드")
     @GetMapping(
