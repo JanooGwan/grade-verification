@@ -62,7 +62,7 @@ class AdmissionServiceTest {
         service = new AdmissionService(
             trackRepository, unitRepository, applicationRepository, universityRepository,
             studentRepository, courseRepository, ruleRepository, evaluationService,
-            verificationRunRepository, objectMapper, verificationResultExcelWriter
+            verificationRunRepository, objectMapper, new EvaluationRuleMatcher(), verificationResultExcelWriter
         );
         when(applicationRepository.findOneById(20L)).thenReturn(Optional.of(application));
         when(application.getStudent()).thenReturn(student);

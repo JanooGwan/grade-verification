@@ -3,11 +3,8 @@ package com.jinhakapply.gradevalidation.admission.service;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.CONFLICTING_EVALUATION_RULES;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.MATCHING_EVALUATION_RULE_NOT_FOUND;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.STUDENT_APPLICATION_NOT_FOUND;
-import static com.jinhakapply.gradevalidation.global.util.TextNormalizer.normalizePolicyText;
-
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.admission.domain.ApplicationScoreRun;
@@ -45,11 +42,6 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ApplicationScoreService {
-    private static final Set<String> COMMON_UNIT_NAMES = Set.of(
-        "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
-        "공통", "모든모집단위"
-    );
-
     private final StudentApplicationRepository applicationRepository;
     private final StudentTranscriptCourseRepository courseRepository;
     private final EvaluationRuleRepository ruleRepository;
@@ -61,6 +53,7 @@ public class ApplicationScoreService {
     private final StudentSchoolViolenceActionRepository schoolViolenceRepository;
     private final StudentGedSubjectScoreRepository gedSubjectScoreRepository;
     private final StudentLegacyGradeSummaryRepository legacyGradeSummaryRepository;
+    private final EvaluationRuleMatcher evaluationRuleMatcher;
 
     @Transactional
     public ApplicationScoreResponse calculate(
@@ -116,14 +109,14 @@ public class ApplicationScoreService {
         List<EvaluationRule> sameTrack = ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
                 track.getUniversity().getId(), track.getAdmissionYear(), EvaluationRuleStatus.PUBLISHED)
             .stream()
-            .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(normalizePolicyText(track.getName())))
+            .filter(rule -> evaluationRuleMatcher.matchesAdmissionType(rule, track.getName(), unit.getName()))
             .toList();
         List<EvaluationRule> exact = sameTrack.stream()
-            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(normalizePolicyText(unit.getName())))
+            .filter(rule -> evaluationRuleMatcher.exactlyMatchesRecruitmentUnit(rule, unit.getName()))
             .toList();
         List<EvaluationRule> candidates = exact.isEmpty()
             ? sameTrack.stream()
-                .filter(rule -> COMMON_UNIT_NAMES.contains(normalizePolicyText(rule.getRecruitmentUnit())))
+                .filter(rule -> evaluationRuleMatcher.matchesRecruitmentUnit(rule, unit.getName()))
                 .toList()
             : exact;
         if (candidates.isEmpty()) throw CustomException.of(MATCHING_EVALUATION_RULE_NOT_FOUND);

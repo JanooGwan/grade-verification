@@ -546,6 +546,69 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void substitutesMjc2026MissingWeightedGradeWithGradeNine() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.GENERAL, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "1학년 국어", 1, "3"),
+                course(2, 1, SubjectCategory.MATH, "2학년 수학", 3, "3")
+            )
+        ));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("62.00000");
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .anyMatch(name -> name.toString().contains("3학년 1학기"));
+        assertThat(response.warnings()).anyMatch(warning -> warning.contains("9등급으로 적용"));
+    }
+
+    @Test
+    void substitutesEveryMjc2026WeightedGradeWhenNoCourseCanBeConverted() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            achievementCourse("환산자료 없는 성취평가", "90", "80", null)
+        )));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("20.00000");
+        assertThat(response.includedCourseCount()).isEqualTo(3);
+    }
+
+    @Test
+    void roundsMjcSemesterGradeToFiveDecimalsBeforeApplyingYearWeights() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 1, "2"),
+            course(1, 1, SubjectCategory.MATH, "수학", 2, "1"),
+            course(2, 1, SubjectCategory.ENGLISH, "영어", 2, "3"),
+            course(3, 1, SubjectCategory.SOCIAL, "사회", 3, "3")
+        )));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("88.00001");
+    }
+
+    @Test
+    void substitutesMissingMjcTwoYearSemesterWithGradeNine() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(
+            1L, false, HighSchoolType.TWO_YEAR, List.of(
+                course(1, 1, SubjectCategory.KOREAN, "1-1 국어", 1, "3"),
+                course(2, 1, SubjectCategory.MATH, "2-1 수학", 3, "3")
+            )
+        ));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("68.00000");
+        assertThat(response.calculationSummary().yearWeightDenominators()).containsOnlyKeys(11, 12, 21);
+    }
+
+    @Test
     void excludesMjc2026AchievementCoursesWithoutCompletePositiveZScoreInputs() {
         EvaluationRule mjcRule = mjcRule(2026);
         mockRule(mjcRule);
@@ -558,7 +621,7 @@ class EvaluationServiceTest {
             achievementCourse("표준편차 0", "90", "80", "0")
         )));
 
-        assertThat(response.includedCourseCount()).isEqualTo(1);
+        assertThat(response.includedCourseCount()).isEqualTo(3);
         assertThat(response.calculations()).filteredOn(item -> !item.included())
             .hasSize(4)
             .allSatisfy(calculation ->

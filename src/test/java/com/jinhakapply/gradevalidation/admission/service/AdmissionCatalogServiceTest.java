@@ -61,7 +61,7 @@ class AdmissionCatalogServiceTest {
         service = new AdmissionService(
             trackRepository, unitRepository, applicationRepository, universityRepository,
             studentRepository, courseRepository, ruleRepository, evaluationService,
-            verificationRunRepository, objectMapper, verificationResultExcelWriter
+            verificationRunRepository, objectMapper, new EvaluationRuleMatcher(), verificationResultExcelWriter
         );
     }
 

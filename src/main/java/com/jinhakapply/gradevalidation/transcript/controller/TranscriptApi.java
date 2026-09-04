@@ -60,6 +60,19 @@ public interface TranscriptApi {
     );
 
     @Operation(
+        summary = "명지전문대 원천 CSV 가져오기",
+        description = "2026학년도 지원자정보·학생부기본정보·교과학습발달상황 CSV를 스트리밍으로 가져옵니다."
+    )
+    @PostMapping(value = "/imports/source/mjc", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<SourceImportStartResponse> importMjcSourceCsv(
+        @RequestParam @Min(2000) @Max(2100) int admissionYear,
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestPart("applicantsFile") MultipartFile applicantsFile,
+        @RequestPart("baseInfoFile") MultipartFile baseInfoFile,
+        @RequestPart("subjectScoreFile") MultipartFile subjectScoreFile
+    );
+
+    @Operation(
         summary = "학생부 Excel 가져오기",
         description = "첫 번째 시트의 한 행을 한 과목으로 읽습니다. "
             + "필수 헤더는 지원자번호, 학생명, 학년, 학기, 교과, 과목명, 이수단위입니다. "

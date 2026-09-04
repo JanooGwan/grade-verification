@@ -53,6 +53,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class EvaluationService {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final String MJC_MISSING_GRADE_COURSE_PREFIX = "성적 미기재 9등급 보정";
     private final EvaluationRuleRepository ruleRepository;
     private final UniversityRepository universityRepository;
     private final DeclarativeSelectionPolicyEngine selectionPolicyEngine;
@@ -168,6 +169,7 @@ public class EvaluationService {
             rule, request.courses(), request.graduated(), includesProfessionalCourses(rule, scope),
             scope.includeAllSubjectCategories(), request.highSchoolType()
         );
+        candidates = addMjcMissingGradeCandidates(rule, request.highSchoolType(), candidates);
         validateSyuMinimumSemesters(rule, candidates);
         validateKbuSelectionGroups(rule, scope.selectionStrategy(), candidates);
         CourseSelection selection = selectCourses(
@@ -229,6 +231,15 @@ public class EvaluationService {
                 course.legacyAchievement(), candidate.effectiveGrade(),
                 candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedCredits, appliedWeight,
                 weightedScore, selected, exclusionReason));
+        }
+
+        if (isMjcGuidebookYear(rule)) {
+            MjcAggregation aggregation = aggregateMjcSelectedSemesters(
+                rule, request.highSchoolType(), candidates, selectedIndexes
+            );
+            totalGrade = aggregation.totalGrade();
+            totalConvertedScore = aggregation.totalConvertedScore();
+            totalWeight = aggregation.totalWeight();
         }
 
         if (totalWeight.signum() == 0) {
@@ -300,6 +311,61 @@ public class EvaluationService {
             candidates.add(new Candidate(index, course, effectiveGrade, convertedScore, rankPercentile, exclusionReason));
         }
         return candidates;
+    }
+
+    private List<Candidate> addMjcMissingGradeCandidates(
+        EvaluationRule rule,
+        HighSchoolType highSchoolType,
+        List<Candidate> candidates
+    ) {
+        if (!isMjcGuidebookYear(rule)) return candidates;
+        HighSchoolType resolvedType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
+        List<Candidate> completed = new ArrayList<>(candidates);
+        if (isMjcTwoYear(rule, resolvedType)) {
+            addMjcMissingGradeCandidate(rule, completed, 1, 1);
+            addMjcMissingGradeCandidate(rule, completed, 1, 2);
+            addMjcMissingGradeCandidate(rule, completed, 2, 1);
+            return completed;
+        }
+        addMjcMissingYearCandidate(rule, completed, 1, List.of(1, 2));
+        addMjcMissingYearCandidate(rule, completed, 2, List.of(1, 2));
+        addMjcMissingYearCandidate(rule, completed, 3, List.of(1));
+        return completed;
+    }
+
+    private void addMjcMissingYearCandidate(
+        EvaluationRule rule,
+        List<Candidate> candidates,
+        int schoolYear,
+        List<Integer> semesters
+    ) {
+        boolean exists = candidates.stream().filter(Candidate::eligible)
+            .anyMatch(candidate -> candidate.course().schoolYear() == schoolYear
+                && semesters.contains(candidate.course().semester()));
+        if (!exists) addMjcMissingGradeCandidate(rule, candidates, schoolYear, semesters.getFirst());
+    }
+
+    private void addMjcMissingGradeCandidate(
+        EvaluationRule rule,
+        List<Candidate> candidates,
+        int schoolYear,
+        int semester
+    ) {
+        boolean exists = candidates.stream().filter(Candidate::eligible)
+            .anyMatch(candidate -> candidate.course().schoolYear() == schoolYear
+                && candidate.course().semester() == semester);
+        if (exists) return;
+        VerifyGradeRequest.CourseGrade course = new VerifyGradeRequest.CourseGrade(
+            schoolYear, semester, SubjectCategory.OTHER,
+            MJC_MISSING_GRADE_COURSE_PREFIX + " " + schoolYear + "학년 " + semester + "학기",
+            9, com.jinhakapply.gradevalidation.transcript.domain.GradeScale.NINE_LEVEL,
+            null, null, null, null, null, null, null, null,
+            false, false, false, BigDecimal.ONE
+        );
+        BigDecimal effectiveGrade = BigDecimal.valueOf(9);
+        candidates.add(new Candidate(
+            candidates.size(), course, effectiveGrade, resolveConvertedScore(rule, course, effectiveGrade), null, null
+        ));
     }
 
     private boolean includesThirdYearSecondSemester(EvaluationRule rule, boolean graduated) {
@@ -443,7 +509,7 @@ public class EvaluationService {
                     : CourseSelection.of(selectTopGroups(rule, eligible,
                         candidate -> candidate.course().subjectCategory(), rule.getSelectionCount(),
                         rule.getSubjectPriorities())));
-            case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(eligible));
+            case BEST_SEMESTER_PER_GRADE -> CourseSelection.of(selectBestSemesterPerGrade(rule, eligible));
         };
     }
 
@@ -717,7 +783,7 @@ public class EvaluationService {
             candidate.course().schoolYear() * 10 + candidate.course().semester()).max().orElse(0);
     }
 
-    private Set<Integer> selectBestSemesterPerGrade(List<Candidate> eligible) {
+    private Set<Integer> selectBestSemesterPerGrade(EvaluationRule rule, List<Candidate> eligible) {
         Set<Integer> selected = new LinkedHashSet<>();
         Map<Integer, List<Candidate>> byYear = eligible.stream()
             .collect(Collectors.groupingBy(candidate -> candidate.course().schoolYear()));
@@ -725,11 +791,44 @@ public class EvaluationService {
             Map<Integer, List<Candidate>> bySemester = yearCourses.stream()
                 .collect(Collectors.groupingBy(candidate -> candidate.course().semester()));
             bySemester.values().stream()
-                .min(Comparator.comparing(this::groupAverageGrade)
+                .min(Comparator.comparing((List<Candidate> group) -> roundedGroupAverageGrade(rule, group))
                     .thenComparing(group -> -group.get(0).course().semester()))
                 .orElse(List.of()).stream().map(Candidate::index).forEach(selected::add);
         }
         return selected;
+    }
+
+    private BigDecimal roundedGroupAverageGrade(EvaluationRule rule, List<Candidate> candidates) {
+        BigDecimal credits = candidates.stream().map(candidate -> candidate.course().credits())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal grades = candidates.stream()
+            .map(candidate -> candidate.effectiveGrade().multiply(candidate.course().credits()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return grades.divide(credits, rule.getIntermediateScale(), rule.getIntermediateRounding());
+    }
+
+    private MjcAggregation aggregateMjcSelectedSemesters(
+        EvaluationRule rule,
+        HighSchoolType highSchoolType,
+        List<Candidate> candidates,
+        Set<Integer> selectedIndexes
+    ) {
+        Map<Integer, List<Candidate>> groups = candidates.stream()
+            .filter(Candidate::eligible)
+            .filter(candidate -> selectedIndexes.contains(candidate.index()))
+            .collect(Collectors.groupingBy(candidate ->
+                gradeWeightGroup(rule, highSchoolType, candidate.course())));
+        BigDecimal totalGrade = BigDecimal.ZERO;
+        BigDecimal totalConvertedScore = BigDecimal.ZERO;
+        BigDecimal totalWeight = BigDecimal.ZERO;
+        for (List<Candidate> group : groups.values()) {
+            BigDecimal averageGrade = roundedGroupAverageGrade(rule, group);
+            BigDecimal weight = appliedGradeWeight(rule, highSchoolType, group.getFirst().course());
+            totalGrade = totalGrade.add(averageGrade.multiply(weight));
+            totalConvertedScore = totalConvertedScore.add(interpolateGradeScore(rule, averageGrade).multiply(weight));
+            totalWeight = totalWeight.add(weight);
+        }
+        return new MjcAggregation(totalGrade, totalConvertedScore, totalWeight);
     }
 
     private BigDecimal groupAverageGrade(List<Candidate> candidates) {
@@ -791,6 +890,13 @@ public class EvaluationService {
         List<Candidate> candidates, int included) {
         List<String> warnings = new ArrayList<>();
         if (courses.stream().noneMatch(course -> course.schoolYear() == 3)) warnings.add("3학년 성적이 입력되지 않았습니다.");
+        long substituted = candidates.stream()
+            .filter(candidate -> candidate.course().courseName().startsWith(MJC_MISSING_GRADE_COURSE_PREFIX))
+            .count();
+        if (substituted > 0) {
+            warnings.add("명지전문대학 전산처리지침에 따라 성적이 없는 " + substituted
+                + "개 반영 학년·학기를 9등급으로 적용했습니다.");
+        }
         long invalid = candidates.stream().filter(candidate -> !candidate.eligible()).count();
         if (invalid > 0) warnings.add(invalid + "개 과목이 반영 범위 또는 입력값 기준에 따라 제외되었습니다.");
         if (included < courses.size() - invalid) warnings.add("과목 선택 정책 " + rule.getSelectionStrategy() + "이 적용되었습니다.");
@@ -843,6 +949,12 @@ public class EvaluationService {
             return exclusionReason == null;
         }
     }
+
+    private record MjcAggregation(
+        BigDecimal totalGrade,
+        BigDecimal totalConvertedScore,
+        BigDecimal totalWeight
+    ) {}
 
     private enum SyuSubjectDomain {
         KOREAN,

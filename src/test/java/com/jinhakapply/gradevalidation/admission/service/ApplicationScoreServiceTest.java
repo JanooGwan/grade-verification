@@ -70,7 +70,7 @@ class ApplicationScoreServiceTest {
         service = new ApplicationScoreService(
             applicationRepository, courseRepository, ruleRepository, evaluationService, scoreRunRepository,
             List.of(calculator), objectMapper, attendanceRepository, schoolViolenceRepository,
-            gedSubjectScoreRepository, legacyGradeSummaryRepository
+            gedSubjectScoreRepository, legacyGradeSummaryRepository, new EvaluationRuleMatcher()
         );
     }
 

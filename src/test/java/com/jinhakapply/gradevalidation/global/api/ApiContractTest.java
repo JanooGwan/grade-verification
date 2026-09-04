@@ -55,6 +55,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StudentPageResponse;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.MjcSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
@@ -101,6 +102,7 @@ class ApiContractTest {
     @MockitoBean RuleExtractionService ruleExtractionService;
     @MockitoBean TranscriptService transcriptService;
     @MockitoBean SyuSourceImportService syuSourceImportService;
+    @MockitoBean MjcSourceImportService mjcSourceImportService;
     @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
     @MockitoBean SavedVerificationQueryService savedVerificationQueryService;
     @MockitoBean SavedVerificationExportService savedVerificationExportService;
@@ -126,6 +128,34 @@ class ApiContractTest {
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.importId").value(7))
             .andExpect(jsonPath("$.status").value("QUEUED"));
+    }
+
+    @Test
+    void queuesMjcSourceCsvBundleAndReturnsAccepted() throws Exception {
+        MockMultipartFile applicants = new MockMultipartFile(
+            "applicantsFile", "01_applicants.csv", "text/csv", "examNumber\nMJC-SYN-001".getBytes()
+        );
+        MockMultipartFile baseInfo = new MockMultipartFile(
+            "baseInfoFile", "04_base_info.csv", "text/csv", "examNumber\nMJC-SYN-001".getBytes()
+        );
+        MockMultipartFile subjects = new MockMultipartFile(
+            "subjectScoreFile", "05_subject_scores.csv", "text/csv", "examNumber\nMJC-SYN-001".getBytes()
+        );
+        when(mjcSourceImportService.queue(
+            anyInt(), anyLong(), any(MultipartFile.class), any(MultipartFile.class), any(MultipartFile.class)
+        )).thenReturn(new SourceImportStartResponse(
+            8L, TranscriptImportStatus.QUEUED, "MJC_SOURCE_CSV_BUNDLE_V1", "queued"
+        ));
+
+        mockMvc.perform(multipart("/api/transcripts/imports/source/mjc")
+                .file(applicants)
+                .file(baseInfo)
+                .file(subjects)
+                .param("admissionYear", "2026")
+                .param("universityId", "1"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(8))
+            .andExpect(jsonPath("$.sourceFormat").value("MJC_SOURCE_CSV_BUNDLE_V1"));
     }
 
     @Test

@@ -26,6 +26,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.UpdateStudentCommonDataReq
 import com.jinhakapply.gradevalidation.transcript.dto.UpsertTranscriptCourseRequest;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
+import com.jinhakapply.gradevalidation.transcript.service.MjcSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
@@ -41,6 +42,7 @@ public class TranscriptController implements TranscriptApi {
 
     private final TranscriptService transcriptService;
     private final SyuSourceImportService syuSourceImportService;
+    private final MjcSourceImportService mjcSourceImportService;
     private final StoredTranscriptVerificationService storedTranscriptVerificationService;
     private final SavedVerificationQueryService savedVerificationQueryService;
     private final SavedVerificationExportService savedVerificationExportService;
@@ -50,6 +52,19 @@ public class TranscriptController implements TranscriptApi {
         int admissionYear, Long universityId, MultipartFile file
     ) {
         return ResponseEntity.accepted().body(syuSourceImportService.queue(admissionYear, universityId, file));
+    }
+
+    @Override
+    public ResponseEntity<SourceImportStartResponse> importMjcSourceCsv(
+        int admissionYear,
+        Long universityId,
+        MultipartFile applicantsFile,
+        MultipartFile baseInfoFile,
+        MultipartFile subjectScoreFile
+    ) {
+        return ResponseEntity.accepted().body(mjcSourceImportService.queue(
+            admissionYear, universityId, applicantsFile, baseInfoFile, subjectScoreFile
+        ));
     }
 
     @Override
