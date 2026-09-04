@@ -8,14 +8,14 @@ import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import org.springframework.stereotype.Component;
 
 @Component
-class EvaluationRuleMatcher {
+public class EvaluationRuleMatcher {
 
     private static final Set<String> COMMON_UNIT_NAMES = Set.of(
         "전체", "전체모집단위", "전모집단위", "전체모집학과", "전체학과", "전학과",
         "공통", "모든모집단위"
     );
 
-    boolean matchesAdmissionType(EvaluationRule rule, String trackName, String unitName) {
+    public boolean matchesAdmissionType(EvaluationRule rule, String trackName, String unitName) {
         String ruleType = normalizePolicyText(rule.getAdmissionType());
         String sourceType = normalizePolicyText(trackName);
         if (ruleType.equals(sourceType)) return true;
@@ -35,7 +35,7 @@ class EvaluationRuleMatcher {
         return false;
     }
 
-    boolean matchesRecruitmentUnit(EvaluationRule rule, String unitName) {
+    public boolean matchesRecruitmentUnit(EvaluationRule rule, String unitName) {
         String ruleUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String sourceUnit = normalizePolicyText(unitName);
         if (ruleUnit.equals(sourceUnit) || COMMON_UNIT_NAMES.contains(ruleUnit)) return true;
@@ -45,7 +45,7 @@ class EvaluationRuleMatcher {
         return false;
     }
 
-    boolean exactlyMatchesRecruitmentUnit(EvaluationRule rule, String unitName) {
+    public boolean exactlyMatchesRecruitmentUnit(EvaluationRule rule, String unitName) {
         return normalizePolicyText(rule.getRecruitmentUnit()).equals(normalizePolicyText(unitName));
     }
 

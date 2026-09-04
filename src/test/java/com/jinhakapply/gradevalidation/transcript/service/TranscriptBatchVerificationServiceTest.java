@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.jinhakapply.gradevalidation.admission.service.EvaluationRuleMatcher;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
@@ -40,7 +41,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void matchesKbuApplicationToPublishedAdmissionAndUnitGroup() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         EvaluationRule generalRule = mock(EvaluationRule.class);
         EvaluationRule healthRule = mock(EvaluationRule.class);
@@ -86,9 +87,70 @@ class TranscriptBatchVerificationServiceTest {
     }
 
     @Test
+    void matchesMjcSourceTrackAliasToPublishedRule() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
+        );
+        EvaluationRule generalHighSchoolRule = mock(EvaluationRule.class);
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            2L, 2026, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(generalHighSchoolRule));
+        when(generalHighSchoolRule.getUniversity()).thenReturn(university);
+        when(generalHighSchoolRule.getAdmissionType()).thenReturn("정원내 특별전형(일반고)");
+        when(generalHighSchoolRule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(university.getCode()).thenReturn("MJC");
+        when(evaluationService.verify(eq(generalHighSchoolRule), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "0105", "특별[일반고]", "1200203", "컴퓨터공학과", 2026
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            2L, 2026, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).hasSize(1);
+        assertThat(result.failures()).isEmpty();
+        verify(evaluationService).verify(eq(generalHighSchoolRule), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void splitsMjcCombinedPracticalInterviewTrackByDepartment() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
+        );
+        EvaluationRule practicalRule = mock(EvaluationRule.class);
+        EvaluationRule interviewRule = mock(EvaluationRule.class);
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            2L, 2026, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(practicalRule, interviewRule));
+        when(practicalRule.getUniversity()).thenReturn(university);
+        when(practicalRule.getAdmissionType()).thenReturn("정원내 일반전형(실기위주)");
+        when(interviewRule.getUniversity()).thenReturn(university);
+        when(interviewRule.getAdmissionType()).thenReturn("정원내 일반전형(면접위주)");
+        when(interviewRule.getRecruitmentUnit()).thenReturn("항공서비스과");
+        when(university.getCode()).thenReturn("MJC");
+        when(evaluationService.verify(eq(interviewRule), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "0001", "일반[실기·면접위주]", "1200401", "항공서비스과", 2026
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            2L, 2026, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.successes()).hasSize(1);
+        assertThat(result.failures()).isEmpty();
+        verify(evaluationService).verify(eq(interviewRule), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void aggregatesKbuHealthDepartmentSubjectAveragesAndSelections() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(rule.getAdmissionYear()).thenReturn(2026);
         when(rule.getUniversity()).thenReturn(university);
@@ -130,7 +192,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void aggregatesKbuGeneralDepartmentSemesterAveragesAndSelections() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(rule.getAdmissionYear()).thenReturn(2026);
         when(rule.getUniversity()).thenReturn(university);
@@ -166,7 +228,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void excludesCoursesWithoutGradableAssessmentBeforeVerification() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -202,7 +264,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void treatsEarlierGraduationYearAsGraduateForSemesterScope() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -229,7 +291,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void appliesSpecializedSchoolPolicyEvenForGeneralAdmissionTrack() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -262,7 +324,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void recordsFailureWhenNoPublishedRuleMatches() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -285,7 +347,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void doesNotApplyCommonTimesTenRuleToTalentTrack() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -307,7 +369,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void prefersSpecializedGraduateRuleOverCommonHanshinRule() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         EvaluationRule specializedRule = mock(EvaluationRule.class);
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
@@ -348,7 +410,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void returnsZeroWithoutCalculationWhenSpecializedGraduateApplicantIsNotProfessionalCategory() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -388,7 +450,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void requiresSchoolInformationForSpecializedGraduateTrack() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2027, EvaluationRuleStatus.PUBLISHED
@@ -414,7 +476,7 @@ class TranscriptBatchVerificationServiceTest {
     @Test
     void describesPhysicalEducationComponentsForRequestedAdmissionYear() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
-            ruleRepository, evaluationService
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
         when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             1L, 2026, EvaluationRuleStatus.PUBLISHED

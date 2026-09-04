@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+import com.jinhakapply.gradevalidation.admission.service.EvaluationRuleMatcher;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
@@ -42,6 +43,7 @@ class TranscriptBatchVerificationService {
     );
     private final EvaluationRuleRepository ruleRepository;
     private final EvaluationService evaluationService;
+    private final EvaluationRuleMatcher evaluationRuleMatcher;
 
     TranscriptBatchVerificationResult verify(
         Long universityId,
@@ -404,6 +406,15 @@ class TranscriptBatchVerificationService {
         if (rules.stream().anyMatch(this::isKbuRule)) {
             return matchKbuRules(rules, application);
         }
+        if (rules.stream().anyMatch(this::isMjcRule)) {
+            return rules.stream()
+                .filter(this::isMjcRule)
+                .filter(rule -> evaluationRuleMatcher.matchesAdmissionType(
+                    rule, application.admissionTrackName(), application.recruitmentUnitName()))
+                .filter(rule -> evaluationRuleMatcher.matchesRecruitmentUnit(
+                    rule, application.recruitmentUnitName()))
+                .toList();
+        }
         List<EvaluationRule> sameTrack = rules.stream()
             .filter(rule -> normalizePolicyText(rule.getAdmissionType())
                 .equals(normalizePolicyText(application.admissionTrackName())))
@@ -438,6 +449,11 @@ class TranscriptBatchVerificationService {
     private boolean isKbuRule(EvaluationRule rule) {
         return rule.getUniversity() != null
             && KBU_UNIVERSITY_CODE.equalsIgnoreCase(rule.getUniversity().getCode());
+    }
+
+    private boolean isMjcRule(EvaluationRule rule) {
+        return rule.getUniversity() != null
+            && "MJC".equalsIgnoreCase(rule.getUniversity().getCode());
     }
 
     static String kbuRuleUnit(String recruitmentUnitName) {
