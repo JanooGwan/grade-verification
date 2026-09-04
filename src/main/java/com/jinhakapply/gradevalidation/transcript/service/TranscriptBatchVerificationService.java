@@ -159,7 +159,10 @@ class TranscriptBatchVerificationService {
                 GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
                 verifiedResultConsumer.accept(application, annotated);
                 List<TranscriptBatchVerificationResult.SelectedCourse> selected = new ArrayList<>();
-                for (int index = 0; index < verification.calculations().size(); index++) {
+                int sourceCalculationCount = Math.min(
+                    verification.calculations().size(), gradableCourses.size()
+                );
+                for (int index = 0; index < sourceCalculationCount; index++) {
                     GradeVerificationResponse.CourseCalculation calculation = verification.calculations().get(index);
                     if (calculation.included()) {
                         selected.add(new TranscriptBatchVerificationResult.SelectedCourse(

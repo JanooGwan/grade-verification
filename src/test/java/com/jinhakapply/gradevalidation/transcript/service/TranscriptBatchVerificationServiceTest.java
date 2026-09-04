@@ -148,6 +148,40 @@ class TranscriptBatchVerificationServiceTest {
     }
 
     @Test
+    void ignoresMjcSyntheticMissingGradeCalculationWhenLinkingSourceCourses() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
+        );
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+            2L, 2026, EvaluationRuleStatus.PUBLISHED
+        )).thenReturn(List.of(rule));
+        when(rule.getUniversity()).thenReturn(university);
+        when(rule.getAdmissionType()).thenReturn("정원내 특별전형(일반고)");
+        when(rule.getRecruitmentUnit()).thenReturn("전체 모집단위");
+        when(university.getCode()).thenReturn("MJC");
+        when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any())).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of(
+            calculation("국어", 1, 1, SubjectCategory.KOREAN, "2", "3", true),
+            calculation("성적 미기재 9등급 보정 3학년 1학기", 3, 1,
+                SubjectCategory.OTHER, "9", "1", true)
+        ));
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "A-001", "0105", "특별[일반고]", "1200203", "컴퓨터공학과", 2026
+        );
+
+        TranscriptBatchVerificationResult result = service.verify(
+            2L, 2026, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어"))
+        );
+
+        assertThat(result.failures()).isEmpty();
+        assertThat(result.successes()).singleElement().satisfies(success -> {
+            assertThat(success.selectedCourses()).singleElement().satisfies(selected ->
+                assertThat(selected.source().courseName()).isEqualTo("국어")
+            );
+        });
+    }
+
+    @Test
     void aggregatesKbuHealthDepartmentSubjectAveragesAndSelections() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService, new EvaluationRuleMatcher()
