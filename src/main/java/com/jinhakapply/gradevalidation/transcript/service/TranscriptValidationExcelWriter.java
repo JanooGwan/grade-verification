@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
@@ -30,6 +31,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.springframework.stereotype.Component;
@@ -288,27 +290,44 @@ class TranscriptValidationExcelWriter {
                         "계산 가능한 학기·교과 내역이 없습니다.", null, null, null, null, null, null, null,
                         result.success().verification().finalScore()
                     }, styles, -1);
-                    row.getCell(13).setCellStyle(styles.finalScore);
+                    row.getCell(13).setCellStyle(styles.finalScoreFor(result.success().verification().finalScore()));
                     continue;
                 }
+                int applicantStartRow = rowIndex;
+                int criteriaStartRow = rowIndex;
+                String previousCriteria = null;
                 for (int index = 0; index < calculations.size(); index++) {
                     TranscriptBatchVerificationResult.IntermediateCalculation calculation = calculations.get(index);
                     boolean firstRow = index == 0;
+                    String criteria = selectionCriteria(calculation);
+                    boolean firstCriteriaRow = !Objects.equals(previousCriteria, criteria);
+                    if (firstCriteriaRow && index > 0) {
+                        mergeVertical(sheet, criteriaStartRow, rowIndex - 1, 4, styles.mergedText);
+                        criteriaStartRow = rowIndex;
+                    }
                     Row row = sheet.createRow(rowIndex++);
                     writeRow(row, new Object[] {
                         firstRow ? application.rowNumber() : null,
                         firstRow ? application.applicantNumber() : null,
                         firstRow ? application.admissionTrackName() : null,
                         firstRow ? application.recruitmentUnitName() : null,
-                        selectionCriteria(calculation), calculation.groupName(),
+                        firstCriteriaRow ? criteria : null, calculation.groupName(),
                         calculation.selected() ? "선택됨" : "미선택", calculation.selectionOrder(),
                         calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
                         calculation.convertedScoreTimesCreditsSum(), calculation.averageConvertedScore(),
                         firstRow ? result.success().verification().finalScore() : null
                     }, styles, -1);
                     if (calculation.selected()) row.getCell(6).setCellStyle(styles.selected);
-                    if (firstRow) row.getCell(13).setCellStyle(styles.finalScore);
+                    if (firstRow) {
+                        row.getCell(13).setCellStyle(
+                            styles.finalScoreFor(result.success().verification().finalScore())
+                        );
+                    }
+                    previousCriteria = criteria;
                 }
+                int applicantEndRow = rowIndex - 1;
+                mergeVertical(sheet, criteriaStartRow, applicantEndRow, 4, styles.mergedText);
+                mergeApplicantIdentity(sheet, applicantStartRow, applicantEndRow, styles, true);
             } else {
                 TranscriptBatchVerificationResult.Failure failure = result.failure();
                 Row row = sheet.createRow(rowIndex++);
@@ -364,7 +383,7 @@ class TranscriptValidationExcelWriter {
                     calculation.courseCount(), calculation.totalCredits(), calculation.gradeTimesCreditsSum(),
                     calculation.convertedScoreTimesCreditsSum(), calculation.averageConvertedScore()
                 }, styles, -1);
-                row.getCell(4).setCellStyle(styles.finalScore);
+                row.getCell(4).setCellStyle(styles.finalScoreFor(success.verification().finalScore()));
                 if (calculation.selected()) row.getCell(8).setCellStyle(styles.selected);
             }
         }
@@ -421,15 +440,19 @@ class TranscriptValidationExcelWriter {
                 success.application().applicantNumber(), List.of()
             ));
             applicantCourses.sort(courseComparator());
-            for (TranscriptExcelRow course : applicantCourses) {
+            int applicantStartRow = rowIndex;
+            for (int index = 0; index < applicantCourses.size(); index++) {
+                TranscriptExcelRow course = applicantCourses.get(index);
                 TranscriptBatchVerificationResult.SelectedCourse selected = selectedByCourse.get(course);
                 Row row = sheet.createRow(rowIndex++);
                 writeCourseComparisonRow(
                     row, styles, success.application(), success.studentName(), success.schoolInfo(), course, kbu,
-                    selected == null ? "미선택" : "선택됨", selectionOrderByCourse.get(course), selected
+                    selected == null ? "미선택" : "선택됨", selectionOrderByCourse.get(course), selected,
+                    index == 0
                 );
                 if (selected != null) row.getCell(5).setCellStyle(styles.selected);
             }
+            mergeApplicantIdentity(sheet, applicantStartRow, rowIndex - 1, styles, false);
         }
 
         List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>(verification.failures());
@@ -439,14 +462,17 @@ class TranscriptValidationExcelWriter {
                 failure.application().applicantNumber(), List.of()
             ));
             applicantCourses.sort(courseComparator());
-            for (TranscriptExcelRow course : applicantCourses) {
+            int applicantStartRow = rowIndex;
+            for (int index = 0; index < applicantCourses.size(); index++) {
+                TranscriptExcelRow course = applicantCourses.get(index);
                 Row row = sheet.createRow(rowIndex++);
                 writeCourseComparisonRow(
                     row, styles, failure.application(), failure.studentName(), null, course, kbu,
-                    "검증 실패", null, null
+                    "검증 실패", null, null, index == 0
                 );
                 row.getCell(5).setCellStyle(styles.error);
             }
+            mergeApplicantIdentity(sheet, applicantStartRow, rowIndex - 1, styles, false);
         }
 
         finishTable(sheet, rowIndex - 3, headers.length);
@@ -465,13 +491,17 @@ class TranscriptValidationExcelWriter {
         boolean kbu,
         String status,
         Integer selectionOrder,
-        TranscriptBatchVerificationResult.SelectedCourse selected
+        TranscriptBatchVerificationResult.SelectedCourse selected,
+        boolean firstRow
     ) {
         GradeVerificationResponse.CourseCalculation calculation = selected == null ? null : selected.calculation();
         Object[] values = kbu
             ? new Object[] {
-                application.rowNumber(), application.applicantNumber(), studentName,
-                application.admissionTrackName(), application.recruitmentUnitName(),
+                firstRow ? application.rowNumber() : null,
+                firstRow ? application.applicantNumber() : null,
+                firstRow ? studentName : null,
+                firstRow ? application.admissionTrackName() : null,
+                firstRow ? application.recruitmentUnitName() : null,
                 status, selectionOrder, course.schoolYear(), course.semester(),
                 subjectCategoryLabel(course.subjectCategory()), course.courseName(), course.grade(),
                 course.achievement(), course.credits(),
@@ -481,8 +511,11 @@ class TranscriptValidationExcelWriter {
                 course.vocationalTrainingSemester() ? "Y" : "N"
             }
             : new Object[] {
-                application.rowNumber(), application.applicantNumber(), studentName,
-                application.admissionTrackName(), application.recruitmentUnitName(),
+                firstRow ? application.rowNumber() : null,
+                firstRow ? application.applicantNumber() : null,
+                firstRow ? studentName : null,
+                firstRow ? application.admissionTrackName() : null,
+                firstRow ? application.recruitmentUnitName() : null,
                 status, selectionOrder, course.rowNumber(), course.schoolYear(), course.semester(),
                 subjectCategoryLabel(course.subjectCategory()), course.courseName(), course.grade(),
                 course.achievement(), course.credits(),
@@ -493,6 +526,42 @@ class TranscriptValidationExcelWriter {
                 schoolInfo == null ? null : schoolInfo.applicantHighSchoolCategoryCode()
             };
         writeRow(row, values, styles, -1);
+    }
+
+    private void mergeApplicantIdentity(
+        Sheet sheet,
+        int firstRow,
+        int lastRow,
+        Styles styles,
+        boolean includeFinalScore
+    ) {
+        if (firstRow > lastRow) return;
+        mergeVertical(sheet, firstRow, lastRow, 0, styles.mergedInteger);
+        int lastIdentityColumn = includeFinalScore ? 3 : 4;
+        for (int column = 1; column <= lastIdentityColumn; column++) {
+            mergeVertical(sheet, firstRow, lastRow, column, styles.mergedText);
+        }
+        if (includeFinalScore) {
+            Cell finalScore = sheet.getRow(firstRow).getCell(13);
+            Object finalScoreValue = finalScore.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC
+                ? finalScore.getNumericCellValue()
+                : null;
+            mergeVertical(
+                sheet, firstRow, lastRow, 13,
+                styles.mergedFinalScoreFor(finalScoreValue)
+            );
+        }
+    }
+
+    private void mergeVertical(Sheet sheet, int firstRow, int lastRow, int column, CellStyle style) {
+        if (firstRow > lastRow) return;
+        Row row = sheet.getRow(firstRow);
+        if (row != null && row.getCell(column) != null) row.getCell(column).setCellStyle(style);
+        if (firstRow < lastRow) {
+            ((SXSSFSheet) sheet).addMergedRegionUnsafe(
+                new CellRangeAddress(firstRow, lastRow, column, column)
+            );
+        }
     }
 
     private String subjectCategoryLabel(SubjectCategory category) {
@@ -543,6 +612,7 @@ class TranscriptValidationExcelWriter {
             else if ("실패".equals(value)) style = styles.error;
             else if (errorFromColumn >= 0 && column >= errorFromColumn) style = styles.error;
             else if (value instanceof Integer || value instanceof Long) style = styles.integer;
+            else if (value instanceof BigDecimal && isWholeNumber(value)) style = styles.wholeDecimal;
             else if (value instanceof Number) style = styles.decimal;
             else style = styles.text;
             set(row.createCell(column), value, style);
@@ -618,6 +688,17 @@ class TranscriptValidationExcelWriter {
         else cell.setCellValue(value == null ? "" : value.toString());
     }
 
+    private static boolean isWholeNumber(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal.stripTrailingZeros().scale() <= 0;
+        }
+        if (value instanceof Number number) {
+            double numericValue = number.doubleValue();
+            return Double.isFinite(numericValue) && numericValue == Math.rint(numericValue);
+        }
+        return false;
+    }
+
     private String formatLabel(String sourceFormat) {
         if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
         if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
@@ -650,12 +731,18 @@ class TranscriptValidationExcelWriter {
         private final CellStyle header;
         private final CellStyle text;
         private final CellStyle integer;
+        private final CellStyle wholeDecimal;
         private final CellStyle decimal;
         private final CellStyle warning;
         private final CellStyle error;
         private final CellStyle success;
         private final CellStyle selected;
         private final CellStyle finalScore;
+        private final CellStyle finalScoreWhole;
+        private final CellStyle mergedText;
+        private final CellStyle mergedInteger;
+        private final CellStyle mergedFinalScore;
+        private final CellStyle mergedFinalScoreWhole;
 
         private Styles(SXSSFWorkbook workbook) {
             title = style(workbook, "174A37", IndexedColors.WHITE.getIndex(), true, 16);
@@ -669,6 +756,8 @@ class TranscriptValidationExcelWriter {
             text = bordered(workbook, null, IndexedColors.BLACK.getIndex(), false);
             integer = bordered(workbook, null, IndexedColors.BLACK.getIndex(), false);
             integer.setDataFormat(workbook.createDataFormat().getFormat("#,##0"));
+            wholeDecimal = bordered(workbook, null, IndexedColors.BLACK.getIndex(), false);
+            wholeDecimal.setDataFormat(workbook.createDataFormat().getFormat("0"));
             decimal = bordered(workbook, null, IndexedColors.BLACK.getIndex(), false);
             decimal.setDataFormat(workbook.createDataFormat().getFormat("0.######"));
             warning = style(workbook, "FFF4CC", IndexedColors.DARK_RED.getIndex(), false, 10);
@@ -679,6 +768,20 @@ class TranscriptValidationExcelWriter {
             selected = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
             finalScore = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
             finalScore.setDataFormat(workbook.createDataFormat().getFormat("0.######"));
+            finalScoreWhole = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
+            finalScoreWhole.setDataFormat(workbook.createDataFormat().getFormat("0"));
+            mergedText = centered(workbook, text);
+            mergedInteger = centered(workbook, integer);
+            mergedFinalScore = centered(workbook, finalScore);
+            mergedFinalScoreWhole = centered(workbook, finalScoreWhole);
+        }
+
+        private CellStyle finalScoreFor(Object value) {
+            return isWholeNumber(value) ? finalScoreWhole : finalScore;
+        }
+
+        private CellStyle mergedFinalScoreFor(Object value) {
+            return isWholeNumber(value) ? mergedFinalScoreWhole : mergedFinalScore;
         }
 
         private static CellStyle style(
@@ -708,6 +811,14 @@ class TranscriptValidationExcelWriter {
             style.setBorderRight(BorderStyle.THIN);
             style.setBottomBorderColor(IndexedColors.GREY_25_PERCENT.getIndex());
             style.setRightBorderColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            return style;
+        }
+
+        private static CellStyle centered(SXSSFWorkbook workbook, CellStyle source) {
+            CellStyle style = workbook.createCellStyle();
+            style.cloneStyleFrom(source);
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
             return style;
         }
     }

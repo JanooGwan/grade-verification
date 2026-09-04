@@ -18,6 +18,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
@@ -110,6 +111,8 @@ class TranscriptValidationExcelWriterTest {
             assertThat(comparisonSheet.getRow(3).getCell(12).getNumericCellValue()).isEqualTo(2);
             assertThat(comparisonSheet.getRow(3).getCell(15).getNumericCellValue()).isEqualTo(99);
             assertThat(comparisonSheet.getRow(3).getCell(16).getNumericCellValue()).isEqualTo(297);
+            assertThat(comparisonSheet.getRow(3).getCell(15).getCellStyle().getDataFormatString()).isEqualTo("0");
+            assertThat(comparisonSheet.getRow(3).getCell(16).getCellStyle().getDataFormatString()).isEqualTo("0");
             assertThat(comparisonSheet.getRow(4).getCell(5).getStringCellValue()).isEqualTo("미선택");
             assertThat(comparisonSheet.getRow(4).getCell(7).getNumericCellValue()).isEqualTo(13);
             assertThat(comparisonSheet.getRow(4).getCell(10).getStringCellValue()).isEqualTo("영어");
@@ -206,6 +209,9 @@ class TranscriptValidationExcelWriterTest {
             assertThat(result.getRow(3).getCell(6).getStringCellValue()).isEqualTo("선택됨");
             assertThat(result.getRow(3).getCell(7).getNumericCellValue()).isEqualTo(2);
             assertThat(result.getRow(3).getCell(13).getNumericCellValue()).isEqualTo(530.36);
+            assertThat(result.getRow(3).getCell(10).getCellStyle().getDataFormatString()).isEqualTo("0");
+            assertThat(result.getRow(5).getCell(10).getCellStyle().getDataFormatString())
+                .isEqualTo("0.######");
             assertThat(result.getRow(3).getCell(13).getCellStyle().getFillPattern())
                 .isEqualTo(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
             assertThat(result.getRow(3).getCell(6).getCellStyle().getFillPattern())
@@ -219,6 +225,16 @@ class TranscriptValidationExcelWriterTest {
             assertThat(result.getRow(6).getCell(1).getStringCellValue()).isEqualTo("K-002");
             assertThat(result.getRow(6).getCell(4).getStringCellValue()).isEqualTo("검증 실패 (COURSE_NOT_FOUND)");
             assertThat(result.getLastRowNum()).isEqualTo(6);
+            assertThat(result.getMergedRegions()).contains(
+                CellRangeAddress.valueOf("A4:A6"),
+                CellRangeAddress.valueOf("B4:B6"),
+                CellRangeAddress.valueOf("C4:C6"),
+                CellRangeAddress.valueOf("D4:D6"),
+                CellRangeAddress.valueOf("E4:E5"),
+                CellRangeAddress.valueOf("N4:N6")
+            );
+            assertThat(result.getRow(3).getCell(0).getCellStyle().getAlignment())
+                .isEqualTo(org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER);
 
             Sheet comparison = workbook.getSheet("학생별 과목 비교");
             assertThat(comparison.getRow(2).getLastCellNum()).isEqualTo((short) 19);
@@ -228,6 +244,14 @@ class TranscriptValidationExcelWriterTest {
             assertThat(comparison.getRow(3).getCell(9).getStringCellValue()).isEqualTo("과학");
             assertThat(comparison.getRow(4).getCell(9).getStringCellValue()).isEqualTo("기타");
             assertThat(comparison.getRow(2).getCell(18).getStringCellValue()).isEqualTo("직업과정 위탁학기");
+            assertThat(comparison.getMergedRegions()).contains(
+                CellRangeAddress.valueOf("A4:A5"),
+                CellRangeAddress.valueOf("B4:B5"),
+                CellRangeAddress.valueOf("C4:C5"),
+                CellRangeAddress.valueOf("D4:D5"),
+                CellRangeAddress.valueOf("E4:E5")
+            );
+            assertThat(comparison.getRow(4).getCell(0).getStringCellValue()).isEmpty();
         }
     }
 
