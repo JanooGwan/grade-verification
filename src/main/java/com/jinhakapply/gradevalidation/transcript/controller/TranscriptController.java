@@ -68,6 +68,17 @@ public class TranscriptController implements TranscriptApi {
     }
 
     @Override
+    public ResponseEntity<SourceImportStartResponse> importMjcSourceExcel(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file
+    ) {
+        return ResponseEntity.accepted().body(mjcSourceImportService.queueWorkbook(
+            admissionYear, universityId, file
+        ));
+    }
+
+    @Override
     public ResponseEntity<TranscriptImportResponse> importExcel(
         int admissionYear,
         TranscriptImportMode mode,

@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
@@ -22,6 +23,9 @@ import org.springframework.stereotype.Component;
 class MjcSourceCsvReader {
 
     static final String SOURCE_FORMAT = "MJC_SOURCE_CSV_BUNDLE_V1";
+    private static final Set<String> NON_NUMERIC_RANKING_GRADES = Set.of(
+        "P", "·", "이수", "우수", "보통", "미흡"
+    );
 
     List<ApplicantRow> readApplicants(Path path) {
         List<ApplicantRow> rows = new ArrayList<>();
@@ -58,7 +62,7 @@ class MjcSourceCsvReader {
                 skipped[0]++;
                 return;
             }
-            Integer grade = row.optionalInteger("rankingGrade");
+            Integer grade = row.optionalRankingGrade("rankingGrade");
             if (grade != null && (grade < 1 || grade > 9)) {
                 throw row.error("석차등급은 1~9 사이여야 합니다.");
             }
@@ -252,6 +256,17 @@ class MjcSourceCsvReader {
                 return value.intValueExact();
             } catch (ArithmeticException exception) {
                 throw error(name + " 값이 정수가 아닙니다.");
+            }
+        }
+
+        Integer optionalRankingGrade(String name) {
+            String value = optional(name);
+            if (value == null) return null;
+            if (NON_NUMERIC_RANKING_GRADES.contains(value.toUpperCase(Locale.ROOT))) return null;
+            try {
+                return new BigDecimal(value.replace(",", "")).intValueExact();
+            } catch (ArithmeticException | NumberFormatException exception) {
+                throw error(name + " 값이 석차등급 또는 인식 가능한 비등급 값이 아닙니다.");
             }
         }
 

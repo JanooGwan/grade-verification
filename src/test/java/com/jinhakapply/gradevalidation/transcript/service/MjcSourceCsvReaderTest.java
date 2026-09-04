@@ -45,17 +45,20 @@ class MjcSourceCsvReaderTest {
             "MJC-SYN-001","1","1","국어","화법과 작문","3","2","\\N","90","80","10","100","\\N","\\N","01"
             "MJC-SYN-001","2","1","과학","과학탐구실험","2","\\N","A","95","80","8","100","\\N","\\N","02"
             "MJC-SYN-001","3","1","체육","운동과 건강","0","\\N","P","\\N","\\N","\\N","100","\\N","\\N","03"
+            "MJC-SYN-001","3","1","교양","보건","1","P","\\N","\\N","\\N","\\N","100","\\N","\\N","01"
             """);
         List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
 
         var result = reader.streamCourses(subjects, 2, rows::addAll);
 
-        assertThat(result.totalRows()).isEqualTo(3);
-        assertThat(result.importedRows()).isEqualTo(2);
+        assertThat(result.totalRows()).isEqualTo(4);
+        assertThat(result.importedRows()).isEqualTo(3);
         assertThat(result.skippedRows()).isEqualTo(1);
-        assertThat(rows).hasSize(2);
+        assertThat(rows).hasSize(3);
         assertThat(rows.get(0).subjectCategory()).isEqualTo(SubjectCategory.KOREAN);
         assertThat(rows.get(1).careerSubject()).isTrue();
+        assertThat(rows.get(2).grade()).isNull();
+        assertThat(rows.get(2).achievement()).isNull();
     }
 
     @Test

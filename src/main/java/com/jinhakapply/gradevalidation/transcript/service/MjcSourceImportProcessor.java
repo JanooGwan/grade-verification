@@ -33,6 +33,7 @@ class MjcSourceImportProcessor {
     private static final int STUDENT_QUERY_BATCH_SIZE = 5_000;
 
     private final MjcSourceCsvReader reader;
+    private final MjcSourceWorkbookExtractor workbookExtractor;
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
     private final TranscriptSnapshotReplacementService snapshotReplacementService;
@@ -53,6 +54,29 @@ class MjcSourceImportProcessor {
             ));
         } catch (Exception exception) {
             log.error("MJC source CSV import failed: importId={}", importId, exception);
+            deleteSnapshotsSafely(importId);
+            fail(importId, safeMessage(exception));
+        } finally {
+            MjcSourceImportService.deleteDirectory(directory);
+        }
+    }
+
+    @Async("sourceImportExecutor")
+    public void processWorkbook(
+        Long importId,
+        Long universityId,
+        int admissionYear,
+        Path directory,
+        Path workbookFile
+    ) {
+        try {
+            MjcSourceWorkbookExtractor.ExtractedBundle bundle = workbookExtractor.extract(workbookFile, directory);
+            transactionTemplate.executeWithoutResult(status -> importCsvBundle(
+                importId, universityId, admissionYear,
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile()
+            ));
+        } catch (Exception exception) {
+            log.error("MJC source workbook import failed: importId={}", importId, exception);
             deleteSnapshotsSafely(importId);
             fail(importId, safeMessage(exception));
         } finally {

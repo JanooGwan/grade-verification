@@ -73,6 +73,17 @@ public interface TranscriptApi {
     );
 
     @Operation(
+        summary = "명지전문대 통합 Excel 가져오기",
+        description = "2026학년도 원천 CSV를 시트별로 묶은 통합 .xlsx를 스트리밍으로 가져옵니다."
+    )
+    @PostMapping(value = "/imports/source/mjc/excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<SourceImportStartResponse> importMjcSourceExcel(
+        @RequestParam @Min(2000) @Max(2100) int admissionYear,
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestPart("file") MultipartFile file
+    );
+
+    @Operation(
         summary = "학생부 Excel 가져오기",
         description = "첫 번째 시트의 한 행을 한 과목으로 읽습니다. "
             + "필수 헤더는 지원자번호, 학생명, 학년, 학기, 교과, 과목명, 이수단위입니다. "

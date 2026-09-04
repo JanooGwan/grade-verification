@@ -85,6 +85,46 @@ public class MjcSourceImportService {
         }
     }
 
+    public SourceImportStartResponse queueWorkbook(
+        int admissionYear,
+        Long universityId,
+        MultipartFile file
+    ) {
+        validateWorkbook(admissionYear, file);
+        University university = requireMjcUniversity(universityId);
+        Path directory = null;
+        try {
+            directory = Files.createTempDirectory("mjc-source-workbook-");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            Path workbook = copy(file, directory.resolve("mjc-integrated.xlsx"), digest, "workbook");
+            String originalName = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
+                ? "MJC-2026-integrated.xlsx" : file.getOriginalFilename();
+            StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
+                university, admissionYear, originalName,
+                HexFormat.of().formatHex(digest.digest()), MjcSourceWorkbookExtractor.SOURCE_FORMAT,
+                directory.toAbsolutePath().toString()
+            ));
+            try {
+                processor.processWorkbook(queued.getId(), university.getId(), admissionYear, directory, workbook);
+            } catch (TaskRejectedException exception) {
+                queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
+                importRepository.saveAndFlush(queued);
+                throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            }
+            directory = null;
+            return new SourceImportStartResponse(
+                queued.getId(), queued.getStatus(), MjcSourceWorkbookExtractor.SOURCE_FORMAT,
+                "명지전문대 통합 Excel 가져오기를 시작했습니다. 최근 가져오기에서 진행 상태를 확인할 수 있습니다."
+            );
+        } catch (CustomException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 통합 Excel을 임시 저장하지 못했습니다.");
+        } finally {
+            if (directory != null) deleteDirectory(directory);
+        }
+    }
+
     private Path copy(MultipartFile file, Path target, MessageDigest digest, String label) throws Exception {
         digest.update(label.getBytes(StandardCharsets.UTF_8));
         try (InputStream input = new DigestInputStream(file.getInputStream(), digest)) {
@@ -114,6 +154,33 @@ public class MjcSourceImportService {
         if (totalSize > MAX_BUNDLE_SIZE) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "CSV 묶음의 전체 크기는 205MB 이하여야 합니다.");
         }
+    }
+
+    private void validateWorkbook(int admissionYear, MultipartFile file) {
+        if (admissionYear != 2026) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 통합 Excel은 2026학년도만 지원합니다.");
+        }
+        if (file == null || file.isEmpty()) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "통합 Excel 파일이 비어 있습니다.");
+        }
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "통합 Excel 파일은 200MB 이하여야 합니다.");
+        }
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".xlsx")) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 통합 파일은 .xlsx 형식이어야 합니다.");
+        }
+    }
+
+    private University requireMjcUniversity(Long universityId) {
+        University university = universityRepository.findById(universityId)
+            .orElseThrow(() -> CustomException.of(
+                com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND));
+        if (!"MJC".equalsIgnoreCase(university.getCode())) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE,
+                "명지전문대 원천 파일은 명지전문대학교를 선택했을 때만 업로드할 수 있습니다.");
+        }
+        return university;
     }
 
     static void deleteDirectory(Path directory) {

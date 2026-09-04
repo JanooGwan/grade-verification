@@ -159,6 +159,26 @@ class ApiContractTest {
     }
 
     @Test
+    void queuesMjcSourceWorkbookAndReturnsAccepted() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "mjc-integrated.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", new byte[] {1, 2, 3}
+        );
+        when(mjcSourceImportService.queueWorkbook(anyInt(), anyLong(), any(MultipartFile.class)))
+            .thenReturn(new SourceImportStartResponse(
+                9L, TranscriptImportStatus.QUEUED, "MJC_SOURCE_WORKBOOK_V1", "queued"
+            ));
+
+        mockMvc.perform(multipart("/api/transcripts/imports/source/mjc/excel")
+                .file(file)
+                .param("admissionYear", "2026")
+                .param("universityId", "1"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(9))
+            .andExpect(jsonPath("$.sourceFormat").value("MJC_SOURCE_WORKBOOK_V1"));
+    }
+
+    @Test
     void downloadsStoredTranscriptValidationResultAsExcel() throws Exception {
         doAnswer(invocation -> {
             invocation.<OutputStream>getArgument(2).write(new byte[] {4, 5, 6});
