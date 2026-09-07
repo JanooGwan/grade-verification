@@ -172,7 +172,7 @@ class TranscriptBatchVerificationService {
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
                     application, studentName, compact(annotated),
-                    List.copyOf(selected), buildKbuIntermediateCalculations(rule, verification), schoolInfo
+                    List.copyOf(selected), buildIntermediateCalculations(rule, verification), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, gradableCourses.size(),
@@ -182,18 +182,54 @@ class TranscriptBatchVerificationService {
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
     }
 
-    List<TranscriptBatchVerificationResult.IntermediateCalculation> buildKbuIntermediateCalculations(
+    List<TranscriptBatchVerificationResult.IntermediateCalculation> buildIntermediateCalculations(
         EvaluationRule rule,
         GradeVerificationResponse verification
     ) {
-        if (rule.getAdmissionYear() != 2026 || !isKbuRule(rule) || verification.calculations() == null) {
+        if (rule.getAdmissionYear() != 2026 || verification.calculations() == null) {
             return List.of();
         }
+        if (isMjcRule(rule)) {
+            return switch (verification.selectionStrategy()) {
+                case BEST_SEMESTER_PER_GRADE, ALL_COURSES ->
+                    aggregateMjcSemesterGroups(rule, verification.calculations());
+                default -> List.of();
+            };
+        }
+        if (!isKbuRule(rule)) return List.of();
         return switch (verification.selectionStrategy()) {
             case TOP_N_SUBJECTS -> aggregateKbuGroups(rule, verification.calculations(), true);
             case TOP_N_SEMESTERS -> aggregateKbuGroups(rule, verification.calculations(), false);
             default -> List.of();
         };
+    }
+
+    private List<TranscriptBatchVerificationResult.IntermediateCalculation> aggregateMjcSemesterGroups(
+        EvaluationRule rule,
+        List<GradeVerificationResponse.CourseCalculation> calculations
+    ) {
+        Map<GroupKey, GroupAccumulator> groups = kbuCandidateGroups(rule, false);
+        for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
+            if (calculation.effectiveGrade() == null || calculation.appliedCredits() == null
+                || calculation.appliedCredits().signum() <= 0) {
+                continue;
+            }
+            GroupKey key = semesterGroupKey(calculation.schoolYear(), calculation.semester());
+            if (groups.containsKey(key)) groups.get(key).add(calculation);
+        }
+
+        int scale = Math.max(rule.getIntermediateScale(), 0);
+        RoundingMode rounding = rule.getIntermediateRounding() == null
+            ? RoundingMode.HALF_UP : rule.getIntermediateRounding();
+        return groups.entrySet().stream()
+            .map(entry -> entry.getValue().value(entry.getKey(), scale, rounding))
+            .sorted(Comparator.comparingInt(value -> value.key().displayOrder()))
+            .map(value -> new TranscriptBatchVerificationResult.IntermediateCalculation(
+                "학기", value.key().name(), value.selected(), value.selected() ? 1 : null,
+                value.courseCount(), value.totalCredits(), value.gradeTimesCreditsSum(), value.averageGrade(),
+                value.convertedScoreTimesCreditsSum(), value.averageConvertedScore()
+            ))
+            .toList();
     }
 
     private List<TranscriptBatchVerificationResult.IntermediateCalculation> aggregateKbuGroups(
@@ -320,10 +356,14 @@ class TranscriptBatchVerificationService {
         }
 
         private GroupValue value(GroupKey key) {
+            return value(key, 8, RoundingMode.HALF_UP);
+        }
+
+        private GroupValue value(GroupKey key, int scale, RoundingMode rounding) {
             BigDecimal averageGrade = totalCredits.signum() == 0 ? null
-                : gradeTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+                : gradeTimesCreditsSum.divide(totalCredits, scale, rounding);
             BigDecimal averageConvertedScore = totalCredits.signum() == 0 ? null
-                : convertedScoreTimesCreditsSum.divide(totalCredits, 8, RoundingMode.HALF_UP);
+                : convertedScoreTimesCreditsSum.divide(totalCredits, scale, rounding);
             return new GroupValue(
                 key, selected, courseCount, totalCredits, gradeTimesCreditsSum, averageGrade,
                 convertedScoreTimesCreditsSum, averageConvertedScore

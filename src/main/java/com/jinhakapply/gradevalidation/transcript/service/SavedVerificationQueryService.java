@@ -119,7 +119,7 @@ public class SavedVerificationQueryService {
                 stored.studentName(),
                 verification,
                 List.copyOf(selectedCourses),
-                batchVerificationService.buildKbuIntermediateCalculations(rule, verification),
+                batchVerificationService.buildIntermediateCalculations(rule, verification),
                 null
             ));
         }

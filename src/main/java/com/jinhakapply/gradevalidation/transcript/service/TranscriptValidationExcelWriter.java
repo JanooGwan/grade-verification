@@ -44,6 +44,15 @@ class TranscriptValidationExcelWriter {
         "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
         "교과성적(1,000점 만점)"
     };
+    private static final String[] MJC_RESULT_HEADERS = {
+        "지원정보 행", "수험번호", "전형명", "모집단위명",
+        "1학년 1학기 평균등급", "1학년 2학기 평균등급", "1학년 우수/반영학기",
+        "2학년 1학기 평균등급", "2학년 2학기 평균등급", "2학년 우수/반영학기",
+        "3학년 1학기 평균등급", "3학년 반영학기",
+        "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
+        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
+        "교과성적(1,000점 만점)"
+    };
     private static final String[] COURSE_COMPARISON_HEADERS = {
         "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
         "반영 여부", "선택순번", "원본 성적 행", "학년", "학기", "교과", "과목명",
@@ -225,11 +234,13 @@ class TranscriptValidationExcelWriter {
         String universityName,
         TranscriptBatchVerificationResult verification
     ) {
+        boolean mjc = isMjc(universityName);
+        String[] headers = mjc ? MJC_RESULT_HEADERS : RESULT_HEADERS;
         Sheet sheet = workbook.createSheet("학생별 검증 결과");
         sheet.setDisplayGridlines(false);
         title(sheet, styles, shortUniversityName(universityName)
-            + " 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", RESULT_HEADERS.length - 1);
-        header(sheet, styles, RESULT_HEADERS);
+            + " 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", headers.length - 1);
+        header(sheet, styles, headers);
         List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
         results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
 
@@ -239,7 +250,7 @@ class TranscriptValidationExcelWriter {
             TransferApplicationRow application = success.application();
             GradeVerificationResponse result = success.verification();
             GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
-            Object[] values = {
+            Object[] values = mjc ? mjcResultValues(success) : new Object[] {
                 application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
                 application.recruitmentUnitName(), summary.gradeTimesCreditsSum(),
                 summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
@@ -247,9 +258,69 @@ class TranscriptValidationExcelWriter {
                 result.finalScore(), thousandPointScore(result)
             };
             writeRow(row, values, styles, -1);
+            if (mjc) highlightMjcSelectedSemesterAverages(row, success, styles);
         }
-        finishTable(sheet, results.size(), RESULT_HEADERS.length);
-        setWidths(sheet, RESULT_HEADERS, Set.of(2, 3));
+        finishTable(sheet, results.size(), headers.length);
+        if (mjc) sheet.createFreezePane(4, 3);
+        setWidths(sheet, headers, mjc ? Set.of(2, 3, 6, 9, 11) : Set.of(2, 3));
+    }
+
+    private Object[] mjcResultValues(TranscriptBatchVerificationResult.Success success) {
+        TransferApplicationRow application = success.application();
+        GradeVerificationResponse result = success.verification();
+        GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
+        return new Object[] {
+            application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
+            application.recruitmentUnitName(), semesterAverage(success, 1, 1), semesterAverage(success, 1, 2),
+            selectedSemesterLabel(success, 1), semesterAverage(success, 2, 1), semesterAverage(success, 2, 2),
+            selectedSemesterLabel(success, 2), semesterAverage(success, 3, 1), selectedSemesterLabel(success, 3),
+            summary.gradeTimesCreditsSum(), summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
+            result.baseScore(), summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(),
+            result.finalScore(), thousandPointScore(result)
+        };
+    }
+
+    private BigDecimal semesterAverage(
+        TranscriptBatchVerificationResult.Success success,
+        int schoolYear,
+        int semester
+    ) {
+        String groupName = schoolYear + "학년 " + semester + "학기";
+        return success.intermediateCalculations().stream()
+            .filter(calculation -> groupName.equals(calculation.groupName()))
+            .map(TranscriptBatchVerificationResult.IntermediateCalculation::averageGrade)
+            .findFirst().orElse(null);
+    }
+
+    private String selectedSemesterLabel(TranscriptBatchVerificationResult.Success success, int schoolYear) {
+        List<String> selected = success.intermediateCalculations().stream()
+            .filter(TranscriptBatchVerificationResult.IntermediateCalculation::selected)
+            .filter(calculation -> calculation.groupName().startsWith(schoolYear + "학년 "))
+            .map(calculation -> calculation.groupName().substring((schoolYear + "학년 ").length()))
+            .toList();
+        if (selected.isEmpty()) return null;
+        String semesters = String.join("·", selected).replace("학기·", "·");
+        if (success.verification().selectionStrategy()
+            == com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy.ALL_COURSES) {
+            return semesters + (selected.size() > 1 ? " 모두 반영" : " 반영");
+        }
+        return semesters + (schoolYear < 3 ? " 우수" : " 반영");
+    }
+
+    private void highlightMjcSelectedSemesterAverages(
+        Row row,
+        TranscriptBatchVerificationResult.Success success,
+        Styles styles
+    ) {
+        int[][] semesterColumns = {{1, 1, 4}, {1, 2, 5}, {2, 1, 7}, {2, 2, 8}, {3, 1, 10}};
+        for (int[] semesterColumn : semesterColumns) {
+            String groupName = semesterColumn[0] + "학년 " + semesterColumn[1] + "학기";
+            boolean selected = success.intermediateCalculations().stream()
+                .anyMatch(calculation -> calculation.selected() && groupName.equals(calculation.groupName()));
+            if (selected && row.getCell(semesterColumn[2]) != null) {
+                row.getCell(semesterColumn[2]).setCellStyle(styles.selected);
+            }
+        }
     }
 
     private void createKbuVerificationResultSheet(
@@ -353,7 +424,7 @@ class TranscriptValidationExcelWriter {
         boolean hasIntermediateCalculations = verification.successes().stream()
             .anyMatch(success -> !success.intermediateCalculations().isEmpty());
         boolean kbu = isKbu(universityName);
-        if (!hasIntermediateCalculations && !kbu) return;
+        if (isMjc(universityName) || (!hasIntermediateCalculations && !kbu)) return;
 
         Sheet sheet = workbook.createSheet("성적 산출 중간값");
         sheet.setDisplayGridlines(false);
@@ -714,6 +785,10 @@ class TranscriptValidationExcelWriter {
 
     private boolean isKbu(String universityName) {
         return "경복대".equals(shortUniversityName(universityName));
+    }
+
+    private boolean isMjc(String universityName) {
+        return shortUniversityName(universityName).startsWith("명지전문");
     }
 
     private record KbuResultRow(

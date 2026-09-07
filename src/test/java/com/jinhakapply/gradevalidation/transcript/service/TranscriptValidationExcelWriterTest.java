@@ -16,6 +16,7 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportRowError;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -255,6 +256,61 @@ class TranscriptValidationExcelWriterTest {
         }
     }
 
+    @Test
+    void writesMjcSemesterAveragesAndSelectedSemestersInStudentResults() throws Exception {
+        GradeVerificationResponse verification = mjcVerification();
+        TransferApplicationRow application = new TransferApplicationRow(
+            2, 2026, "M-001", "01", "일반고", "10", "경영학과", 2026
+        );
+        List<TranscriptBatchVerificationResult.IntermediateCalculation> semesterCalculations = List.of(
+            semesterCalculation("1학년 1학기", false, "3.20000"),
+            semesterCalculation("1학년 2학기", true, "2.40000"),
+            semesterCalculation("2학년 1학기", true, "1.75000"),
+            semesterCalculation("2학년 2학기", false, "2.10000"),
+            semesterCalculation("3학년 1학기", true, "2.00000")
+        );
+        TranscriptBatchVerificationResult batch = new TranscriptBatchVerificationResult(
+            List.of(new TranscriptBatchVerificationResult.Success(
+                application, "명지 학생", verification, List.of(), semesterCalculations, null
+            )),
+            List.of()
+        );
+
+        byte[] file = writer.write(
+            "명지전문대.xlsx", "MJC_SOURCE_WORKBOOK_V1", "명지전문대학교", 1, 0,
+            List.of(), List.of(), List.of(), List.of(), batch
+        );
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(3);
+            assertThat(workbook.getSheet("성적 산출 중간값")).isNull();
+            Sheet result = workbook.getSheet("학생별 검증 결과");
+            assertThat(result.getRow(2).getLastCellNum()).isEqualTo((short) 20);
+            assertThat(result.getRow(2)).extracting(Cell::getStringCellValue).containsExactly(
+                "지원정보 행", "수험번호", "전형명", "모집단위명",
+                "1학년 1학기 평균등급", "1학년 2학기 평균등급", "1학년 우수/반영학기",
+                "2학년 1학기 평균등급", "2학년 2학기 평균등급", "2학년 우수/반영학기",
+                "3학년 1학기 평균등급", "3학년 반영학기",
+                "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
+                "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
+                "교과성적(1,000점 만점)"
+            );
+            Row row = result.getRow(3);
+            assertThat(row.getCell(4).getNumericCellValue()).isEqualTo(3.2);
+            assertThat(row.getCell(5).getNumericCellValue()).isEqualTo(2.4);
+            assertThat(row.getCell(6).getStringCellValue()).isEqualTo("2학기 우수");
+            assertThat(row.getCell(7).getNumericCellValue()).isEqualTo(1.75);
+            assertThat(row.getCell(8).getNumericCellValue()).isEqualTo(2.1);
+            assertThat(row.getCell(9).getStringCellValue()).isEqualTo("1학기 우수");
+            assertThat(row.getCell(10).getNumericCellValue()).isEqualTo(2.0);
+            assertThat(row.getCell(11).getStringCellValue()).isEqualTo("1학기 반영");
+            assertThat(row.getCell(5).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
+            assertThat(row.getCell(7).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
+            assertThat(row.getCell(10).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
+            assertThat(row.getCell(19).getNumericCellValue()).isEqualTo(982.14);
+        }
+    }
+
     private boolean containsCellValue(Sheet sheet, String expected) {
         for (Row row : sheet) {
             for (Cell cell : row) {
@@ -288,6 +344,30 @@ class TranscriptValidationExcelWriterTest {
             new BigDecimal("530.36"), new BigDecimal("98.214"), new BigDecimal("2.786"),
             SelectionStrategy.TOP_N_COURSES, ScoreAggregation.COURSE_SCORE_AVERAGE,
             "2027 모집요강.pdf", "36-38", 12, 4, summary, List.of(calculation), List.of()
+        );
+    }
+
+    private GradeVerificationResponse mjcVerification() {
+        GradeVerificationResponse base = verification();
+        return new GradeVerificationResponse(
+            base.ruleId(), "명지전문대 2026", base.ruleVersion(), "명지전문대학교",
+            base.admissionType(), base.recruitmentUnit(), base.finalScore(), base.baseScore(), base.averageGrade(),
+            SelectionStrategy.BEST_SEMESTER_PER_GRADE, base.scoreAggregation(), base.sourceDocument(),
+            base.sourcePages(), base.includedCourseCount(), base.excludedCourseCount(), base.calculationSummary(),
+            base.calculations(), base.warnings()
+        );
+    }
+
+    private TranscriptBatchVerificationResult.IntermediateCalculation semesterCalculation(
+        String groupName,
+        boolean selected,
+        String averageGrade
+    ) {
+        BigDecimal average = new BigDecimal(averageGrade);
+        BigDecimal credits = new BigDecimal("10");
+        return new TranscriptBatchVerificationResult.IntermediateCalculation(
+            "학기", groupName, selected, selected ? 1 : null, 4, credits,
+            average.multiply(credits), average, BigDecimal.ZERO, BigDecimal.ZERO
         );
     }
 }

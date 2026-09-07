@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -207,7 +208,7 @@ class TranscriptBatchVerificationServiceTest {
         ));
 
         List<TranscriptBatchVerificationResult.IntermediateCalculation> result =
-            service.buildKbuIntermediateCalculations(rule, verification);
+            service.buildIntermediateCalculations(rule, verification);
 
         assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
             .containsExactly("국어", "수학", "사회", "과학", "영어");
@@ -241,7 +242,7 @@ class TranscriptBatchVerificationServiceTest {
         ));
 
         List<TranscriptBatchVerificationResult.IntermediateCalculation> result =
-            service.buildKbuIntermediateCalculations(rule, verification);
+            service.buildIntermediateCalculations(rule, verification);
 
         assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
             .containsExactly("1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기", "3학년 1학기");
@@ -257,6 +258,38 @@ class TranscriptBatchVerificationServiceTest {
                 assertThat(item.averageGrade()).isNull();
                 assertThat(item.selected()).isFalse();
             });
+    }
+
+    @Test
+    void aggregatesMjcSemesterAveragesAndBestSemesterSelections() {
+        TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService, new EvaluationRuleMatcher()
+        );
+        when(rule.getAdmissionYear()).thenReturn(2026);
+        when(rule.getUniversity()).thenReturn(university);
+        when(university.getCode()).thenReturn("MJC");
+        when(rule.getIntermediateScale()).thenReturn(5);
+        when(rule.getIntermediateRounding()).thenReturn(RoundingMode.HALF_UP);
+        when(verification.selectionStrategy()).thenReturn(SelectionStrategy.BEST_SEMESTER_PER_GRADE);
+        when(verification.calculations()).thenReturn(List.of(
+            calculation("국어", 1, 1, SubjectCategory.KOREAN, "2", "2", false),
+            calculation("수학", 1, 1, SubjectCategory.MATH, "4", "1", false),
+            calculation("영어", 1, 2, SubjectCategory.ENGLISH, "2", "3", true),
+            calculation("과학", 2, 1, SubjectCategory.SCIENCE, "3", "2", false),
+            calculation("사회", 2, 2, SubjectCategory.SOCIAL, "1", "2", true),
+            calculation("한국사", 3, 1, SubjectCategory.SOCIAL, "4", "2", true)
+        ));
+
+        List<TranscriptBatchVerificationResult.IntermediateCalculation> result =
+            service.buildIntermediateCalculations(rule, verification);
+
+        assertThat(result).extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactly("1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기", "3학년 1학기");
+        assertThat(result).filteredOn(item -> item.groupName().equals("1학년 1학기"))
+            .singleElement().satisfies(item -> assertThat(item.averageGrade()).isEqualByComparingTo("2.66667"));
+        assertThat(result).filteredOn(TranscriptBatchVerificationResult.IntermediateCalculation::selected)
+            .extracting(TranscriptBatchVerificationResult.IntermediateCalculation::groupName)
+            .containsExactly("1학년 2학기", "2학년 2학기", "3학년 1학기");
     }
 
     @Test

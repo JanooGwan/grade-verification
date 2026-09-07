@@ -93,7 +93,7 @@ class SavedVerificationQueryServiceTest {
         when(objectMapper.readValue("{stored-result}", GradeVerificationResponse.class)).thenReturn(verification);
         when(verification.calculations()).thenReturn(List.of());
         when(ruleRepository.findOneById(31L)).thenReturn(java.util.Optional.of(rule));
-        when(batchVerificationService.buildKbuIntermediateCalculations(rule, verification)).thenReturn(List.of());
+        when(batchVerificationService.buildIntermediateCalculations(rule, verification)).thenReturn(List.of());
         when(validationExcelWriter.write(
             anyString(), anyString(), anyString(), anyInt(), anyInt(),
             anyList(), anyList(), anyList(), anyList(), any()
@@ -103,7 +103,7 @@ class SavedVerificationQueryServiceTest {
 
         assertThat(result).containsExactly(1, 2, 3);
         verify(objectMapper).readValue("{stored-result}", GradeVerificationResponse.class);
-        verify(batchVerificationService).buildKbuIntermediateCalculations(rule, verification);
+        verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
     }
 
     @Test
