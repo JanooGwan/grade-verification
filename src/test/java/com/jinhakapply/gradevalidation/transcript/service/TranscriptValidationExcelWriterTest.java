@@ -266,7 +266,7 @@ class TranscriptValidationExcelWriterTest {
             semesterCalculation("1학년 1학기", false, "3.20000"),
             semesterCalculation("1학년 2학기", true, "2.40000"),
             semesterCalculation("2학년 1학기", true, "1.75000"),
-            semesterCalculation("2학년 2학기", false, "2.10000"),
+            emptySemesterCalculation("2학년 2학기"),
             semesterCalculation("3학년 1학기", true, "2.00000")
         );
         TranscriptBatchVerificationResult batch = new TranscriptBatchVerificationResult(
@@ -300,7 +300,7 @@ class TranscriptValidationExcelWriterTest {
             assertThat(row.getCell(5).getNumericCellValue()).isEqualTo(2.4);
             assertThat(row.getCell(6).getStringCellValue()).isEqualTo("2학기 우수");
             assertThat(row.getCell(7).getNumericCellValue()).isEqualTo(1.75);
-            assertThat(row.getCell(8).getNumericCellValue()).isEqualTo(2.1);
+            assertThat(row.getCell(8).getStringCellValue()).isEmpty();
             assertThat(row.getCell(9).getStringCellValue()).isEqualTo("1학기 우수");
             assertThat(row.getCell(10).getNumericCellValue()).isEqualTo(2.0);
             assertThat(row.getCell(11).getStringCellValue()).isEqualTo("1학기 반영");
@@ -368,6 +368,13 @@ class TranscriptValidationExcelWriterTest {
         return new TranscriptBatchVerificationResult.IntermediateCalculation(
             "학기", groupName, selected, selected ? 1 : null, 4, credits,
             average.multiply(credits), average, BigDecimal.ZERO, BigDecimal.ZERO
+        );
+    }
+
+    private TranscriptBatchVerificationResult.IntermediateCalculation emptySemesterCalculation(String groupName) {
+        return new TranscriptBatchVerificationResult.IntermediateCalculation(
+            "학기", groupName, false, null, 0, BigDecimal.ZERO,
+            BigDecimal.ZERO, null, BigDecimal.ZERO, null
         );
     }
 }

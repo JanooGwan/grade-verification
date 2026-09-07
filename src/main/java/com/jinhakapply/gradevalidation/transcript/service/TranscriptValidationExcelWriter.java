@@ -288,6 +288,7 @@ class TranscriptValidationExcelWriter {
         String groupName = schoolYear + "학년 " + semester + "학기";
         return success.intermediateCalculations().stream()
             .filter(calculation -> groupName.equals(calculation.groupName()))
+            .filter(calculation -> calculation.averageGrade() != null)
             .map(TranscriptBatchVerificationResult.IntermediateCalculation::averageGrade)
             .findFirst().orElse(null);
     }
