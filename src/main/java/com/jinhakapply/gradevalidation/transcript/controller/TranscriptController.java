@@ -147,7 +147,7 @@ public class TranscriptController implements TranscriptApi {
     public ResponseEntity<StreamingResponseBody> exportSavedVerificationBatch(Long sourceImportId) {
         StreamingResponseBody result = output -> {
             output.flush();
-            output.write(savedVerificationQueryService.export(sourceImportId));
+            savedVerificationQueryService.writeExport(sourceImportId, output);
         };
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

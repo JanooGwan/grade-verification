@@ -81,7 +81,11 @@ public class SavedVerificationQueryRepository {
         return results.stream().findFirst();
     }
 
-    public List<ExportProjection> findExportResults(Long sourceImportId) {
+    public List<ExportProjection> findExportResultsAfter(
+        Long sourceImportId,
+        long afterVerificationRunId,
+        int limit
+    ) {
         return jdbcTemplate.query("""
             SELECT verification.id AS verification_run_id,
                    verification.rule_id,
@@ -99,7 +103,9 @@ public class SavedVerificationQueryRepository {
             LEFT JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
             LEFT JOIN admission_track track ON track.id = unit.admission_track_id
             WHERE verification.source_import_id = ?
-            ORDER BY student.applicant_number, verification.id
+              AND verification.id > ?
+            ORDER BY verification.id
+            LIMIT ?
             """, (resultSet, ignored) -> new ExportProjection(
                 resultSet.getLong("verification_run_id"),
                 resultSet.getLong("rule_id"),
@@ -110,7 +116,7 @@ public class SavedVerificationQueryRepository {
                 resultSet.getString("recruitment_unit_code"),
                 resultSet.getString("recruitment_unit_name"),
                 resultSet.getString("result_json")
-            ), sourceImportId);
+            ), sourceImportId, afterVerificationRunId, limit);
     }
 
     public void streamScenarioExportResults(

@@ -91,12 +91,17 @@ public class SavedVerificationExportService {
 
     private void generate(ExportJob job) {
         Path file = null;
+        Instant startedAt = Instant.now();
         try {
             file = Files.createTempFile("saved-verification-export-", ".xlsx");
-            Files.write(file, queryService.export(job.sourceImportId));
+            try (OutputStream output = Files.newOutputStream(file)) {
+                queryService.writeExport(job.sourceImportId, output);
+            }
             job.file = file;
             job.status = READY;
             job.message = null;
+            log.info("Saved verification export completed: exportId={}, sourceImportId={}, elapsedSeconds={}, bytes={}",
+                job.id, job.sourceImportId, Duration.between(startedAt, Instant.now()).toSeconds(), Files.size(file));
         } catch (Exception exception) {
             deleteQuietly(file);
             job.status = FAILED;

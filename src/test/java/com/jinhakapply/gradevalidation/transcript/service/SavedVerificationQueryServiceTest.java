@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -77,14 +78,14 @@ class SavedVerificationQueryServiceTest {
     }
 
     @Test
-    void exportsSavedBatchJsonWithoutRecalculating() {
+    void exportsSavedBatchJsonWithoutRecalculating() throws Exception {
         LocalDateTime savedAt = LocalDateTime.of(2027, 1, 2, 3, 4);
         when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(
             new SavedVerificationBatchResponse(
                 80L, 5L, "경복대학교", 2026, "경복대.xlsx", "KOREAN_MULTI_SHEET_V1", 1, savedAt
             )
         ));
-        when(repository.findExportResults(80L)).thenReturn(List.of(
+        when(repository.findExportResultsAfter(80L, 0L, 200)).thenReturn(List.of(
             new SavedVerificationQueryRepository.ExportProjection(
                 91L, 31L, null, "2B0004", "미등록", "수시 일반고", "101", "(주)간호학과",
                 "{stored-result}"
@@ -94,10 +95,14 @@ class SavedVerificationQueryServiceTest {
         when(verification.calculations()).thenReturn(List.of());
         when(ruleRepository.findOneById(31L)).thenReturn(java.util.Optional.of(rule));
         when(batchVerificationService.buildIntermediateCalculations(rule, verification)).thenReturn(List.of());
-        when(validationExcelWriter.write(
+        doAnswer(invocation -> {
+            java.io.OutputStream output = invocation.getArgument(10);
+            output.write(new byte[] {1, 2, 3});
+            return null;
+        }).when(validationExcelWriter).write(
             anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any()
-        )).thenReturn(new byte[] {1, 2, 3});
+            anyList(), anyList(), anyList(), anyList(), any(), any()
+        );
 
         byte[] result = service.export(80L);
 

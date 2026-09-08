@@ -1,7 +1,8 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 
 import java.io.ByteArrayOutputStream;
 import java.util.concurrent.Executor;
@@ -27,7 +28,11 @@ class SavedVerificationExportServiceTest {
     @Test
     void generatesTheFileOutsideTheRequestAndReusesTheReadyJob() throws Exception {
         byte[] excel = new byte[] {1, 2, 3, 4};
-        when(queryService.export(24L)).thenReturn(excel);
+        doAnswer(invocation -> {
+            java.io.OutputStream output = invocation.getArgument(1);
+            output.write(excel);
+            return null;
+        }).when(queryService).writeExport(eq(24L), org.mockito.ArgumentMatchers.any());
         Executor sameThreadExecutor = Runnable::run;
         service = new SavedVerificationExportService(queryService, sameThreadExecutor);
 
