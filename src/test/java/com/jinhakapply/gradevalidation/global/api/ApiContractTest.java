@@ -27,6 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.io.OutputStream;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,11 +58,13 @@ import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.MjcSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredVerificationJobService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
 import com.jinhakapply.gradevalidation.transcript.dto.SourceImportStartResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationJobResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationExportStartResponse;
@@ -104,6 +107,7 @@ class ApiContractTest {
     @MockitoBean SyuSourceImportService syuSourceImportService;
     @MockitoBean MjcSourceImportService mjcSourceImportService;
     @MockitoBean StoredTranscriptVerificationService storedTranscriptVerificationService;
+    @MockitoBean StoredVerificationJobService storedVerificationJobService;
     @MockitoBean SavedVerificationQueryService savedVerificationQueryService;
     @MockitoBean SavedVerificationExportService savedVerificationExportService;
     @MockitoBean AssistantService assistantService;
@@ -300,6 +304,38 @@ class ApiContractTest {
             .andExpect(jsonPath("$.replacedResults").value(2));
 
         verify(storedTranscriptVerificationService).persist(1L, 2027);
+    }
+
+    @Test
+    void startsAndReadsStoredTranscriptVerificationJob() throws Exception {
+        UUID jobId = UUID.randomUUID();
+        Instant startedAt = Instant.parse("2027-01-02T03:04:05Z");
+        when(storedVerificationJobService.start(1L, 2027)).thenReturn(
+            new StoredVerificationJobResponse(jobId, 1L, 2027, "PROCESSING", null, startedAt, null, null)
+        );
+        when(storedVerificationJobService.status(jobId)).thenReturn(
+            new StoredVerificationJobResponse(
+                jobId, 1L, 2027, "COMPLETED", null, startedAt, startedAt.plusSeconds(10),
+                new StoredVerificationPersistenceResponse(
+                    80L, 3, 2, 1, 0, LocalDateTime.of(2027, 1, 2, 3, 4)
+                )
+            )
+        );
+
+        mockMvc.perform(post("/api/transcripts/verifications/jobs")
+                .param("admissionYear", "2027")
+                .param("universityId", "1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.jobId").value(jobId.toString()))
+            .andExpect(jsonPath("$.status").value("PROCESSING"));
+
+        mockMvc.perform(get("/api/transcripts/verifications/jobs/{jobId}", jobId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("COMPLETED"))
+            .andExpect(jsonPath("$.result.sourceImportId").value(80))
+            .andExpect(jsonPath("$.result.savedResults").value(2));
     }
 
     @Test

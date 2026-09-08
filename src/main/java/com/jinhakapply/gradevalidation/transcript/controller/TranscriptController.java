@@ -10,6 +10,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationJobResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
@@ -28,6 +29,7 @@ import com.jinhakapply.gradevalidation.transcript.service.TranscriptService;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.MjcSourceImportService;
 import com.jinhakapply.gradevalidation.transcript.service.StoredTranscriptVerificationService;
+import com.jinhakapply.gradevalidation.transcript.service.StoredVerificationJobService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationQueryService;
 import com.jinhakapply.gradevalidation.transcript.service.SavedVerificationExportService;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +46,7 @@ public class TranscriptController implements TranscriptApi {
     private final SyuSourceImportService syuSourceImportService;
     private final MjcSourceImportService mjcSourceImportService;
     private final StoredTranscriptVerificationService storedTranscriptVerificationService;
+    private final StoredVerificationJobService storedVerificationJobService;
     private final SavedVerificationQueryService savedVerificationQueryService;
     private final SavedVerificationExportService savedVerificationExportService;
 
@@ -107,6 +110,18 @@ public class TranscriptController implements TranscriptApi {
         Long universityId, int admissionYear
     ) {
         return ResponseEntity.ok(storedTranscriptVerificationService.persist(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<StoredVerificationJobResponse> startStoredTranscriptVerification(
+        Long universityId, int admissionYear
+    ) {
+        return ResponseEntity.accepted().body(storedVerificationJobService.start(universityId, admissionYear));
+    }
+
+    @Override
+    public ResponseEntity<StoredVerificationJobResponse> findStoredTranscriptVerificationJob(UUID jobId) {
+        return ResponseEntity.ok(storedVerificationJobService.status(jobId));
     }
 
     @Override

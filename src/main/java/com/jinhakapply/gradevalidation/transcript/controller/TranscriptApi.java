@@ -6,6 +6,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportSummaryResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationJobResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationDetailResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageResponse;
@@ -114,6 +115,19 @@ public interface TranscriptApi {
     ResponseEntity<StoredVerificationPersistenceResponse> persistStoredTranscriptVerification(
         @RequestParam @NotNull @Positive Long universityId,
         @RequestParam @Min(2000) @Max(2100) int admissionYear
+    );
+
+    @Operation(summary = "DB 저장 학생부 성적검증 작업 시작", description = "검증과 결과 저장을 백그라운드에서 실행합니다.")
+    @PostMapping("/verifications/jobs")
+    ResponseEntity<StoredVerificationJobResponse> startStoredTranscriptVerification(
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestParam @Min(2000) @Max(2100) int admissionYear
+    );
+
+    @Operation(summary = "DB 저장 학생부 성적검증 작업 상태 조회")
+    @GetMapping("/verifications/jobs/{jobId}")
+    ResponseEntity<StoredVerificationJobResponse> findStoredTranscriptVerificationJob(
+        @PathVariable UUID jobId
     );
 
     @Operation(summary = "저장된 일괄 성적검증 회차 목록 조회")

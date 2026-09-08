@@ -42,6 +42,8 @@ public enum ApiResponseCode {
     DUPLICATE_TRANSCRIPT_COURSE(HttpStatus.CONFLICT, "같은 학년·학기·교과·과목이 이미 존재합니다."),
     DUPLICATE_RULE_EXTRACTION_FILE(HttpStatus.CONFLICT, "같은 모집요강 파일이 이미 분석되었습니다."),
     VERIFICATION_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 검증 이력을 찾을 수 없습니다."),
+    STORED_VERIFICATION_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 검증 작업을 찾을 수 없습니다."),
+    STORED_VERIFICATION_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "성적 검증 처리 대기열이 가득 찼습니다."),
     VERIFICATION_EXPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "성적 검증 결과 내보내기 작업을 찾을 수 없습니다."),
     VERIFICATION_EXPORT_NOT_READY(HttpStatus.CONFLICT, "성적 검증 결과 파일이 아직 준비되지 않았습니다."),
     VERIFICATION_EXPORT_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "성적 검증 결과 내보내기 대기열이 가득 찼습니다."),
