@@ -423,6 +423,13 @@ public class EvaluationService {
         if (course.legacyAchievement() != null) {
             return rule.getLegacyAchievementGrades().get(course.legacyAchievement());
         }
+        if (isMjcGuidebookYear(rule)
+            && rule.getAchievementConversion() == AchievementConversion.Z_SCORE
+            && hasValidZScoreInputs(course)) {
+            return BigDecimal.valueOf(
+                gradeFromZScore(course.rawScore(), course.meanScore(), course.standardDeviation())
+            );
+        }
         if (course.achievement() == null || rule.getAchievementConversion() == AchievementConversion.EXCLUDE) return null;
         if (rule.getAchievementConversion() == AchievementConversion.Z_SCORE) {
             if (hasValidZScoreInputs(course)) {

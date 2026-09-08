@@ -293,7 +293,7 @@ class TranscriptBatchVerificationServiceTest {
     }
 
     @Test
-    void excludesCoursesWithoutGradableAssessmentBeforeVerification() {
+    void retainsCoursesWithoutGradableAssessmentForExclusionReporting() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService, new EvaluationRuleMatcher()
         );
@@ -325,7 +325,7 @@ class TranscriptBatchVerificationServiceTest {
         ArgumentCaptor<VerifyGradeRequest> requestCaptor = ArgumentCaptor.forClass(VerifyGradeRequest.class);
         verify(evaluationService).verify(eq(rule), requestCaptor.capture());
         assertThat(requestCaptor.getValue().courses()).extracting(VerifyGradeRequest.CourseGrade::courseName)
-            .containsExactly("국어", "한국사", "미술");
+            .containsExactly("국어", "한국사", "미술", "진로와 직업");
     }
 
     @Test

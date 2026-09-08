@@ -630,6 +630,30 @@ class EvaluationServiceTest {
     }
 
     @Test
+    void convertsMjc2026CourseWithCompleteZScoreInputsWithoutAchievementLetter() {
+        EvaluationRule mjcRule = mjcRule(2026);
+        mockRule(mjcRule);
+
+        VerifyGradeRequest.CourseGrade zScoreOnlyCourse = new VerifyGradeRequest.CourseGrade(
+            1, 1, SubjectCategory.SCIENCE, "Z환산 과목", null, null,
+            new BigDecimal("90"), new BigDecimal("80"), new BigDecimal("10"), 100,
+            false, false, new BigDecimal("3")
+        );
+        GradeVerificationResponse response = service.verify(new VerifyGradeRequest(1L, List.of(
+            zScoreOnlyCourse,
+            course(2, 1, SubjectCategory.KOREAN, "2학년 국어", 3, "3"),
+            course(3, 1, SubjectCategory.KOREAN, "3학년 국어", 3, "3")
+        )));
+
+        assertThat(response.finalScore()).isEqualByComparingTo("80.00000");
+        assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("Z환산 과목"))
+            .singleElement().satisfies(calculation -> {
+                assertThat(calculation.included()).isTrue();
+                assertThat(calculation.effectiveGrade()).isEqualByComparingTo("3");
+            });
+    }
+
+    @Test
     void kbuPre2002AnnualRecordsUseAllGraduationYearGrades() {
         EvaluationRule kbuRule = rule(SelectionStrategy.TOP_N_SEMESTERS, 2,
             ScoreAggregation.AVERAGE_GRADE_THEN_SCORE, decimals("33.3333", "33.3333", "33.3334"),
