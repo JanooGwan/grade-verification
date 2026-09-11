@@ -423,6 +423,7 @@ public class TranscriptService {
         Student student = findStudent(studentId);
         student.updateProfile(request.name().trim(), clean(request.highSchoolCode()), clean(request.highSchoolName()),
             request.graduationYear());
+        if (request.graduationDate() != null) student.updateGraduationDate(request.graduationDate());
         return transcript(student);
     }
 

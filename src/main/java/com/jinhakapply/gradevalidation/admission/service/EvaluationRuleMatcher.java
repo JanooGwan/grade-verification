@@ -39,6 +39,9 @@ public class EvaluationRuleMatcher {
         String ruleUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String sourceUnit = normalizePolicyText(unitName);
         if (ruleUnit.equals(sourceUnit) || COMMON_UNIT_NAMES.contains(ruleUnit)) return true;
+        if ("TUK".equalsIgnoreCase(rule.getUniversity().getCode())) {
+            return ruleUnit.equals(TukRecruitmentUnits.group(rule.getAdmissionYear(), unitName));
+        }
         if (!"MJC".equalsIgnoreCase(rule.getUniversity().getCode())) return false;
         if (ruleUnit.equals("실기학과")) return isPractical(unitName);
         if (ruleUnit.equals("일반학과")) return !isAviation(unitName) && !isPractical(unitName);

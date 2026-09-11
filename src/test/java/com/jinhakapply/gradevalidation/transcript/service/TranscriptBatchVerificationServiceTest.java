@@ -567,6 +567,30 @@ class TranscriptBatchVerificationServiceTest {
         );
     }
 
+    @Test
+    void requiresEssayOrGraduationMonthBeforeEvaluatingTukComparisonApplicants() {
+        var service = new TranscriptBatchVerificationService(ruleRepository, evaluationService, new EvaluationRuleMatcher());
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(1L, 2026, EvaluationRuleStatus.PUBLISHED))
+            .thenReturn(List.of(rule));
+        when(rule.getUniversity()).thenReturn(university);
+        when(university.getCode()).thenReturn("TUK");
+        when(university.getName()).thenReturn("한국공학대학교");
+        when(rule.getAdmissionYear()).thenReturn(2026);
+        when(rule.getAdmissionType()).thenReturn("논술(논술우수자)");
+        when(rule.getRecruitmentUnit()).thenReturn("공학계열");
+        var application = new TransferApplicationRow(2, 2026, "A-001", null, "논술(논술우수자)", null, "기계공학과", 2024);
+        for (boolean hasDate : List.of(false, true)) {
+            var profile = new ApplicantSchoolInfoRow(2, 2026, "A-001", 2024, null, null, null, null, null, null,
+                EducationBackground.DOMESTIC_HIGH_SCHOOL, HighSchoolType.GENERAL,
+                com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus.GRADUATE,
+                hasDate ? java.time.LocalDate.of(2024, 2, 29) : null);
+            var result = service.verify(1L, 2026, List.of(application), List.of(), Map.of("A-001", profile));
+            assertThat(result.failures()).singleElement().satisfies(failure ->
+                assertThat(failure.code()).isEqualTo(hasDate ? "ESSAY_SCORE_REQUIRED" : "GRADUATION_DATE_REQUIRED"));
+        }
+        verifyNoInteractions(evaluationService);
+    }
+
     private TranscriptExcelRow course(int rowNumber, SubjectCategory category, String name) {
         return new TranscriptExcelRow(
             rowNumber, "A-001", "미등록", null, null, 2027,

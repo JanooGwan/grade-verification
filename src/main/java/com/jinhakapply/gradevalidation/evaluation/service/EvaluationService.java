@@ -175,6 +175,13 @@ public class EvaluationService {
         CourseSelection selection = selectCourses(
             rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
         );
+        if (isTukGuidebookYear(rule) && candidates.stream()
+            .filter(candidate -> selection.indexes().contains(candidate.index()))
+            .noneMatch(candidate -> !candidate.course().careerSubject()
+                && (candidate.course().grade() != null || candidate.rankPercentile() != null))) {
+            throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
+                "한국공학대학교는 반영교과에 석차등급 또는 구교육과정 석차가 있는 과목이 1개 이상 필요합니다.");
+        }
         Set<Integer> selectedIndexes = selection.indexes();
         if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
             throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
@@ -399,6 +406,10 @@ public class EvaluationService {
 
     private BigDecimal resolveEffectiveGrade(EvaluationRule rule, VerifyGradeRequest.CourseGrade course,
         BigDecimal rankPercentile) {
+        if (isTukGuidebookYear(rule)) {
+            if (course.careerSubject()) return rule.getAchievementGrades().get(course.achievement());
+            if (course.grade() == null && rankPercentile == null) return null;
+        }
         if (isKbu2026(rule) && course.achievement() != null) {
             if (course.careerSubject()) {
                 return rule.getAchievementGrades().get(course.achievement());
@@ -461,7 +472,8 @@ public class EvaluationService {
     }
 
     private BigDecimal resolveConvertedScore(EvaluationRule rule, VerifyGradeRequest.CourseGrade course, BigDecimal effectiveGrade) {
-        if (course.grade() == null && course.achievement() != null
+        if ((course.grade() == null || (isTukGuidebookYear(rule) && course.careerSubject()))
+            && course.achievement() != null
             && rule.getAchievementConversion() == AchievementConversion.DIRECT_TABLE) {
             BigDecimal directScore = rule.getAchievementScores().get(course.achievement());
             if (directScore != null) return directScore;

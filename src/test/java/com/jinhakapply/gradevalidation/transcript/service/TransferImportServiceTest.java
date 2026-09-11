@@ -68,7 +68,7 @@ class TransferImportServiceTest {
         ReflectionTestUtils.setField(university, "id", 1L);
         RuntimeException stopAfterLock = new RuntimeException("stop after lock");
         when(universityRepository.findById(1L)).thenReturn(java.util.Optional.of(university));
-        when(parser.parse(file)).thenReturn(new TransferExcelParseResult(
+        when(parser.parse(file, 2026)).thenReturn(new TransferExcelParseResult(
             "KOREAN_MULTI_SHEET_V1", List.of(), List.of(), 0, 0, List.of(), List.of(), List.of()
         ));
         when(universityRepository.findByIdForUpdate(1L)).thenReturn(java.util.Optional.of(university));
@@ -85,7 +85,7 @@ class TransferImportServiceTest {
 
         InOrder order = inOrder(parser, universityRepository, importRepository);
         order.verify(universityRepository).findById(1L);
-        order.verify(parser).parse(file);
+        order.verify(parser).parse(file, 2026);
         order.verify(universityRepository).findByIdForUpdate(1L);
         order.verify(importRepository).findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
             eq(1L), eq(2026), any()

@@ -84,7 +84,8 @@ class TransferExcelParser {
             }
             boolean hanshinLayout = sheets.contains(APPLICATION_SHEET) && sheets.contains(COURSE_SHEET);
             boolean koreanLayout = sheets.contains(KOREAN_APPLICATION_SHEET) && sheets.contains(KOREAN_COURSE_SHEET);
-            return hanshinLayout || koreanLayout;
+            return hanshinLayout || koreanLayout
+                || (sheets.contains("sheet1") && sheets.contains("sheet2") && TukSourceExcelParser.supports(pkg));
             }
         } catch (Exception exception) {
             log.debug("Transfer workbook detection failed", exception);
@@ -95,6 +96,10 @@ class TransferExcelParser {
     }
 
     TransferExcelParseResult parse(MultipartFile file) {
+        return parse(file, null);
+    }
+
+    TransferExcelParseResult parse(MultipartFile file, Integer admissionYear) {
         List<TransferApplicationRow> applications = new ArrayList<>();
         List<TranscriptExcelRow> courses = new ArrayList<>();
         List<TranscriptImportRowError> errors = new ArrayList<>();
@@ -110,6 +115,12 @@ class TransferExcelParser {
         try {
             temporaryFile = copyToTemporaryFile(file, "transfer-import-");
             try (OPCPackage pkg = OPCPackage.open(temporaryFile.toFile(), PackageAccess.READ)) {
+            if (TukSourceExcelParser.supports(pkg)) {
+                if (admissionYear == null || (admissionYear != 2026 && admissionYear != 2027)) {
+                    throw CustomException.of(INVALID_TRANSCRIPT_FILE, "한국공학대 원본의 모집연도는 2026 또는 2027로 지정해야 합니다.");
+                }
+                return new TukSourceExcelParser().parse(pkg, admissionYear);
+            }
             XSSFReader reader = new XSSFReader(pkg);
             StylesTable styles = reader.getStylesTable();
             SharedStrings strings = reader.getSharedStringsTable();

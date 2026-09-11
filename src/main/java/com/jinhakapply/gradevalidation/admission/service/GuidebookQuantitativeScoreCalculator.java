@@ -46,6 +46,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     ) {
         String university = normalizePolicyText(rule.getUniversity().getName());
         String admissionTrack = normalizePolicyText(admissionTrackName);
+        int scoreScale = university.contains("한국공학") ? 4 : 2;
         String recruitmentUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String track = normalizePolicyText(admissionTrackName + " " + rule.getAdmissionType() + " " + rule.getRecruitmentUnit());
         List<String> pending = new ArrayList<>();
@@ -58,7 +59,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         BigDecimal baseScore = ineligible.isEmpty()
             ? resolveBaseScore(rule, university, track, gradeVerification, commonData, request, pending, warnings, steps)
             : ZERO;
-        BigDecimal academicScore = baseScore == null ? ZERO : score(baseScore.multiply(rule.getScoreMultiplier()));
+        BigDecimal academicScore = baseScore == null ? ZERO
+            : baseScore.multiply(rule.getScoreMultiplier()).setScale(scoreScale, RoundingMode.HALF_UP);
         BigDecimal attendanceScore = null;
         Integer equivalentAbsenceDays = null;
         BigDecimal additionalScore = null;
@@ -72,7 +74,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
                 pending.add("논술고사 400점");
             } else {
                 validateTukEssayScore(request.essayScore());
-                additionalScore = score(request.essayScore());
+                additionalScore = request.essayScore().setScale(scoreScale, RoundingMode.HALF_UP);
                 steps.add(step("TUK_ESSAY_SCORE", "한국공학대 논술고사 반영점수", "논술고사 취득점수",
                     Map.of("논술고사점수", request.essayScore()), additionalScore));
             }
@@ -138,9 +140,9 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         BigDecimal subtotal = academicScore
             .add(attendanceScore == null ? BigDecimal.ZERO : attendanceScore)
             .add(additionalScore == null ? BigDecimal.ZERO : additionalScore)
-            .setScale(2, RoundingMode.HALF_UP);
+            .setScale(scoreScale, RoundingMode.HALF_UP);
         BigDecimal afterDeduction = subtotal.subtract(violenceDeduction).max(BigDecimal.ZERO)
-            .setScale(2, RoundingMode.HALF_UP);
+            .setScale(scoreScale, RoundingMode.HALF_UP);
         steps.add(step("ACADEMIC_SCORE", "교과 반영점수", "기초점수 × 배수",
             Map.of("기초점수", baseScore == null ? BigDecimal.ZERO : baseScore,
                 "배수", rule.getScoreMultiplier()), academicScore));
@@ -154,7 +156,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         ApplicationScoreStatus status = !ineligible.isEmpty() ? ApplicationScoreStatus.INELIGIBLE
             : !pending.isEmpty() ? ApplicationScoreStatus.QUALITATIVE_PENDING : ApplicationScoreStatus.COMPLETE;
         BigDecimal finalScore = status == ApplicationScoreStatus.COMPLETE ? afterDeduction : null;
-        return new ApplicationScoreResult(status, score(baseScore == null ? BigDecimal.ZERO : baseScore), academicScore,
+        return new ApplicationScoreResult(status,
+            (baseScore == null ? BigDecimal.ZERO : baseScore).setScale(scoreScale, RoundingMode.HALF_UP), academicScore,
             equivalentAbsenceDays, attendanceScore, additionalScore, violenceDeduction, subtotal, afterDeduction,
             finalScore, maximumQuantitative, maximumTotal, List.copyOf(pending), List.copyOf(ineligible),
             List.copyOf(warnings), List.copyOf(steps));
@@ -171,8 +174,12 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         List<String> warnings,
         List<ScoreCalculationStep> steps
     ) {
-        if (university.contains("한국공학") && track.contains("논술")
-            && usesTukEssayComparisonScore(rule, commonData)) {
+        TukEssayPolicy.Mode essayMode = TukEssayPolicy.mode(rule, track, commonData);
+        if (essayMode == TukEssayPolicy.Mode.GRADUATION_DATE_REQUIRED) {
+            pending.add("논술 비교내신 적용 여부 확인을 위한 졸업연월");
+            return BigDecimal.ZERO;
+        }
+        if (essayMode == TukEssayPolicy.Mode.COMPARISON) {
             if (request.essayScore() == null) return BigDecimal.ZERO;
             validateTukEssayScore(request.essayScore());
             BigDecimal result = tukEssayComparisonScore(request.essayScore());
@@ -396,14 +403,6 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             "Σ(과목별 환산점수) ÷ 반영과목수",
             Map.of("과목별환산점수합", convertedScoreSum, "반영과목수", BigDecimal.valueOf(scores.size())), result));
         return result;
-    }
-
-    private boolean usesTukEssayComparisonScore(EvaluationRule rule, StudentCommonEvaluationSnapshot data) {
-        if (data.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) return true;
-        if (data.graduationStatus() != GraduationStatus.GRADUATE
-            || data.graduationYear() == null) return false;
-        int comparisonCutoffYear = rule.getAdmissionYear() == 2026 ? 2024 : 2025;
-        return data.graduationYear() <= comparisonCutoffYear;
     }
 
     private void validateTukEssayScore(BigDecimal essayScore) {

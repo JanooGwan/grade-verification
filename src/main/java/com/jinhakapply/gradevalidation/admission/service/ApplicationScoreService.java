@@ -70,7 +70,9 @@ public class ApplicationScoreService {
         StudentCommonEvaluationSnapshot commonData = commonData(application);
 
         GradeVerificationResponse gradeVerification = null;
-        if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL) {
+        if (commonData.educationBackground() == EducationBackground.DOMESTIC_HIGH_SCHOOL
+            && TukEssayPolicy.mode(rule, application.getRecruitmentUnit().getAdmissionTrack().getName(), commonData)
+                == TukEssayPolicy.Mode.TRANSCRIPT) {
             List<StudentTranscriptCourse> courses = courseRepository
                 .findAllByStudent_IdOrderBySchoolYearAscSemesterAscCourseNameAsc(studentId);
             List<VerifyGradeRequest.CourseGrade> gradeCourses = new java.util.ArrayList<>(
@@ -173,7 +175,8 @@ public class ApplicationScoreService {
             )).toList();
         return new StudentCommonEvaluationSnapshot(
             student.getEducationBackground(), student.getHighSchoolType(), student.getGraduationStatus(),
-            student.getGraduationYear(), student.getGedAverageScore(), gedScores, legacySummaries, attendance, actions
+            student.getGraduationYear(), student.getGedAverageScore(), gedScores, legacySummaries, attendance, actions,
+            student.getGraduationDate()
         );
     }
 

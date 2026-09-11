@@ -39,7 +39,8 @@ public record StudentTranscriptResponse(
     List<AttendanceResponse> attendance,
     List<SchoolViolenceActionResponse> schoolViolenceActions,
     List<CourseResponse> courses,
-    List<String> dataQualityWarnings
+    List<String> dataQualityWarnings,
+    LocalDate graduationDate
 ) {
     public static StudentTranscriptResponse of(
         Student student,
@@ -68,7 +69,8 @@ public record StudentTranscriptResponse(
             attendance.stream().map(AttendanceResponse::from).toList(),
             schoolViolenceActions.stream().map(SchoolViolenceActionResponse::from).toList(),
             courses.stream().map(CourseResponse::from).toList(),
-            qualityWarnings(courses)
+            qualityWarnings(courses),
+            student.getGraduationDate()
         );
     }
 

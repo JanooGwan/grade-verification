@@ -150,7 +150,7 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void convertsLegacyRankTieAndSuWooMiYangGaWithTrace() {
+    void convertsTukLegacyRankTieButExcludesAchievementWithoutRank() {
         EvaluationRule legacyRule = rule(SelectionStrategy.ALL_COURSES, 0,
             ScoreAggregation.COURSE_SCORE_AVERAGE, decimals("33.3333", "33.3333", "33.3334"),
             decimals("1", "1", "1", "1", "1", "1"));
@@ -171,7 +171,8 @@ class EvaluationServiceTest {
 
         assertThat(response.calculations().get(0).rankPercentile()).isEqualByComparingTo("23.81");
         assertThat(response.calculations().get(0).effectiveGrade()).isEqualByComparingTo("4");
-        assertThat(response.calculations().get(1).effectiveGrade()).isEqualByComparingTo("3");
+        assertThat(response.calculations().get(1).effectiveGrade()).isNull();
+        assertThat(response.calculations().get(1).included()).isFalse();
     }
 
     @Test

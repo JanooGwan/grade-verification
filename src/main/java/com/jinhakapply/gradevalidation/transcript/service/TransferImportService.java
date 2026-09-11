@@ -104,7 +104,11 @@ class TransferImportService {
         }
         University university = universityRepository.findById(universityId)
             .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
-        TransferExcelParseResult result = parser.parse(file);
+        TransferExcelParseResult result = parser.parse(file, admissionYear);
+        if (TukSourceExcelParser.SOURCE_FORMAT.equals(result.sourceFormat())
+            && !"TUK".equalsIgnoreCase(university.getCode())) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "한국공학대 원본은 한국공학대학교를 선택한 경우에만 저장할 수 있습니다.");
+        }
         boolean mismatchedYear = result.applications().stream()
             .anyMatch(row -> row.admissionYear() != admissionYear);
         if (mismatchedYear) {
@@ -118,8 +122,12 @@ class TransferImportService {
                 "DB 저장 시에는 화면의 모집연도와 지원자 추가정보의 입학연도가 일치해야 합니다.");
         }
         if (mode == TranscriptImportMode.ALL_OR_NOTHING && result.invalidRows() > 0) {
+            String detail = TukSourceExcelParser.SOURCE_FORMAT.equals(result.sourceFormat())
+                ? result.errors().stream().map(error -> error.reason()).distinct().limit(3)
+                    .collect(java.util.stream.Collectors.joining(" / ")) : "";
             throw CustomException.of(INVALID_TRANSCRIPT_FILE,
-                "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows()));
+                "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows())
+                    + (detail.isEmpty() ? "" : " " + detail));
         }
         university = universityRepository.findByIdForUpdate(universityId)
             .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
@@ -173,6 +181,9 @@ class TransferImportService {
                     graduationYear
                 ));
                 applySchoolInfo(created, schoolInfo);
+                if (result.applicantProfiles().containsKey(applicantNumber)) {
+                    result.applicantProfiles().get(applicantNumber).applyTo(created);
+                }
                 students.put(applicantNumber, created);
                 createdStudents++;
             } else {
@@ -183,6 +194,9 @@ class TransferImportService {
                     graduationYear
                 );
                 applySchoolInfo(existing, schoolInfo);
+                if (result.applicantProfiles().containsKey(applicantNumber)) {
+                    result.applicantProfiles().get(applicantNumber).applyTo(existing);
+                }
             }
         }
 
@@ -211,7 +225,7 @@ class TransferImportService {
         );
         snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantNumbers);
         List<String> warnings = new ArrayList<>(result.warnings());
-        warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
+        if (result.applicantProfiles().isEmpty()) warnings.add(schoolInfoImportWarning(result.applications(), schoolInfoResult));
         if (vocationalTrainingResult.applicantCount() > 0) {
             warnings.add(vocationalTrainingImportWarning(
                 result.applications(), courseRows, vocationalTrainingResult

@@ -52,7 +52,7 @@ class GuidebookQuantitativeScoreCalculatorTest {
         var result = calculator.calculate(
             rule("TUK", "한국공학대학교", 2026, "1", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
             "논술(논술우수자) 공학계열", verification("25"), essayRequest("389.99"),
-            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, 2024, 0)
+            datedGraduate(2024, 2)
         );
 
         assertThat(result.academicBaseScore()).isEqualByComparingTo("98.00");
@@ -69,11 +69,11 @@ class GuidebookQuantitativeScoreCalculatorTest {
         var result = calculator.calculate(
             rule("TUK", "한국공학대학교", 2026, "1", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
             "논술(논술우수자) 공학계열", verification("98.1267"), essayRequest("395"),
-            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, 2025, 0)
+            datedGraduate(2025, 2)
         );
 
-        assertThat(result.academicBaseScore()).isEqualByComparingTo("98.13");
-        assertThat(result.finalScore()).isEqualByComparingTo("493.13");
+        assertThat(result.academicBaseScore()).isEqualByComparingTo("98.1267");
+        assertThat(result.finalScore()).isEqualByComparingTo("493.1267");
     }
 
     @Test
@@ -81,7 +81,7 @@ class GuidebookQuantitativeScoreCalculatorTest {
         var result = calculator.calculate(
             rule("TUK", "한국공학대학교", 2027, "1", scores(100, 99, 98, 97, 96, 94, 80, 60, 25)),
             "논술(논술우수자) 공학계열", verification("25"), essayRequest("390"),
-            common(EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, 2025, 0)
+            datedGraduate(2025, 2)
         );
 
         assertThat(result.academicBaseScore()).isEqualByComparingTo("99.00");
@@ -130,9 +130,9 @@ class GuidebookQuantitativeScoreCalculatorTest {
             "학생부교과(교과우수자)", verification("98.1267"), request(null),
             common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 6));
 
-        assertThat(result.academicScore()).isEqualByComparingTo("490.63");
+        assertThat(result.academicScore()).isEqualByComparingTo("490.6335");
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("60.00");
-        assertThat(result.finalScore()).isEqualByComparingTo("430.63");
+        assertThat(result.finalScore()).isEqualByComparingTo("430.6335");
     }
 
     @Test
@@ -190,7 +190,7 @@ class GuidebookQuantitativeScoreCalculatorTest {
         );
 
         assertThat(result.schoolViolenceDeduction()).isEqualByComparingTo("60.00");
-        assertThat(result.finalScore()).isEqualByComparingTo("430.63");
+        assertThat(result.finalScore()).isEqualByComparingTo("430.6335");
         assertThat(result.warnings()).singleElement().asString().contains("2027 모집요강");
     }
 
@@ -507,6 +507,13 @@ class GuidebookQuantitativeScoreCalculatorTest {
             result.put(index + 1, BigDecimal.valueOf(values[index]));
         }
         return result;
+    }
+
+    private StudentCommonEvaluationSnapshot datedGraduate(int year, int month) {
+        return new StudentCommonEvaluationSnapshot(EducationBackground.DOMESTIC_HIGH_SCHOOL,
+            com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType.GENERAL,
+            GraduationStatus.GRADUATE, year, null, List.of(), List.of(), List.of(), List.of(),
+            java.time.LocalDate.of(year, month, 1));
     }
 
     private StudentCommonEvaluationSnapshot.GedSubjectScore ged(

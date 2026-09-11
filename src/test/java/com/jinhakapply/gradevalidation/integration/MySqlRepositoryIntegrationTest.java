@@ -143,7 +143,7 @@ class MySqlRepositoryIntegrationTest {
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
             "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
             "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45",
-            "46", "47", "48"
+            "46", "47", "48", "49", "50", "51", "52", "53", "54", "55"
         );
         String averageGradeNullable = jdbcTemplate.queryForObject("""
             SELECT IS_NULLABLE
@@ -243,6 +243,7 @@ class MySqlRepositoryIntegrationTest {
     void persistsUniversityCommonStudentEvaluationData() {
         University university = universityRepository.saveAndFlush(University.create("TUK", "한국공학대학교"));
         Student student = Student.create(university, 2027, "COMMON-001", "공통지원자", null, null, 2026);
+        student.updateGraduationDate(LocalDate.of(2026, 3, 1));
         student.updateCommonEvaluationProfile(
             EducationBackground.DOMESTIC_HIGH_SCHOOL, GraduationStatus.GRADUATE, null
         );
@@ -256,6 +257,8 @@ class MySqlRepositoryIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
+        assertThat(studentRepository.findById(student.getId()).orElseThrow().getGraduationDate())
+            .isEqualTo(LocalDate.of(2026, 3, 1));
         assertThat(attendanceRepository.findAllByStudent_IdOrderBySchoolYearAsc(student.getId()))
             .singleElement().satisfies(saved -> {
                 assertThat(saved.getUnexcusedAbsenceDays()).isEqualTo(2);

@@ -15,6 +15,9 @@ import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.admission.service.EvaluationRuleMatcher;
+import com.jinhakapply.gradevalidation.admission.service.TukEssayPolicy;
+import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
+import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
@@ -108,17 +111,41 @@ class TranscriptBatchVerificationService {
                         matchedRules.stream().map(rule -> "#" + rule.getId()).collect(Collectors.joining(", "))));
                 continue;
             }
+            EvaluationRule rule = matchedRules.getFirst();
+            boolean tuk = isTukRule(rule);
+            Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
+                ? schoolInfo.graduationYear() : application.graduationYear();
+            boolean graduated = schoolInfo != null && schoolInfo.graduationStatus() != null
+                ? schoolInfo.graduationStatus() == GraduationStatus.GRADUATE
+                : graduationYear != null && graduationYear < admissionYear;
+            if (tuk) {
+                var common = new StudentCommonEvaluationSnapshot(
+                    schoolInfo == null ? EducationBackground.DOMESTIC_HIGH_SCHOOL : schoolInfo.educationBackground(),
+                    schoolInfo == null ? HighSchoolType.GENERAL : schoolInfo.highSchoolType(),
+                    graduated ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE,
+                    graduationYear, null, List.of(), List.of(), List.of(), List.of(),
+                    schoolInfo == null ? null : schoolInfo.graduationDate());
+                TukEssayPolicy.Mode mode = TukEssayPolicy.mode(rule, application.admissionTrackName(), common);
+                if (mode != TukEssayPolicy.Mode.TRANSCRIPT) {
+                    failures.add(failure(application, studentName, applicantCourses.size(),
+                        mode == TukEssayPolicy.Mode.COMPARISON ? "ESSAY_SCORE_REQUIRED" : "GRADUATION_DATE_REQUIRED",
+                        mode == TukEssayPolicy.Mode.COMPARISON
+                            ? "논술 비교내신 대상자는 논술고사 취득점수를 입력해야 학생부 점수를 산출할 수 있습니다."
+                            : "논술 비교내신 적용 여부를 확인하려면 졸업연월이 필요합니다."));
+                    continue;
+                }
+            }
             if (schoolInfo != null
                 && schoolInfo.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
                     "ALTERNATIVE_ACADEMIC_INPUT_REQUIRED",
                     schoolInfo.educationBackground() == EducationBackground.GED
-                        ? "검정고시 출신자는 전 과목 평균점수가 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다."
+                        ? (tuk ? "한국공학대 검정고시 지원자는 국어·영어·수학·계열별 사회/과학 점수가 필요합니다."
+                            : "검정고시 출신자는 전 과목 평균점수가 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다.")
                         : "외국고 출신자는 전형별 대체 환산 입력이 필요하여 학생부 교과목 파일만으로 환산할 수 없습니다."));
                 continue;
             }
-            EvaluationRule rule = matchedRules.getFirst();
-            if (isSpecializedGraduateTrack(application)
+            if (!tuk && isSpecializedGraduateTrack(application)
                 && (schoolInfo == null || schoolInfo.applicantHighSchoolCategoryCode() == null
                     || schoolInfo.applicantHighSchoolCategoryCode().isBlank())) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
@@ -126,7 +153,7 @@ class TranscriptBatchVerificationService {
                     "특성화고교졸업자 전형은 지원자격 확인을 위한 지원자 추가정보 파일이 필요합니다."));
                 continue;
             }
-            if (isIneligibleSpecializedGraduateApplicant(application, schoolInfo)) {
+            if (!tuk && isIneligibleSpecializedGraduateApplicant(application, schoolInfo)) {
                 GradeVerificationResponse verification = ineligibleVerification(
                     rule, application, applicantCourses.size()
                 );
@@ -142,9 +169,6 @@ class TranscriptBatchVerificationService {
                 continue;
             }
 
-            Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
-                ? schoolInfo.graduationYear() : application.graduationYear();
-            boolean graduated = graduationYear != null && graduationYear < admissionYear;
             HighSchoolType highSchoolType = schoolInfo == null
                 ? HighSchoolType.GENERAL : schoolInfo.highSchoolType();
             VerifyGradeRequest request = new VerifyGradeRequest(
@@ -416,13 +440,18 @@ class TranscriptBatchVerificationService {
         if (track.contains("참인재")) {
             warnings.add("교과 540점만 산출했습니다. 출결 60점과 면접 400점은 전달양식에 없어 포함하지 않았습니다.");
         } else if (track.contains("논술")) {
-            warnings.add("학생부교과 200점만 산출했습니다. 논술고사 800점은 전달양식에 없어 포함하지 않았습니다.");
+            warnings.add(normalizePolicyText(result.universityName()).contains("한국공학")
+                ? "학생부교과 100점만 산출했습니다. 논술고사 400점은 파일에 없어 포함하지 않았습니다."
+                : "학생부교과 200점만 산출했습니다. 논술고사 800점은 전달양식에 없어 포함하지 않았습니다.");
         } else if (track.contains("체육실기")) {
             warnings.add(admissionYear == 2026
                 ? "학생부교과 600점만 산출했습니다. 체육실기 400점은 전달양식에 없어 포함하지 않았습니다."
                 : "학생부교과 450점만 산출했습니다. 체육실기 550점은 전달양식에 없어 포함하지 않았습니다.");
         }
         warnings.add("학교폭력 조치사항 감점은 전달양식에 없어 포함하지 않았습니다.");
+        if (normalizePolicyText(result.universityName()).contains("한국공학") && track.contains("특성화고교졸업자")) {
+            warnings.add("특성화고교졸업자 전형의 기준학과·전문교과 이수 등 지원자격은 별도 확인이 필요합니다.");
+        }
         return new GradeVerificationResponse(
             result.ruleId(), result.ruleName(), result.ruleVersion(), result.universityName(),
             result.admissionType(), result.recruitmentUnit(), result.finalScore(), result.baseScore(),
@@ -443,6 +472,14 @@ class TranscriptBatchVerificationService {
     }
 
     private List<EvaluationRule> matchRules(List<EvaluationRule> rules, TransferApplicationRow application) {
+        if (rules.stream().anyMatch(this::isTukRule)) {
+            List<EvaluationRule> matched = rules.stream()
+                .filter(rule -> evaluationRuleMatcher.matchesAdmissionType(rule, application.admissionTrackName(), application.recruitmentUnitName()))
+                .filter(rule -> evaluationRuleMatcher.matchesRecruitmentUnit(rule, application.recruitmentUnitName())).toList();
+            List<EvaluationRule> exact = matched.stream()
+                .filter(rule -> evaluationRuleMatcher.exactlyMatchesRecruitmentUnit(rule, application.recruitmentUnitName())).toList();
+            return exact.isEmpty() ? matched : exact;
+        }
         if (rules.stream().anyMatch(this::isKbuRule)) {
             return matchKbuRules(rules, application);
         }
@@ -484,6 +521,11 @@ class TranscriptBatchVerificationService {
             .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(admissionType))
             .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(recruitmentUnit))
             .toList();
+    }
+
+    private boolean isTukRule(EvaluationRule rule) {
+        return rule.getUniversity() != null && "TUK".equalsIgnoreCase(rule.getUniversity().getCode())
+            && (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027);
     }
 
     private boolean isKbuRule(EvaluationRule rule) {

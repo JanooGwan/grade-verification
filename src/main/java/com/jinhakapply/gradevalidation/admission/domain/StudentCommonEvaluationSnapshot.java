@@ -19,8 +19,18 @@ public record StudentCommonEvaluationSnapshot(
     List<GedSubjectScore> gedSubjectScores,
     List<LegacyGradeSummary> legacyGradeSummaries,
     List<Attendance> attendance,
-    List<SchoolViolenceAction> schoolViolenceActions
+    List<SchoolViolenceAction> schoolViolenceActions,
+    LocalDate graduationDate
 ) {
+    public StudentCommonEvaluationSnapshot(
+        EducationBackground educationBackground, HighSchoolType highSchoolType,
+        GraduationStatus graduationStatus, Integer graduationYear, BigDecimal gedAverageScore,
+        List<GedSubjectScore> gedSubjectScores, List<LegacyGradeSummary> legacyGradeSummaries,
+        List<Attendance> attendance, List<SchoolViolenceAction> schoolViolenceActions
+    ) {
+        this(educationBackground, highSchoolType, graduationStatus, graduationYear, gedAverageScore,
+            gedSubjectScores, legacyGradeSummaries, attendance, schoolViolenceActions, null);
+    }
     public StudentCommonEvaluationSnapshot(
         EducationBackground educationBackground,
         HighSchoolType highSchoolType,

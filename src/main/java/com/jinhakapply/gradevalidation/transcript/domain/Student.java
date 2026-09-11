@@ -3,6 +3,7 @@ package com.jinhakapply.gradevalidation.transcript.domain;
 import static lombok.AccessLevel.PROTECTED;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.math.BigDecimal;
 
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -57,6 +58,9 @@ public class Student {
 
     @Column(name = "graduation_year")
     private Integer graduationYear;
+
+    @Column(name = "graduation_date")
+    private LocalDate graduationDate;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "education_background", nullable = false, length = 40)
@@ -147,6 +151,9 @@ public class Student {
         this.name = name;
         this.highSchoolCode = highSchoolCode;
         this.highSchoolName = highSchoolName;
+        if (graduationDate != null && !java.util.Objects.equals(graduationYear, graduationDate.getYear())) {
+            graduationDate = null;
+        }
         this.graduationYear = graduationYear;
         this.graduationStatus = inferGraduationStatus(graduationYear);
         this.updatedAt = LocalDateTime.now();
@@ -155,6 +162,12 @@ public class Student {
     private GraduationStatus inferGraduationStatus(Integer graduationYear) {
         return graduationYear != null && graduationYear < admissionYear
             ? GraduationStatus.GRADUATE : GraduationStatus.EXPECTED_GRADUATE;
+    }
+
+    public void updateGraduationDate(LocalDate graduationDate) {
+        this.graduationDate = graduationDate;
+        if (graduationDate != null) this.graduationYear = graduationDate.getYear();
+        this.updatedAt = LocalDateTime.now();
     }
 
     public void updateCommonEvaluationProfile(

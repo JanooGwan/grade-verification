@@ -307,6 +307,8 @@ public class StoredTranscriptVerificationService {
         jdbcTemplate.query("""
             SELECT DISTINCT student.applicant_number,
                             student.graduation_year,
+                            student.graduation_date,
+                            student.graduation_status,
                             student.high_school_code,
                             student.high_school_name,
                             student.education_background,
@@ -323,11 +325,6 @@ public class StoredTranscriptVerificationService {
                 );
                 HighSchoolType highSchoolType = HighSchoolType.valueOf(resultSet.getString("high_school_type"));
                 String categoryCode = resultSet.getString("applicant_high_school_category_code");
-                if (educationBackground == EducationBackground.DOMESTIC_HIGH_SCHOOL
-                    && highSchoolType == HighSchoolType.GENERAL
-                    && (categoryCode == null || categoryCode.isBlank())) {
-                    return;
-                }
                 String applicantNumber = resultSet.getString("applicant_number");
                 result.put(applicantNumber, new ApplicantSchoolInfoRow(
                     0,
@@ -341,7 +338,10 @@ public class StoredTranscriptVerificationService {
                     null,
                     categoryCode,
                     educationBackground,
-                    highSchoolType
+                    highSchoolType,
+                    nullableEnum(resultSet.getString("graduation_status"),
+                        com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus.class),
+                    resultSet.getDate("graduation_date") == null ? null : resultSet.getDate("graduation_date").toLocalDate()
                 ));
             }, universityId, admissionYear);
         return Map.copyOf(result);
