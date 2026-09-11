@@ -76,19 +76,18 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getSheetName(1)).isEqualTo("학생별 과목 비교");
             assertThat(workbook.getSheetName(2)).isEqualTo("검증 요약");
             Sheet resultSheet = workbook.getSheet("학생별 검증 결과");
-            assertThat(resultSheet.getRow(2).getLastCellNum()).isEqualTo((short) 12);
+            assertThat(resultSheet.getRow(2).getLastCellNum()).isEqualTo((short) 11);
             assertThat(resultSheet.getRow(2)).noneMatch(cell ->
                 "평균등급(고정밀도)".equals(cell.getStringCellValue())
                     || "평균등급(규칙 반올림)".equals(cell.getStringCellValue())
             );
-            assertThat(resultSheet.getRow(2).getCell(11).getStringCellValue())
-                .isEqualTo("교과성적(1,000점 만점)");
+            assertThat(resultSheet.getRow(2).getCell(10).getStringCellValue())
+                .isEqualTo("교과 반영점수");
             assertThat(workbook.getSheet("학생별 검증 결과").getRow(0).getCell(0).getStringCellValue())
                 .contains("비교과·고사·학교폭력 미포함");
             assertThat(resultSheet.getRow(3).getCell(10).getNumericCellValue())
                 .isEqualTo(530.36);
-            assertThat(resultSheet.getRow(3).getCell(11).getNumericCellValue())
-                .isEqualTo(982.14);
+            assertThat(resultSheet.getRow(3).getLastCellNum()).isEqualTo((short) 11);
             assertThat(resultSheet.getRow(3).getCell(4).getNumericCellValue())
                 .isEqualTo(117);
             assertThat(workbook.getSheet("학생별 검증 결과").getLastRowNum()).isEqualTo(3);
@@ -285,15 +284,14 @@ class TranscriptValidationExcelWriterTest {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(3);
             assertThat(workbook.getSheet("성적 산출 중간값")).isNull();
             Sheet result = workbook.getSheet("학생별 검증 결과");
-            assertThat(result.getRow(2).getLastCellNum()).isEqualTo((short) 20);
+            assertThat(result.getRow(2).getLastCellNum()).isEqualTo((short) 19);
             assertThat(result.getRow(2)).extracting(Cell::getStringCellValue).containsExactly(
                 "지원정보 행", "수험번호", "전형명", "모집단위명",
                 "1학년 1학기 평균등급", "1학년 2학기 평균등급", "1학년 우수/반영학기",
                 "2학년 1학기 평균등급", "2학년 2학기 평균등급", "2학년 우수/반영학기",
                 "3학년 1학기 평균등급", "3학년 반영학기",
                 "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-                "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
-                "교과성적(1,000점 만점)"
+                "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수"
             );
             Row row = result.getRow(3);
             assertThat(row.getCell(4).getNumericCellValue()).isEqualTo(3.2);
@@ -307,7 +305,7 @@ class TranscriptValidationExcelWriterTest {
             assertThat(row.getCell(5).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
             assertThat(row.getCell(7).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
             assertThat(row.getCell(10).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);
-            assertThat(row.getCell(19).getNumericCellValue()).isEqualTo(982.14);
+            assertThat(row.getLastCellNum()).isEqualTo((short) 19);
         }
     }
 

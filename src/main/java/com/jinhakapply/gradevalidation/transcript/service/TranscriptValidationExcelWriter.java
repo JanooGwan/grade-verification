@@ -41,8 +41,7 @@ class TranscriptValidationExcelWriter {
     private static final String[] RESULT_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
-        "교과성적(1,000점 만점)"
+        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수"
     };
     private static final String[] MJC_RESULT_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명",
@@ -50,8 +49,7 @@ class TranscriptValidationExcelWriter {
         "2학년 1학기 평균등급", "2학년 2학기 평균등급", "2학년 우수/반영학기",
         "3학년 1학기 평균등급", "3학년 반영학기",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
-        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수",
-        "교과성적(1,000점 만점)"
+        "기준 환산점수", "전형별 교과 배율", "교과 반영점수(반올림 전)", "교과 반영점수"
     };
     private static final String[] COURSE_COMPARISON_HEADERS = {
         "지원정보 행", "수험번호", "학생명", "전형명", "모집단위명",
@@ -255,7 +253,7 @@ class TranscriptValidationExcelWriter {
                 application.recruitmentUnitName(), summary.gradeTimesCreditsSum(),
                 summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
                 result.baseScore(), summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(),
-                result.finalScore(), thousandPointScore(result)
+                result.finalScore()
             };
             writeRow(row, values, styles, -1);
             if (mjc) highlightMjcSelectedSemesterAverages(row, success, styles);
@@ -276,7 +274,7 @@ class TranscriptValidationExcelWriter {
             selectedSemesterLabel(success, 2), semesterAverage(success, 3, 1), selectedSemesterLabel(success, 3),
             summary.gradeTimesCreditsSum(), summary.convertedScoreTimesCreditsSum(), summary.totalIncludedCredits(),
             result.baseScore(), summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(),
-            result.finalScore(), thousandPointScore(result)
+            result.finalScore()
         };
     }
 
@@ -703,13 +701,6 @@ class TranscriptValidationExcelWriter {
             int width = wideColumns.contains(column) ? 42 : Math.max(12, Math.min(22, headers[column].length() + 5));
             sheet.setColumnWidth(column, width * 256);
         }
-    }
-
-    private BigDecimal thousandPointScore(GradeVerificationResponse result) {
-        if (result.baseScore() == null) return null;
-        GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
-        return result.baseScore().multiply(BigDecimal.TEN)
-            .setScale(summary.finalScale(), summary.finalRounding());
     }
 
     private void title(Sheet sheet, Styles styles, String value, int lastColumn) {
