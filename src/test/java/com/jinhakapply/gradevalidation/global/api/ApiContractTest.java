@@ -210,7 +210,10 @@ class ApiContractTest {
 
     @Test
     void downloadsSavedVerificationBatchAsExcel() throws Exception {
-        when(savedVerificationQueryService.export(80L)).thenReturn(new byte[] {7, 8, 9});
+        doAnswer(invocation -> {
+            invocation.<OutputStream>getArgument(1).write(new byte[] {7, 8, 9});
+            return null;
+        }).when(savedVerificationQueryService).writeExport(eq(80L), any(OutputStream.class));
 
         MvcResult async = mockMvc.perform(get("/api/transcripts/saved-verifications/batches/80/export"))
             .andExpect(request().asyncStarted())
@@ -228,7 +231,7 @@ class ApiContractTest {
             ))
             .andExpect(content().bytes(new byte[] {7, 8, 9}));
 
-        verify(savedVerificationQueryService).export(80L);
+        verify(savedVerificationQueryService).writeExport(eq(80L), any(OutputStream.class));
     }
 
     @Test
