@@ -62,6 +62,7 @@ final class TukSourceExcelParser {
         var skipped = new ArrayList<TranscriptImportRowError>();
         int[] invalid = {0};
         int[] totalCourses = {0};
+        int[] mappedUnits = {0};
         XSSFReader reader = new XSSFReader(pkg);
         var sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
         SharedStrings strings = reader.getSharedStringsTable();
@@ -104,6 +105,7 @@ final class TukSourceExcelParser {
                             }
                             TukApplicantProfile profile = profile(fields);
                             profiles.put(number, profile);
+                            if (!Objects.equals(unit, TukRecruitmentUnits.nameForRuleYear(year, unit))) mappedUnits[0]++;
                             applications.add(new TransferApplicationRow(row, year, number, null, track, null, unit,
                                 profile.graduationDate() == null ? null : profile.graduationDate().getYear(), "수시"));
                         } else courses.add(course(row, fields));
@@ -126,6 +128,10 @@ final class TukSourceExcelParser {
         }
         if (applications.isEmpty()) throw CustomException.of(INVALID_TRANSCRIPT_FILE, "유효한 지원자정보가 없습니다.");
         var warnings = new ArrayList<String>();
+        warnings.add("검증 기준은 %d학년도 모집요강입니다. 과거 원본의 성적·졸업구분·졸업일은 변경하지 않습니다.".formatted(year));
+        if (mappedUnits[0] > 0) warnings.add(
+            "개편 전 모집단위 지원자 %,d건을 2027학년도 규칙에 연결했습니다. SW 자율전공→AI융합 자율전공, 전력응용시스템전공→전기공학전공, 미래에너지시스템전공→에너지공학전공. 원본 학과명은 보존합니다."
+                .formatted(mappedUnits[0]));
         warnings.add("한국공학대 원본의 고교유형·졸업구분·졸업일을 반영합니다. 학생명은 제공되지 않아 신규 이름은 '미등록'입니다.");
         warnings.add("논술점수·검정고시 과목별 점수·학교폭력 정보는 이 파일에 없어 별도 확인이 필요합니다.");
         if (unlinked > 0) warnings.add("지원자정보에 연결되지 않는 과목 %,d건을 저장에서 제외했습니다.".formatted(unlinked));

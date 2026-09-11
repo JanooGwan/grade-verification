@@ -87,7 +87,7 @@ class TukScoreRegressionTest {
         assertThat(result.academicScore()).isEqualByComparingTo("97.6667");
         assertThat(result.finalScore()).isEqualByComparingTo("437.7901");
     }
-    @Test void matchesKnownMajorsWithoutGuessingUnknownOrOtherYearNames() {
+    @Test void matchesKnownMajorsAndPreviousYearAliasesWithoutGuessingUnknownNames() {
         var matcher=new EvaluationRuleMatcher();
         var engineering=rule(2026,"논술(논술우수자)","공학계열");
         var business=rule(2026,"논술(논술우수자)","경영학부");
@@ -98,6 +98,13 @@ class TukScoreRegressionTest {
         assertThat(matcher.matchesRecruitmentUnit(engineering,"미등록학과")).isFalse();
         assertThat(matcher.matchesRecruitmentUnit(engineering,"AI융합 자율전공")).isFalse();
         assertThat(matcher.matchesRecruitmentUnit(rule(2027,"논술(논술우수자)","공학계열"),"AI융합 자율전공")).isTrue();
+        var rule2027 = rule(2027,"논술(논술우수자)","공학계열");
+        for (var names : Map.of("SW 자율전공", "AI융합 자율전공", "전력응용시스템전공", "전기공학전공",
+            "미래에너지시스템전공", "에너지공학전공").entrySet()) {
+            assertThat(TukRecruitmentUnits.nameForRuleYear(2027, names.getKey())).isEqualTo(names.getValue());
+            assertThat(matcher.matchesRecruitmentUnit(rule2027, names.getKey())).isTrue();
+            assertThat(matcher.matchesRecruitmentUnit(rule2027, names.getValue())).isTrue();
+        }
     }
     private StudentCommonEvaluationSnapshot common(int year,LocalDate date) {
         return new StudentCommonEvaluationSnapshot(EducationBackground.DOMESTIC_HIGH_SCHOOL,HighSchoolType.GENERAL,

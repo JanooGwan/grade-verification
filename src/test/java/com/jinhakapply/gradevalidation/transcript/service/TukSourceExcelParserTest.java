@@ -61,17 +61,21 @@ class TukSourceExcelParserTest {
         assertThat(TukSourceExcelParser.category(null,"과학 계열")).isEqualTo(SubjectCategory.SCIENCE);
         assertThat(TukSourceExcelParser.category(null,"영어")).isEqualTo(SubjectCategory.ENGLISH);
     }
-    @Test void explainsWrongYearForRenamedRecruitmentUnits() throws Exception {
+    @Test void evaluatesPreviousYearSourceAgainst2027RulesWithoutChangingSourceDatesOrNames() throws Exception {
         try (var book = new XSSFWorkbook(workbook(false, false).getInputStream());
              var output = new ByteArrayOutputStream()) {
             book.getSheet("Sheet1").getRow(1).getCell(2).setCellValue("SW 자율전공");
             book.write(output);
             var file = new MockMultipartFile("file", "synthetic.xlsx", null, output.toByteArray());
             assertThat(parser.parse(file, 2026).invalidRows()).isZero();
-            var wrongYear = parser.parse(file, 2027);
-            assertThat(wrongYear.invalidRows()).isEqualTo(1);
-            assertThat(wrongYear.errors()).singleElement().satisfies(error ->
-                assertThat(error.reason()).contains("2027학년도", "2026학년도", "검증 기준연도"));
+            var result = parser.parse(file, 2027);
+            assertThat(result.invalidRows()).isZero();
+            assertThat(result.applications()).allSatisfy(application -> assertThat(application.admissionYear()).isEqualTo(2027));
+            assertThat(result.applications().getFirst().recruitmentUnitName()).isEqualTo("SW 자율전공");
+            assertThat(result.applicantProfiles().get("TEST-A").graduationDate()).isEqualTo(LocalDate.of(2026, 2, 1));
+            assertThat(result.applicantProfiles().get("TEST-A").graduationStatus()).isEqualTo(GraduationStatus.EXPECTED_GRADUATE);
+            assertThat(result.applicantProfiles().get("TEST-B").graduationDate()).isEqualTo(LocalDate.of(2024, 3, 1));
+            assertThat(result.warnings()).anyMatch(warning -> warning.contains("지원자 1건") && warning.contains("2027학년도 규칙"));
         }
     }
 
