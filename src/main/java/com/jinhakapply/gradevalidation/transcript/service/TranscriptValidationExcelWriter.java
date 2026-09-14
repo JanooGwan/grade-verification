@@ -73,6 +73,10 @@ class TranscriptValidationExcelWriter {
         "선택 기준", "선택 여부", "선택 순위", "과목 수", "이수단위 합", "등급×이수단위 합",
         "환산점수×이수단위 합", "평균환산점수"
     };
+    private static final String[] TUK_DETAIL_HEADERS = {
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "반영 교과", "반영 과목수",
+        "적용 이수단위 합", "등급×적용 이수단위 합", "환산점수×적용 이수단위 합", "가중평균등급", "가중평균환산점수"
+    };
 
     byte[] write(
         String originalFileName,
@@ -232,6 +236,10 @@ class TranscriptValidationExcelWriter {
         String universityName,
         TranscriptBatchVerificationResult verification
     ) {
+        if (universityName != null && universityName.contains("한국공학")) {
+            createTukResultSheets(workbook, styles, verification);
+            return;
+        }
         boolean mjc = isMjc(universityName);
         String[] headers = mjc ? MJC_RESULT_HEADERS : RESULT_HEADERS;
         Sheet sheet = workbook.createSheet("학생별 검증 결과");
@@ -276,6 +284,105 @@ class TranscriptValidationExcelWriter {
             result.baseScore(), summary.scoreMultiplier(), summary.scoreBeforeFinalRounding(),
             result.finalScore()
         };
+    }
+
+    private void createTukResultSheets(SXSSFWorkbook workbook, Styles styles, TranscriptBatchVerificationResult verification) {
+        List<String> columns = new ArrayList<>(List.of("지원정보 행", "수험번호", "전형명", "모집단위명", "반영 방식",
+            "사회 선택 전 이수단위", "과학 선택 전 이수단위", "선택 탐구교과"));
+        for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
+            String label = TukSubjectCalculations.label(subject);
+            columns.add(label + " 반영 과목수");
+            columns.add(label + " 가중평균등급");
+            columns.add(label + " 가중평균환산점수");
+        }
+        columns.addAll(List.of("기준 환산점수(M)", "전형별 교과 배율", "교과 반영점수"));
+        String[] headers = columns.toArray(String[]::new);
+        Sheet sheet = workbook.createSheet("학생별 검증 결과");
+        sheet.setDisplayGridlines(false);
+        title(sheet, styles, "한국공학대 교과별 성적 검증 결과 - 비교과·고사·학교폭력 미포함", headers.length - 1);
+        titleAtRowOne(sheet, styles,
+            "탐구 선택 전 이수단위: 상위과목 선택 전 반영 가능 과목의 원본 단위(한국사 제외). 동률은 사회. 교과별 평균: 선택과목의 적용 단위로 가중평균(진로 1단위). 한국사는 실제 반영 교과에 포함.", headers.length - 1);
+        header(sheet, styles, headers);
+        sheet.getRow(2).setHeightInPoints(48);
+        Sheet detail = workbook.createSheet("교과별 산출 근거");
+        detail.setDisplayGridlines(false);
+        title(detail, styles, "한국공학대 교과별 산출 근거 - 실제 선택과목의 합계", TUK_DETAIL_HEADERS.length - 1);
+        titleAtRowOne(detail, styles, "전체 M = 전체 환산점수×적용 이수단위 합 ÷ 전체 적용 이수단위 합. 교과별 평균의 단순평균이 아닙니다.", TUK_DETAIL_HEADERS.length - 1);
+        header(detail, styles, TUK_DETAIL_HEADERS);
+        List<TranscriptBatchVerificationResult.Success> results = verification.successes().stream()
+            .sorted(Comparator.comparingInt(success -> success.application().rowNumber())).toList();
+        int rowIndex = 3, detailRow = 3;
+        for (var success : results) {
+            var application = success.application();
+            var result = success.verification();
+            boolean allCourses = result.selectionStrategy() == com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy.ALL_COURSES;
+            var social = tukCalculation(success, TukSubjectCalculations.INQUIRY, "사회");
+            var science = tukCalculation(success, TukSubjectCalculations.INQUIRY, "과학");
+            String selectedInquiry = allCourses ? "전 교과 반영" : "과학(공학계열)";
+            if (social != null && science != null) {
+                selectedInquiry = social.selected() ? "사회" : "과학";
+                if (social.totalCredits().compareTo(science.totalCredits()) == 0) selectedInquiry += "(이수단위 동률)";
+            } else if (result.selectionStrategy() == com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy.CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N) {
+                selectedInquiry = "선택 근거 없음";
+            }
+            List<Object> values = new ArrayList<>();
+            values.add(application.rowNumber()); values.add(application.applicantNumber());
+            values.add(application.admissionTrackName()); values.add(application.recruitmentUnitName());
+            values.add(allCourses ? "석차등급 있는 전 과목" : "교과별 일반 상위 4 + 진로 최대 2");
+            values.add(social == null ? null : social.totalCredits());
+            values.add(science == null ? null : science.totalCredits());
+            values.add(selectedInquiry);
+            for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
+                String label = TukSubjectCalculations.label(subject);
+                var calculation = tukCalculation(success, TukSubjectCalculations.SUBJECT, label);
+                values.add(calculation == null ? null : calculation.courseCount());
+                values.add(calculation == null ? null : calculation.averageGrade());
+                values.add(calculation == null ? null : calculation.averageConvertedScore());
+                if (calculation != null && calculation.selected()) {
+                    writeRow(detail.createRow(detailRow++), new Object[] {application.rowNumber(), application.applicantNumber(),
+                        application.admissionTrackName(), application.recruitmentUnitName(), label, calculation.courseCount(),
+                        calculation.totalCredits(), calculation.gradeTimesCreditsSum(), calculation.convertedScoreTimesCreditsSum(),
+                        calculation.averageGrade(), calculation.averageConvertedScore()}, styles, -1);
+                }
+            }
+            var summary = result.calculationSummary();
+            values.add(result.baseScore()); values.add(summary.scoreMultiplier()); values.add(result.finalScore());
+            Row row = sheet.createRow(rowIndex++);
+            writeRow(row, values.toArray(), styles, -1);
+            row.getCell(headers.length - 1).setCellStyle(styles.finalScoreFor(result.finalScore()));
+            if (social != null && science != null) {
+                row.getCell(7).setCellStyle(styles.selected);
+                row.getCell(social.selected() ? 5 : 6).setCellStyle(styles.selected);
+            }
+            writeRow(detail.createRow(detailRow++), new Object[] {application.rowNumber(), application.applicantNumber(),
+                application.admissionTrackName(), application.recruitmentUnitName(), "전체", result.includedCourseCount(),
+                summary.totalIncludedCredits(), summary.gradeTimesCreditsSum(), summary.convertedScoreTimesCreditsSum(),
+                summary.averageGrade(), result.baseScore()}, styles, -1);
+        }
+        finishTable(sheet, rowIndex - 3, headers.length);
+        sheet.createFreezePane(4, 3);
+        setWidths(sheet, headers, Set.of(2, 3, 4, 7));
+        sheet.setColumnWidth(4, 34 * 256);
+        for (int column = 5; column < headers.length; column++) {
+            if (column != 7) sheet.setColumnWidth(column, 16 * 256);
+        }
+        finishTable(detail, detailRow - 3, TUK_DETAIL_HEADERS.length);
+        detail.createFreezePane(4, 3);
+        setWidths(detail, TUK_DETAIL_HEADERS, Set.of(2, 3));
+    }
+
+    private TranscriptBatchVerificationResult.IntermediateCalculation tukCalculation(
+        TranscriptBatchVerificationResult.Success success, String type, String label) {
+        return success.intermediateCalculations().stream()
+            .filter(calculation -> type.equals(calculation.groupType()) && label.equals(calculation.groupName()))
+            .findFirst().orElse(null);
+    }
+
+    private void titleAtRowOne(Sheet sheet, Styles styles, String text, int lastColumn) {
+        Row row = sheet.createRow(1);
+        set(row.createCell(0), text, styles.value);
+        row.setHeightInPoints(32);
+        sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, lastColumn));
     }
 
     private BigDecimal semesterAverage(
@@ -423,7 +530,8 @@ class TranscriptValidationExcelWriter {
         boolean hasIntermediateCalculations = verification.successes().stream()
             .anyMatch(success -> !success.intermediateCalculations().isEmpty());
         boolean kbu = isKbu(universityName);
-        if (isMjc(universityName) || (!hasIntermediateCalculations && !kbu)) return;
+        if (isMjc(universityName) || (universityName != null && universityName.contains("한국공학"))
+            || (!hasIntermediateCalculations && !kbu)) return;
 
         Sheet sheet = workbook.createSheet("성적 산출 중간값");
         sheet.setDisplayGridlines(false);

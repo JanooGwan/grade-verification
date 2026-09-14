@@ -207,6 +207,7 @@ class TranscriptBatchVerificationService {
         EvaluationRule rule,
         GradeVerificationResponse verification
     ) {
+        if (isTukRule(rule)) return TukSubjectCalculations.summarize(rule, verification);
         if (rule.getAdmissionYear() != 2026 || verification.calculations() == null) {
             return List.of();
         }
