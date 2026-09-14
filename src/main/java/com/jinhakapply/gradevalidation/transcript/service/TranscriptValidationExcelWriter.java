@@ -74,7 +74,7 @@ class TranscriptValidationExcelWriter {
         "환산점수×이수단위 합", "평균환산점수"
     };
     private static final String[] TUK_DETAIL_HEADERS = {
-        "지원정보 행", "수험번호", "전형명", "모집단위명", "반영 교과", "반영 과목수",
+        "지원정보 행", "수험번호", "전형명", "모집단위명", "반영 교과", "일반 반영 과목수", "진로 반영 과목수",
         "적용 이수단위 합", "등급×적용 이수단위 합", "환산점수×적용 이수단위 합", "가중평균등급", "가중평균환산점수"
     };
 
@@ -287,11 +287,11 @@ class TranscriptValidationExcelWriter {
     }
 
     private void createTukResultSheets(SXSSFWorkbook workbook, Styles styles, TranscriptBatchVerificationResult verification) {
-        List<String> columns = new ArrayList<>(List.of("지원정보 행", "수험번호", "전형명", "모집단위명", "반영 방식",
-            "사회 선택 전 이수단위", "과학 선택 전 이수단위", "선택 탐구교과"));
+        List<String> columns = new ArrayList<>(List.of("지원정보 행", "수험번호", "전형명", "모집단위명", "선택 탐구교과"));
         for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
             String label = TukSubjectCalculations.label(subject);
-            columns.add(label + " 반영 과목수");
+            columns.add(label + " 일반 반영 과목수");
+            columns.add(label + " 진로 반영 과목수");
             columns.add(label + " 가중평균등급");
             columns.add(label + " 가중평균환산점수");
         }
@@ -301,7 +301,7 @@ class TranscriptValidationExcelWriter {
         sheet.setDisplayGridlines(false);
         title(sheet, styles, "한국공학대 교과별 성적 검증 결과 - 비교과·고사·학교폭력 미포함", headers.length - 1);
         titleAtRowOne(sheet, styles,
-            "탐구 선택 전 이수단위: 상위과목 선택 전 반영 가능 과목의 원본 단위(한국사 제외). 동률은 사회. 교과별 평균: 선택과목의 적용 단위로 가중평균(진로 1단위). 한국사는 실제 반영 교과에 포함.", headers.length - 1);
+            "일반 최대 4 + 진로 최대 2(특성화고교졸업자는 전 과목). 경영학부는 선택한 사회·과학 묶음을 노란색으로 표시(이수단위 동률은 사회). 평균은 일반·진로 합산, 진로 1단위 적용. 한국사는 실제 반영 교과에 포함.", headers.length - 1);
         header(sheet, styles, headers);
         sheet.getRow(2).setHeightInPoints(48);
         Sheet detail = workbook.createSheet("교과별 산출 근거");
@@ -315,6 +315,7 @@ class TranscriptValidationExcelWriter {
         for (var success : results) {
             var application = success.application();
             var result = success.verification();
+            int applicantDetailStart = detailRow;
             boolean allCourses = result.selectionStrategy() == com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy.ALL_COURSES;
             var social = tukCalculation(success, TukSubjectCalculations.INQUIRY, "사회");
             var science = tukCalculation(success, TukSubjectCalculations.INQUIRY, "과학");
@@ -328,19 +329,18 @@ class TranscriptValidationExcelWriter {
             List<Object> values = new ArrayList<>();
             values.add(application.rowNumber()); values.add(application.applicantNumber());
             values.add(application.admissionTrackName()); values.add(application.recruitmentUnitName());
-            values.add(allCourses ? "석차등급 있는 전 과목" : "교과별 일반 상위 4 + 진로 최대 2");
-            values.add(social == null ? null : social.totalCredits());
-            values.add(science == null ? null : science.totalCredits());
             values.add(selectedInquiry);
             for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
                 String label = TukSubjectCalculations.label(subject);
                 var calculation = tukCalculation(success, TukSubjectCalculations.SUBJECT, label);
-                values.add(calculation == null ? null : calculation.courseCount());
+                values.add(calculation == null ? null : calculation.ordinaryCourseCount());
+                values.add(calculation == null ? null : calculation.careerCourseCount());
                 values.add(calculation == null ? null : calculation.averageGrade());
                 values.add(calculation == null ? null : calculation.averageConvertedScore());
                 if (calculation != null && calculation.selected()) {
                     writeRow(detail.createRow(detailRow++), new Object[] {application.rowNumber(), application.applicantNumber(),
-                        application.admissionTrackName(), application.recruitmentUnitName(), label, calculation.courseCount(),
+                        application.admissionTrackName(), application.recruitmentUnitName(), label,
+                        calculation.ordinaryCourseCount(), calculation.careerCourseCount(),
                         calculation.totalCredits(), calculation.gradeTimesCreditsSum(), calculation.convertedScoreTimesCreditsSum(),
                         calculation.averageGrade(), calculation.averageConvertedScore()}, styles, -1);
                 }
@@ -351,20 +351,34 @@ class TranscriptValidationExcelWriter {
             writeRow(row, values.toArray(), styles, -1);
             row.getCell(headers.length - 1).setCellStyle(styles.finalScoreFor(result.finalScore()));
             if (social != null && science != null) {
-                row.getCell(7).setCellStyle(styles.selected);
-                row.getCell(social.selected() ? 5 : 6).setCellStyle(styles.selected);
+                int firstColumn = columns.indexOf((social.selected() ? "사회" : "과학") + " 일반 반영 과목수");
+                for (int column = firstColumn; column < firstColumn + 4; column++) {
+                    row.getCell(column).setCellStyle(styles.selectedNumberFor(values.get(column)));
+                }
             }
+            var subjectCalculations = success.intermediateCalculations().stream()
+                .filter(calculation -> TukSubjectCalculations.SUBJECT.equals(calculation.groupType())).toList();
+            Integer ordinaryTotal = subjectCalculations.isEmpty() ? null : subjectCalculations.stream()
+                .mapToInt(calculation -> calculation.ordinaryCourseCount() == null ? 0 : calculation.ordinaryCourseCount()).sum();
+            Integer careerTotal = subjectCalculations.isEmpty() ? null : subjectCalculations.stream()
+                .mapToInt(calculation -> calculation.careerCourseCount() == null ? 0 : calculation.careerCourseCount()).sum();
             writeRow(detail.createRow(detailRow++), new Object[] {application.rowNumber(), application.applicantNumber(),
-                application.admissionTrackName(), application.recruitmentUnitName(), "전체", result.includedCourseCount(),
+                application.admissionTrackName(), application.recruitmentUnitName(), "전체", ordinaryTotal, careerTotal,
                 summary.totalIncludedCredits(), summary.gradeTimesCreditsSum(), summary.convertedScoreTimesCreditsSum(),
                 summary.averageGrade(), result.baseScore()}, styles, -1);
+            for (int column = 0; column < 4; column++) {
+                for (int detailIndex = applicantDetailStart + 1; detailIndex < detailRow; detailIndex++) {
+                    detail.getRow(detailIndex).getCell(column).setBlank();
+                }
+                mergeVertical(detail, applicantDetailStart, detailRow - 1, column,
+                    column == 0 ? styles.mergedInteger : styles.mergedText);
+            }
         }
         finishTable(sheet, rowIndex - 3, headers.length);
         sheet.createFreezePane(4, 3);
-        setWidths(sheet, headers, Set.of(2, 3, 4, 7));
-        sheet.setColumnWidth(4, 34 * 256);
+        setWidths(sheet, headers, Set.of(2, 3, 4));
         for (int column = 5; column < headers.length; column++) {
-            if (column != 7) sheet.setColumnWidth(column, 16 * 256);
+            sheet.setColumnWidth(column, 16 * 256);
         }
         finishTable(detail, detailRow - 3, TUK_DETAIL_HEADERS.length);
         detail.createFreezePane(4, 3);
@@ -912,6 +926,8 @@ class TranscriptValidationExcelWriter {
         private final CellStyle error;
         private final CellStyle success;
         private final CellStyle selected;
+        private final CellStyle selectedDecimal;
+        private final CellStyle selectedWhole;
         private final CellStyle finalScore;
         private final CellStyle finalScoreWhole;
         private final CellStyle mergedText;
@@ -941,6 +957,10 @@ class TranscriptValidationExcelWriter {
             error.setWrapText(true);
             success = bordered(workbook, "E5F3E8", IndexedColors.DARK_GREEN.getIndex(), true);
             selected = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
+            selectedDecimal = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
+            selectedDecimal.setDataFormat(decimal.getDataFormat());
+            selectedWhole = bordered(workbook, "FFF1A8", IndexedColors.BLACK.getIndex(), true);
+            selectedWhole.setDataFormat(wholeDecimal.getDataFormat());
             finalScore = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
             finalScore.setDataFormat(workbook.createDataFormat().getFormat("0.######"));
             finalScoreWhole = bordered(workbook, "DDECE2", IndexedColors.DARK_GREEN.getIndex(), true);
@@ -953,6 +973,10 @@ class TranscriptValidationExcelWriter {
 
         private CellStyle finalScoreFor(Object value) {
             return isWholeNumber(value) ? finalScoreWhole : finalScore;
+        }
+
+        private CellStyle selectedNumberFor(Object value) {
+            return isWholeNumber(value) ? selectedWhole : selectedDecimal;
         }
 
         private CellStyle mergedFinalScoreFor(Object value) {

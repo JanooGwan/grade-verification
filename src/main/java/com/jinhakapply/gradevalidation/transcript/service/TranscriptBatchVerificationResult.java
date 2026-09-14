@@ -33,8 +33,17 @@ record TranscriptBatchVerificationResult(
         BigDecimal gradeTimesCreditsSum,
         BigDecimal averageGrade,
         BigDecimal convertedScoreTimesCreditsSum,
-        BigDecimal averageConvertedScore
-    ) {}
+        BigDecimal averageConvertedScore,
+        Integer ordinaryCourseCount,
+        Integer careerCourseCount
+    ) {
+        IntermediateCalculation(String groupType, String groupName, boolean selected, Integer selectionOrder,
+            int courseCount, BigDecimal totalCredits, BigDecimal gradeTimesCreditsSum, BigDecimal averageGrade,
+            BigDecimal convertedScoreTimesCreditsSum, BigDecimal averageConvertedScore) {
+            this(groupType, groupName, selected, selectionOrder, courseCount, totalCredits, gradeTimesCreditsSum,
+                averageGrade, convertedScoreTimesCreditsSum, averageConvertedScore, null, null);
+        }
+    }
 
     record Failure(
         TransferApplicationRow application,

@@ -41,8 +41,10 @@ final class TukSubjectCalculations {
                 scoreSum = scoreSum.add(course.convertedScore().multiply(course.appliedCredits()));
             }
             // 교과별 평균은 설명용이며 전체 M은 각 교과 평균의 단순평균으로 만들지 않는다.
+            int careerCount = (int) selected.stream().filter(TukSubjectCalculations::isCareer).count();
             summaries.add(new IntermediateCalculation(SUBJECT, label(subject), !selected.isEmpty(), null,
-                selected.size(), credits, gradeSum, average(gradeSum, credits), scoreSum, average(scoreSum, credits)));
+                selected.size(), credits, gradeSum, average(gradeSum, credits), scoreSum, average(scoreSum, credits),
+                selected.size() - careerCount, careerCount));
         }
         if (result.selectionStrategy() == SelectionStrategy.CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N) {
             List<SubjectCategory> inquirySubjects = List.of(SubjectCategory.SOCIAL, SubjectCategory.SCIENCE);
@@ -74,5 +76,12 @@ final class TukSubjectCalculations {
 
     private static BigDecimal average(BigDecimal sum, BigDecimal credits) {
         return credits.signum() == 0 ? null : sum.divide(credits, 4, RoundingMode.HALF_UP);
+    }
+
+    static boolean isCareer(CourseCalculation course) {
+        if (course.careerSubject() != null) return course.careerSubject();
+        // 구버전 한국공학대 원본 결과: 등급·석차 없이 성취도로 환산된 선택과목은 진로선택이다.
+        return course.achievement() != null && course.grade() == null && course.rankPosition() == null
+            && course.rankPercentile() == null && course.legacyAchievement() == null;
     }
 }

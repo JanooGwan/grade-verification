@@ -237,7 +237,7 @@ public class EvaluationService {
                 course.rankPosition(), course.tiedRankCount(), course.studentCount(), candidate.rankPercentile(),
                 course.legacyAchievement(), candidate.effectiveGrade(),
                 candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedCredits, appliedWeight,
-                weightedScore, selected, exclusionReason));
+                weightedScore, selected, exclusionReason, course.careerSubject()));
         }
 
         if (isMjcGuidebookYear(rule)) {

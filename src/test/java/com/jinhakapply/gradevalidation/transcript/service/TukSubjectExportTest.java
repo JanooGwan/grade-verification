@@ -14,6 +14,8 @@ import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.university.domain.University;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -37,7 +39,10 @@ class TukSubjectExportTest {
                 var result = evaluator.verify(rule, new VerifyGradeRequest(1L, courses));
                 // 실제 저장 결과 내보내기처럼 JSON 복원 후 중간값을 만든다.
                 var mapper = new JsonMapper();
-                result = mapper.readValue(mapper.writeValueAsString(result), GradeVerificationResponse.class);
+                String json = mapper.writeValueAsString(result);
+                if (year == 2026) json = json.replaceAll(",\"careerSubject\":(true|false)", "");
+                result = mapper.readValue(json, GradeVerificationResponse.class);
+                if (year == 2026) assertThat(result.calculations()).allSatisfy(course -> assertThat(course.careerSubject()).isNull());
                 var summaries = batch.buildIntermediateCalculations(rule, result);
                 var social = find(summaries, TukSubjectCalculations.INQUIRY, "사회");
                 var science = find(summaries, TukSubjectCalculations.INQUIRY, "과학");
@@ -47,6 +52,8 @@ class TukSubjectExportTest {
                 assertThat(science.selected()).isEqualTo(careerCredits > 6);
                 var chosen = find(summaries, TukSubjectCalculations.SUBJECT, careerCredits > 6 ? "과학" : "사회");
                 assertThat(chosen.courseCount()).isEqualTo(careerCredits > 6 ? 3 : 4);
+                assertThat(chosen.ordinaryCourseCount()).isEqualTo(careerCredits > 6 ? 2 : 4);
+                assertThat(chosen.careerCourseCount()).isEqualTo(careerCredits > 6 ? 1 : 0);
                 if (careerCredits > 6) {
                     assertThat(chosen.totalCredits()).isEqualByComparingTo("35");
                     assertThat(chosen.averageGrade()).isEqualByComparingTo("2.2857");
@@ -56,18 +63,29 @@ class TukSubjectExportTest {
                     assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
                     assertThat(workbook.getSheet("성적 산출 중간값")).isNull();
                     Sheet main = workbook.getSheet("학생별 검증 결과");
-                    assertThat(value(main, "사회 선택 전 이수단위").getNumericCellValue()).isEqualTo(10);
-                    assertThat(value(main, "과학 선택 전 이수단위").getNumericCellValue()).isEqualTo(4 + careerCredits);
+                    for (String subject : List.of("사회", "과학")) {
+                        boolean highlighted = subject.equals(careerCredits > 6 ? "과학" : "사회");
+                        for (String suffix : List.of(" 일반 반영 과목수", " 진로 반영 과목수", " 가중평균등급", " 가중평균환산점수")) {
+                            Cell cell = value(main, subject + suffix);
+                            assertThat(cell.getCellStyle().getFillPattern() == FillPatternType.SOLID_FOREGROUND).isEqualTo(highlighted);
+                        }
+                    }
+                    assertThat(value(main, (careerCredits > 6 ? "과학" : "사회") + " 일반 반영 과목수").getNumericCellValue())
+                        .isEqualTo(careerCredits > 6 ? 2 : 4);
+                    assertThat(value(main, (careerCredits > 6 ? "과학" : "사회") + " 진로 반영 과목수").getNumericCellValue())
+                        .isEqualTo(careerCredits > 6 ? 1 : 0);
                     assertThat(value(main, "선택 탐구교과").getStringCellValue()).isEqualTo(
                         careerCredits == 6 ? "사회(이수단위 동률)" : careerCredits > 6 ? "과학" : "사회");
                     assertThat(value(main, "교과 반영점수").getNumericCellValue()).isEqualTo(result.finalScore().doubleValue());
                     assertThat(main.getRow(2)).extracting(Cell::getStringCellValue)
-                        .doesNotContain("등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위");
+                        .doesNotContain("등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
+                            "반영 방식", "사회 선택 전 이수단위", "과학 선택 전 이수단위");
                     assertThat(main.getRow(2).getLastCellNum()).isEqualTo(main.getRow(3).getLastCellNum());
                     Sheet detail = workbook.getSheet("교과별 산출 근거");
                     var total = detail.getRow(detail.getLastRowNum());
                     assertThat(total.getCell(4).getStringCellValue()).isEqualTo("전체");
-                    assertThat(total.getCell(8).getNumericCellValue()).isEqualTo(result.calculationSummary().convertedScoreTimesCreditsSum().doubleValue());
+                    assertThat(total.getCell(9).getNumericCellValue()).isEqualTo(result.calculationSummary().convertedScoreTimesCreditsSum().doubleValue());
+                    assertThat(total.getCell(5).getNumericCellValue() + total.getCell(6).getNumericCellValue()).isEqualTo(result.includedCourseCount());
                 }
             }
         }
@@ -85,23 +103,67 @@ class TukSubjectExportTest {
         assertThat(summaries).noneMatch(value -> TukSubjectCalculations.INQUIRY.equals(value.groupType()));
         try (var workbook = export(rule, result, summaries)) {
             Sheet main = workbook.getSheet("학생별 검증 결과");
-            assertThat(value(main, "반영 방식").getStringCellValue()).isEqualTo("석차등급 있는 전 과목");
             assertThat(value(main, "선택 탐구교과").getStringCellValue()).isEqualTo("전 교과 반영");
-            assertThat(value(main, "사회 선택 전 이수단위").getStringCellValue()).isEmpty();
-            assertThat(value(main, "기타 반영 과목수").getNumericCellValue()).isEqualTo(6);
+            assertThat(value(main, "기타 일반 반영 과목수").getNumericCellValue()).isEqualTo(6);
+            assertThat(value(main, "기타 진로 반영 과목수").getNumericCellValue()).isEqualTo(0);
+            assertThat(value(main, "과학 일반 반영 과목수").getCellStyle().getFillPattern()).isEqualTo(FillPatternType.NO_FILL);
             assertThat(value(main, "기타 가중평균등급").getNumericCellValue()).isEqualTo(3);
             assertThat(value(main, "기타 가중평균환산점수").getNumericCellValue()).isEqualTo(98);
         }
     }
 
+    @Test void preservesCareerFlagWhenCareerAlsoHasNumericGrade() {
+        var rule = rule(2027, "경영학부");
+        var result = evaluator.verify(rule, new VerifyGradeRequest(1L, List.of(
+            course(SubjectCategory.SCIENCE, "일반과학", 1, AchievementLevel.A, false, 3),
+            course(SubjectCategory.SCIENCE, "진로과학", 1, AchievementLevel.C, true, 3))));
+        var summary = find(batch.buildIntermediateCalculations(rule, result), TukSubjectCalculations.SUBJECT, "과학");
+        assertThat(summary.ordinaryCourseCount()).isEqualTo(1);
+        assertThat(summary.careerCourseCount()).isEqualTo(1);
+    }
+
+    @Test void mergesIdentityPerApplicantAcrossStreamingWindowWithoutMergingDifferentApplicants() throws Exception {
+        var rule = rule(2027, "전체 모집단위");
+        var result = evaluator.verify(rule, new VerifyGradeRequest(1L, List.of(
+            course(SubjectCategory.KOREAN, "국어", 2, null, false, 3),
+            course(SubjectCategory.SCIENCE, "과학", 3, null, false, 3))));
+        try (var workbook = export(rule, result, batch.buildIntermediateCalculations(rule, result), 80)) {
+            Sheet detail = workbook.getSheet("교과별 산출 근거");
+            var regions = detail.getMergedRegions().stream().filter(region -> region.getFirstRow() >= 3).toList();
+            assertThat(regions).hasSize(80 * 4);
+            for (int applicant = 0; applicant < 80; applicant++) {
+                int firstRow = 3 + applicant * 3;
+                for (int column = 0; column < 4; column++) {
+                    var region = regions.get(applicant * 4 + column);
+                    assertThat(region.getFirstRow()).isEqualTo(firstRow);
+                    assertThat(region.getLastRow()).isEqualTo(firstRow + 2);
+                    assertThat(region.getFirstColumn()).isEqualTo(column);
+                    assertThat(region.getLastColumn()).isEqualTo(column);
+                    assertThat(detail.getRow(firstRow + 1).getCell(column).getCellType()).isEqualTo(CellType.BLANK);
+                    assertThat(detail.getRow(firstRow + 2).getCell(column).getCellType()).isEqualTo(CellType.BLANK);
+                }
+                assertThat(detail.getRow(firstRow).getCell(1).getStringCellValue()).isEqualTo("TEST-" + applicant);
+                assertThat(detail.getRow(firstRow + 2).getCell(4).getStringCellValue()).isEqualTo("전체");
+            }
+        }
+    }
+
     private XSSFWorkbook export(EvaluationRule rule, GradeVerificationResponse result,
         List<TranscriptBatchVerificationResult.IntermediateCalculation> summaries) throws Exception {
-        var application = new TransferApplicationRow(2, rule.getAdmissionYear(), "TEST-001", null,
-            rule.getAdmissionType(), null, "합성 모집단위", 2026);
-        var success = new TranscriptBatchVerificationResult.Success(application, "합성", result, List.of(), summaries, null);
+        return export(rule, result, summaries, 1);
+    }
+
+    private XSSFWorkbook export(EvaluationRule rule, GradeVerificationResponse result,
+        List<TranscriptBatchVerificationResult.IntermediateCalculation> summaries, int applicants) throws Exception {
+        var successes = new ArrayList<TranscriptBatchVerificationResult.Success>();
+        for (int index = 0; index < applicants; index++) {
+            var application = new TransferApplicationRow(index + 2, rule.getAdmissionYear(), "TEST-" + index, null,
+                rule.getAdmissionType(), null, "합성 모집단위", 2026);
+            successes.add(new TranscriptBatchVerificationResult.Success(application, "합성", result, List.of(), summaries, null));
+        }
         byte[] file = new TranscriptValidationExcelWriter().write("synthetic.xlsx", "TUK_SOURCE_WORKBOOK_V1", "한국공학대학교",
             1, result.calculations().size(), List.of(), List.of(), List.of(), List.of(),
-            new TranscriptBatchVerificationResult(List.of(success), List.of()));
+            new TranscriptBatchVerificationResult(successes, List.of()));
         return new XSSFWorkbook(new ByteArrayInputStream(file));
     }
 

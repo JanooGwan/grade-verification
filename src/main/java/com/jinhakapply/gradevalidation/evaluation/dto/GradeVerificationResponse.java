@@ -48,6 +48,19 @@ public record GradeVerificationResponse(
         BigDecimal rankPercentile, LegacyAchievement legacyAchievement, BigDecimal effectiveGrade,
         BigDecimal convertedScore, BigDecimal gradeWeight,
         BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedCredits, BigDecimal appliedWeight,
-        BigDecimal weightedScore, boolean included, String exclusionReason
-    ) {}
+        BigDecimal weightedScore, boolean included, String exclusionReason,
+        Boolean careerSubject
+    ) {
+        public CourseCalculation(String courseName, int schoolYear, int semester, SubjectCategory subjectCategory,
+            SubjectCategory appliedSubjectCategory, Integer grade, GradeScale gradeScale, AchievementLevel achievement,
+            Integer rankPosition, Integer tiedRankCount, Integer cohortSize, BigDecimal rankPercentile,
+            LegacyAchievement legacyAchievement, BigDecimal effectiveGrade, BigDecimal convertedScore,
+            BigDecimal gradeWeight, BigDecimal subjectWeight, BigDecimal credits, BigDecimal appliedCredits,
+            BigDecimal appliedWeight, BigDecimal weightedScore, boolean included, String exclusionReason) {
+            this(courseName, schoolYear, semester, subjectCategory, appliedSubjectCategory, grade, gradeScale,
+                achievement, rankPosition, tiedRankCount, cohortSize, rankPercentile, legacyAchievement,
+                effectiveGrade, convertedScore, gradeWeight, subjectWeight, credits, appliedCredits,
+                appliedWeight, weightedScore, included, exclusionReason, null);
+        }
+    }
 }
