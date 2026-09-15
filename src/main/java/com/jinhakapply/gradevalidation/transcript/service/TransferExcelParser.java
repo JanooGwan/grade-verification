@@ -106,6 +106,7 @@ class TransferExcelParser {
         List<TranscriptImportRowError> skipped = new ArrayList<>();
         Set<String> found = new HashSet<>();
         Map<Integer, CourseSourceMetadata> courseMetadata = new HashMap<>();
+        TransferSubjectSettings subjectSettings = new TransferSubjectSettings();
         int[] invalidRows = {0};
         int[] skippedRows = {0};
         int[] duplicateRows = {0};
@@ -153,7 +154,8 @@ class TransferExcelParser {
                             try {
                                 TranscriptExcelRow course = parseCourse(rowNumber + 1, values, koreanLayout);
                                 courseMetadata.put(
-                                    course.rowNumber(), new CourseSourceMetadata(optional(values, 6))
+                                    course.rowNumber(), new CourseSourceMetadata(optional(values, 6),
+                                        koreanLayout ? TransferSubjectSettings.courseKey(values) : null)
                                 );
                                 if (course.grade() == null && course.achievement() == null
                                     && course.rankPosition() == null) {
@@ -164,6 +166,10 @@ class TransferExcelParser {
                                 addError(errors, invalidRows, rowNumber + 1, exception.getMessage());
                             }
                         });
+                    } else if (TransferSubjectSettings.SHEET_NAME.equals(sheetName)) {
+                        found.add(TransferSubjectSettings.SHEET_NAME);
+                        readSheet(styles, strings, sheet, subjectSettings::readRow);
+                        subjectSettings.requireHeader();
                     }
                 }
             }
@@ -184,7 +190,10 @@ class TransferExcelParser {
             TranscriptExcelRow course = courses.get(index);
             CourseSourceMetadata metadata = courseMetadata.get(course.rowNumber());
             boolean professionalCourse = isNonOrdinaryCourse(metadata);
-            courses.set(index, withProfessionalCourse(course, professionalCourse));
+            SubjectCategory category = metadata.subjectKey() != null
+                && found.contains(TransferSubjectSettings.SHEET_NAME)
+                ? subjectSettings.resolve(metadata.subjectKey()) : course.subjectCategory();
+            courses.set(index, withClassification(course, category, professionalCourse));
         }
         List<TranscriptExcelRow> deduplicatedCourses = deduplicateCourses(
             courses, skipped, skippedRows, duplicateRows
@@ -193,6 +202,9 @@ class TransferExcelParser {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "가져올 과목 성적이 없습니다.");
         }
         List<String> warnings = new ArrayList<>(warnings(missingAssessmentRows[0]));
+        if (KOREAN_SOURCE_FORMAT.equals(sourceFormat[0]) && !found.contains(TransferSubjectSettings.SHEET_NAME)) {
+            warnings.add("반영교과설정 시트가 없어 편제명으로 교과를 분류했습니다. 대학별 반영 교과 설정을 확인해 주세요.");
+        }
         if (duplicateRows[0] > 0) {
             warnings.add("공백·가운뎃점을 제외한 과목명이 같은 중복 행 %,d건은 마지막 행으로 통합했습니다."
                 .formatted(duplicateRows[0]));
@@ -370,6 +382,7 @@ class TransferExcelParser {
         if (isOtherOrganization(organizationName)) return SubjectCategory.OTHER;
 
         String value = organizationName;
+        if (value.contains("외국어")) return SubjectCategory.OTHER;
         if (value.contains("국어")) return SubjectCategory.KOREAN;
         if (value.contains("수학")) return SubjectCategory.MATH;
         if (value.contains("영어")) return SubjectCategory.ENGLISH;
@@ -411,18 +424,20 @@ class TransferExcelParser {
         return isProfessional(metadata.organizationName());
     }
 
-    private TranscriptExcelRow withProfessionalCourse(TranscriptExcelRow course, boolean professionalCourse) {
+    private TranscriptExcelRow withClassification(
+        TranscriptExcelRow course, SubjectCategory category, boolean professionalCourse
+    ) {
         return new TranscriptExcelRow(
             course.rowNumber(), course.applicantNumber(), course.studentName(), course.highSchoolCode(),
             course.highSchoolName(), course.graduationYear(), course.schoolYear(), course.semester(),
-            course.subjectCategory(), course.courseName(), course.grade(), course.gradeScale(),
+            category, course.courseName(), course.grade(), course.gradeScale(),
             course.achievement(), course.rawScore(), course.meanScore(), course.standardDeviation(),
             course.studentCount(), course.rankPosition(), course.tiedRankCount(), course.legacyAchievement(),
-            course.credits(), course.careerSubject(), professionalCourse
+            course.credits(), course.careerSubject(), professionalCourse, course.vocationalTrainingSemester()
         );
     }
 
-    private record CourseSourceMetadata(String organizationName) {}
+    private record CourseSourceMetadata(String organizationName, TransferSubjectSettings.Key subjectKey) {}
 
     private record CourseIdentity(
         String applicantNumber,

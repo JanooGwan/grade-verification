@@ -208,7 +208,7 @@ class TransferExcelParserTest {
                 2026, 1, "2B0726", 2, 2, "011122301010401", "기술·가정/제2외국어/한문/교양",
                 "000", " ", "0000000095", "일본어Ⅰ", 2, 0, 181, 0, 94, 64.6, 25, 3, null, "01"
             });
-            workbook.createSheet("반영교과설정");
+            writeSettingsHeader(workbook.createSheet("반영교과설정"));
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "경복대-성적검증.xlsx",
@@ -240,7 +240,7 @@ class TransferExcelParserTest {
                 "000", "", "0000004365", "인공지능과 미래사회", 2, 0, 162, 0,
                 77, 76.2, null, 3, "B", "02"
             });
-            workbook.createSheet("반영교과설정");
+            writeSettingsHeader(workbook.createSheet("반영교과설정"));
             workbook.write(output);
             return new MockMultipartFile(
                 "file", "경복대-진로선택.xlsx",
@@ -373,6 +373,13 @@ class TransferExcelParserTest {
         writeRow(sheet.createRow(rowIndex), new Object[] {
             2027, 1, "TEST-001", 1, 1, "000", organizationName, "0000000000", courseName,
             3, 0, 100, 0, 80, 70, 10, 4, null
+        });
+    }
+
+    private void writeSettingsHeader(Sheet sheet) {
+        writeRow(sheet.createRow(0), new Object[] {
+            "입학연도", "모집시기", "편제코드", "편제명", "교과코드", "교과명",
+            "과목코드", "과목명", "과목구분코드", "과목구분"
         });
     }
 
