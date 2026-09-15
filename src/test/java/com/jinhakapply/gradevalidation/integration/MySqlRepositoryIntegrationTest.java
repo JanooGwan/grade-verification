@@ -10,6 +10,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Duration;
+import java.time.Instant;
+import javax.sql.DataSource;
 
 import jakarta.persistence.EntityManager;
 
@@ -41,10 +44,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -86,6 +93,41 @@ class MySqlRepositoryIntegrationTest {
     @Autowired StudentApplicationRepository applicationRepository;
     @Autowired EvaluationRuleExtractionRepository extractionRepository;
     @Autowired EntityManager entityManager;
+    @Autowired DataSource dataSource;
+    @Autowired PlatformTransactionManager transactionManager;
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void rejectsAnOccupiedImportLockImmediatelyAndCanAcquireItAfterRelease() throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long universityId = transaction.execute(status -> universityRepository.saveAndFlush(
+            University.create("LOCK_TEST", "잠금 테스트 대학")
+        ).getId());
+        try {
+            try (var connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try (var statement = connection.prepareStatement("SELECT id FROM university WHERE id = ? FOR UPDATE")) {
+                    statement.setLong(1, universityId);
+                    try (var rows = statement.executeQuery()) {
+                        assertThat(rows.next()).isTrue();
+                    }
+                    Instant start = Instant.now();
+                    assertThatThrownBy(() -> transaction.execute(status ->
+                        universityRepository.findByIdForUpdateNowait(universityId)
+                    )).isInstanceOf(PessimisticLockingFailureException.class);
+                    assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(5));
+                } finally {
+                    connection.rollback();
+                }
+            }
+            Boolean acquired = transaction.execute(status ->
+                universityRepository.findByIdForUpdateNowait(universityId).isPresent()
+            );
+            assertThat(acquired).isTrue();
+        } finally {
+            transaction.executeWithoutResult(status -> universityRepository.deleteById(universityId));
+        }
+    }
 
     @Test
     void appliesEveryFlywayMigrationAndUsesDraftAsRuleDefault() {

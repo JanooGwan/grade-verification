@@ -23,6 +23,7 @@ public enum ApiResponseCode {
     RULE_EXTRACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "규칙 추출 결과를 찾을 수 없습니다."),
     INVALID_RULE_EXTRACTION_STATUS(HttpStatus.CONFLICT, "현재 상태에서는 추출 결과로 초안을 만들 수 없습니다."),
     INVALID_TRANSCRIPT_FILE(HttpStatus.BAD_REQUEST, "학생부 Excel 파일이 올바르지 않습니다."),
+    TRANSCRIPT_IMPORT_BUSY(HttpStatus.CONFLICT, "같은 대학의 데이터 변경 작업이 진행 중이어서 저장을 시작하지 못했습니다. 진행 중인 작업이 끝난 뒤 최근 가져오기 결과를 확인해 주세요."),
     TRANSCRIPT_IMPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부 가져오기 이력을 찾을 수 없습니다."),
     STORED_TRANSCRIPT_DATA_NOT_FOUND(HttpStatus.NOT_FOUND, "DB에 저장된 성적검증 데이터가 없습니다."),
     TRANSCRIPT_STUDENT_NOT_FOUND(HttpStatus.NOT_FOUND, "학생부가 등록된 학생을 찾을 수 없습니다."),

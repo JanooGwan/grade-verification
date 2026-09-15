@@ -1,6 +1,7 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.INVALID_TRANSCRIPT_FILE;
+import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSCRIPT_IMPORT_BUSY;
 import static com.jinhakapply.gradevalidation.global.code.ApiResponseCode.UNIVERSITY_NOT_FOUND;
 
 import java.math.BigDecimal;
@@ -38,6 +39,7 @@ import com.jinhakapply.gradevalidation.university.repository.UniversityRepositor
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -129,8 +131,14 @@ class TransferImportService {
                 "오류 행이 %,d건 있어 전체 저장을 취소했습니다.".formatted(result.invalidRows())
                     + (detail.isEmpty() ? "" : " " + detail));
         }
-        university = universityRepository.findByIdForUpdate(universityId)
-            .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
+        try {
+            university = universityRepository.findByIdForUpdateNowait(universityId)
+                .orElseThrow(() -> CustomException.of(UNIVERSITY_NOT_FOUND));
+        } catch (PessimisticLockingFailureException exception) {
+            log.warn("Transcript import could not acquire the university lock: universityId={}, admissionYear={}",
+                universityId, admissionYear);
+            throw CustomException.of(TRANSCRIPT_IMPORT_BUSY);
+        }
         StudentTranscriptImport previousImport = importRepository
             .findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
                 university.getId(), admissionYear,

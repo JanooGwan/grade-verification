@@ -12,6 +12,20 @@ class GlobalExceptionHandlerTest {
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
     @Test
+    void explainsConcurrentImportWithConflictStatus() {
+        var response = handler.handleCustomException(CustomException.of(
+            com.jinhakapply.gradevalidation.global.code.ApiResponseCode.TRANSCRIPT_IMPORT_BUSY
+        ));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody()).isNotNull().satisfies(body -> {
+            assertThat(body.code()).isEqualTo("TRANSCRIPT_IMPORT_BUSY");
+            assertThat(body.message()).contains("진행 중", "최근 가져오기");
+            assertThat(body.message()).doesNotContain("예상하지 못한 오류");
+        });
+    }
+
+    @Test
     void mapsCustomExceptionToItsConfiguredStatusAndDetail() {
         var response = handler.handleCustomException(CustomException.of(UNIVERSITY_NOT_FOUND, "99"));
 

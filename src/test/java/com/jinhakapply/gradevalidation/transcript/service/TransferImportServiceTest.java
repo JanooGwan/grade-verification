@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -40,6 +41,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.CannotAcquireLockException;
+import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.code.ApiResponseCode;
 import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -71,7 +75,7 @@ class TransferImportServiceTest {
         when(parser.parse(file, 2026)).thenReturn(new TransferExcelParseResult(
             "KOREAN_MULTI_SHEET_V1", List.of(), List.of(), 0, 0, List.of(), List.of(), List.of()
         ));
-        when(universityRepository.findByIdForUpdate(1L)).thenReturn(java.util.Optional.of(university));
+        when(universityRepository.findByIdForUpdateNowait(1L)).thenReturn(java.util.Optional.of(university));
         when(importRepository.findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
             eq(1L), eq(2026), any()
         )).thenThrow(stopAfterLock);
@@ -86,7 +90,7 @@ class TransferImportServiceTest {
         InOrder order = inOrder(parser, universityRepository, importRepository);
         order.verify(universityRepository).findById(1L);
         order.verify(parser).parse(file, 2026);
-        order.verify(universityRepository).findByIdForUpdate(1L);
+        order.verify(universityRepository).findByIdForUpdateNowait(1L);
         order.verify(importRepository).findTopByUniversity_IdAndAdmissionYearAndStatusInOrderByCreatedAtDesc(
             eq(1L), eq(2026), any()
         );
@@ -102,6 +106,30 @@ class TransferImportServiceTest {
         assertThat(result.updated()).isEqualTo(1);
         assertThat(result.unchanged()).isEqualTo(1);
         assertThat(result.unknown()).isEqualTo(2);
+    }
+
+    @Test
+    void reportsConcurrentImportWithoutDeletingTheStoredSnapshot() {
+        TransferExcelParser parser = mock(TransferExcelParser.class);
+        UniversityRepository universities = mock(UniversityRepository.class);
+        StudentTranscriptImportRepository imports = mock(StudentTranscriptImportRepository.class);
+        TranscriptSnapshotReplacementService replacement = mock(TranscriptSnapshotReplacementService.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        MultipartFile file = mock(MultipartFile.class);
+        when(universities.findById(1L)).thenReturn(java.util.Optional.of(University.create("KBOK", "경복대학교")));
+        when(parser.parse(file, 2026)).thenReturn(new TransferExcelParseResult(
+            "KOREAN_MULTI_SHEET_V1", List.of(), List.of(), 0, 0, List.of(), List.of(), List.of()
+        ));
+        when(universities.findByIdForUpdateNowait(1L)).thenThrow(new CannotAcquireLockException("busy"));
+        TransferImportService service = new TransferImportService(
+            parser, universities, null, null, null, null, null, imports, jdbc, replacement
+        );
+
+        assertThatThrownBy(() -> service.importExcel(
+            2026, 1L, TranscriptImportMode.ALL_OR_NOTHING, file, "sha256"
+        )).isInstanceOfSatisfying(CustomException.class, exception ->
+            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.TRANSCRIPT_IMPORT_BUSY));
+        verifyNoInteractions(imports, replacement, jdbc);
     }
 
     @Test

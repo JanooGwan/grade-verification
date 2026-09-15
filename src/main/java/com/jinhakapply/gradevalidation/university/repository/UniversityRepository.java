@@ -15,4 +15,7 @@ public interface UniversityRepository extends JpaRepository<University, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT university FROM University university WHERE university.id = :id")
     Optional<University> findByIdForUpdate(Long id);
+
+    @Query(value = "SELECT * FROM university WHERE id = :id FOR UPDATE NOWAIT", nativeQuery = true)
+    Optional<University> findByIdForUpdateNowait(Long id);
 }
