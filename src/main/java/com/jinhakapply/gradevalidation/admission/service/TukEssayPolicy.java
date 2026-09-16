@@ -20,7 +20,7 @@ public final class TukEssayPolicy {
             || !TextNormalizer.normalizePolicyText(track).contains("논술")) return Mode.TRANSCRIPT;
         if (data.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) return Mode.COMPARISON;
         if (data.graduationStatus() != GraduationStatus.GRADUATE) return Mode.TRANSCRIPT;
-        int cutoffYear = rule.getAdmissionYear() - 2;
+        int cutoffYear = comparisonTranscriptCutoffYear(rule.getAdmissionYear());
         if (data.graduationDate() != null) {
             return YearMonth.from(data.graduationDate()).compareTo(YearMonth.of(cutoffYear, 2)) <= 0
                 ? Mode.COMPARISON : Mode.TRANSCRIPT;
@@ -29,5 +29,14 @@ public final class TukEssayPolicy {
             return Mode.GRADUATION_DATE_REQUIRED;
         }
         return data.graduationYear() < cutoffYear ? Mode.COMPARISON : Mode.TRANSCRIPT;
+    }
+
+    /** 모집요강 연도별 논술 비교내신 경계. 해당 연도 2월 졸업자까지 비교내신 대상이다. */
+    private static int comparisonTranscriptCutoffYear(int admissionYear) {
+        return switch (admissionYear) {
+            case 2026 -> 2024;
+            case 2027 -> 2025;
+            default -> throw new IllegalArgumentException("지원하지 않는 한국공학대 논술 모집연도입니다: " + admissionYear);
+        };
     }
 }
