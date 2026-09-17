@@ -157,6 +157,17 @@ public class SavedVerificationQueryService {
             var currentIds = applications.stream().map(a -> a.applicationId())
                 .collect(java.util.stream.Collectors.toSet());
             if (!applications.isEmpty() && currentIds.containsAll(savedIds)) {
+                Map<Long, Integer> applicationRows = applications.stream().collect(java.util.stream.Collectors.toMap(
+                    a -> a.applicationId(), a -> a.rowNumber()));
+                successes.replaceAll(success -> {
+                    var original = success.application();
+                    var application = new TransferApplicationRow(original.applicationId(),
+                        applicationRows.get(original.applicationId()), original.admissionYear(), original.applicantNumber(),
+                        original.admissionTrackCode(), original.admissionTrackName(), original.recruitmentUnitCode(),
+                        original.recruitmentUnitName(), original.graduationYear(), original.recruitmentPeriodName());
+                    return new TranscriptBatchVerificationResult.Success(application, success.studentName(),
+                        success.verification(), success.selectedCourses(), success.intermediateCalculations(), success.schoolInfo());
+                });
                 applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
                     .map(a -> TukUnscoredExport.failure(batch.admissionYear(), a)).forEach(failures::add);
                 warnings.add("미산출 사유는 같은 업로드의 현재 지원정보·학생부 유무와 기준연도로 확인했습니다. 불합격을 의미하지 않습니다.");

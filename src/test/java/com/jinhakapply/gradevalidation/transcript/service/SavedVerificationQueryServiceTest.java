@@ -132,21 +132,22 @@ class SavedVerificationQueryServiceTest {
         when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(new SavedVerificationBatchResponse(
             80L, 5L, "한국공학대학교", 2026, "synthetic.xlsx", "TUK", 1, LocalDateTime.now())));
         when(repository.findExportResultsAfter(80L, 0L, 200)).thenReturn(List.of(
-            new SavedVerificationQueryRepository.ExportProjection(91L, 31L, 1L, "TEST-1", "테스트",
+            new SavedVerificationQueryRepository.ExportProjection(91L, 31L, 4L, "TEST-4", "테스트",
                 "지역균형", "TEST", "테스트학과", "{stored-result}")));
         when(objectMapper.readValue("{stored-result}", GradeVerificationResponse.class)).thenReturn(verification);
         when(verification.calculations()).thenReturn(List.of());
         when(ruleRepository.findOneById(31L)).thenReturn(java.util.Optional.of(rule));
         when(batchVerificationService.buildIntermediateCalculations(rule, verification)).thenReturn(List.of());
         when(repository.findExportApplications(80L)).thenReturn(List.of(
-            TukUnscoredExportTest.applicant(1, "지역균형", "DOMESTIC_HIGH_SCHOOL", java.time.LocalDate.of(2026, 2, 1), 10),
+            TukUnscoredExportTest.applicant(4, "지역균형", "DOMESTIC_HIGH_SCHOOL", java.time.LocalDate.of(2026, 2, 1), 10),
             TukUnscoredExportTest.applicant(2, "논술", "DOMESTIC_HIGH_SCHOOL", java.time.LocalDate.of(2024, 2, 1), 10),
             TukUnscoredExportTest.applicant(3, "논술", "GED", java.time.LocalDate.of(2025, 1, 1), 0),
-            TukUnscoredExportTest.applicant(4, "교과우수자", "GED", java.time.LocalDate.of(2025, 1, 1), 0)));
+            TukUnscoredExportTest.applicant(1, "교과우수자", "GED", java.time.LocalDate.of(2025, 1, 1), 0)));
         doAnswer(invocation -> {
             assertThat((Integer) invocation.getArgument(3)).isEqualTo(4);
             TranscriptBatchVerificationResult result = invocation.getArgument(9);
             assertThat(result.successes()).hasSize(1);
+            assertThat(result.successes().getFirst().application().rowNumber()).isEqualTo(4);
             assertThat(result.failures()).hasSize(3);
             assertThat(result.failures()).extracting(TranscriptBatchVerificationResult.Failure::code)
                 .containsExactly("ESSAY_SCORE_REQUIRED", "ESSAY_SCORE_REQUIRED", "ALTERNATIVE_ACADEMIC_INPUT_REQUIRED");

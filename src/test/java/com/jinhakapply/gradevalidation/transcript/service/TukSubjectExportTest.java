@@ -153,6 +153,54 @@ class TukSubjectExportTest {
         return export(rule, result, summaries, 1);
     }
 
+    @Test void includesEveryApplicantInOrderWithBlankScoresAndReasonsForUnscoredRows() throws Exception {
+        var rule = rule(2026, "전체 모집단위");
+        var result = evaluator.verify(rule, new VerifyGradeRequest(1L, List.of(
+            course(SubjectCategory.KOREAN, "국어", 2, null, false, 3))));
+        var summaries = batch.buildIntermediateCalculations(rule, result);
+        var successes = new ArrayList<TranscriptBatchVerificationResult.Success>();
+        var failures = new ArrayList<TranscriptBatchVerificationResult.Failure>();
+        var scored = java.util.Set.of(3, 111, 225);
+        for (int index = 225; index >= 1; index--) {
+            var application = new TransferApplicationRow(index, 2026, "SYNTHETIC-" + index, null,
+                "합성 전형", null, "합성 모집단위", 2024);
+            if (scored.contains(index)) {
+                successes.add(new TranscriptBatchVerificationResult.Success(application, "합성", result, List.of(), summaries, null));
+            } else {
+                failures.add(new TranscriptBatchVerificationResult.Failure(application, "합성", 10,
+                    "ESSAY_SCORE_REQUIRED", "논술고사 점수가 필요합니다."));
+            }
+        }
+        byte[] file = new TranscriptValidationExcelWriter().write("synthetic.xlsx", "TUK_SOURCE_WORKBOOK_V1", "한국공학대학교",
+            225, 0, List.of(), List.of(), List.of(), List.of(), new TranscriptBatchVerificationResult(successes, failures));
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            var main = workbook.getSheet("학생별 검증 결과");
+            assertThat(main.getLastRowNum()).isEqualTo(227);
+            assertThat(main.getRow(2).getCell(4).getStringCellValue()).isEqualTo("산출 상태");
+            assertThat(main.getRow(2).getCell(5).getStringCellValue()).isEqualTo("미산출 사유");
+            for (int index = 1; index <= 225; index++) {
+                var row = main.getRow(index + 2);
+                assertThat(row.getCell(0).getNumericCellValue()).isEqualTo(index);
+                assertThat(row.getCell(1).getStringCellValue()).isEqualTo("SYNTHETIC-" + index);
+                assertThat(row.getLastCellNum()).isEqualTo(main.getRow(2).getLastCellNum());
+                if (scored.contains(index)) {
+                    assertThat(row.getCell(4).getStringCellValue()).isEqualTo("산출 완료");
+                    assertThat(row.getCell(5).getCellType()).isEqualTo(CellType.BLANK);
+                    assertThat(row.getCell(row.getLastCellNum() - 1).getNumericCellValue()).isEqualTo(result.finalScore().doubleValue());
+                } else {
+                    assertThat(row.getCell(4).getStringCellValue()).isEqualTo("미산출");
+                    assertThat(row.getCell(5).getStringCellValue()).isEqualTo("논술고사 점수가 필요합니다.");
+                    for (int column = 6; column < row.getLastCellNum(); column++) {
+                        assertThat(row.getCell(column).getCellType()).isEqualTo(CellType.BLANK);
+                    }
+                }
+            }
+            assertThat(main.getCTWorksheet().getAutoFilter().getRef()).endsWith("228");
+            // 산출 근거는 점수가 실제 산출된 학생의 국어/전체 행만 유지한다.
+            assertThat(workbook.getSheet("교과별 산출 근거").getLastRowNum()).isEqualTo(8);
+        }
+    }
+
     private XSSFWorkbook export(EvaluationRule rule, GradeVerificationResponse result,
         List<TranscriptBatchVerificationResult.IntermediateCalculation> summaries, int applicants) throws Exception {
         var successes = new ArrayList<TranscriptBatchVerificationResult.Success>();

@@ -338,7 +338,8 @@ class TranscriptValidationExcelWriter {
     }
 
     private void createTukResultSheets(SXSSFWorkbook workbook, Styles styles, TranscriptBatchVerificationResult verification) {
-        List<String> columns = new ArrayList<>(List.of("지원정보 행", "수험번호", "전형명", "모집단위명", "선택 탐구교과"));
+        List<String> columns = new ArrayList<>(List.of("지원정보 행", "수험번호", "전형명", "모집단위명",
+            "산출 상태", "미산출 사유", "선택 탐구교과"));
         for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
             String label = TukSubjectCalculations.label(subject);
             columns.add(label + " 일반 반영 과목수");
@@ -352,7 +353,7 @@ class TranscriptValidationExcelWriter {
         sheet.setDisplayGridlines(false);
         title(sheet, styles, "한국공학대 교과별 성적 검증 결과 - 비교과·고사·학교폭력 미포함", headers.length - 1);
         titleAtRowOne(sheet, styles,
-            "일반 최대 4 + 진로 최대 2(특성화고교졸업자는 전 과목). 경영학부는 선택한 사회·과학 묶음을 노란색으로 표시(이수단위 동률은 사회). 평균은 일반·진로 합산, 진로 1단위 적용. 한국사는 실제 반영 교과에 포함.", headers.length - 1);
+            "미산출은 불합격이 아니며 점수는 빈칸입니다. 일반 최대 4 + 진로 최대 2(특성화고교졸업자는 전 과목). 경영학부 선택 교과는 노란색(동률은 사회). 평균은 일반·진로 합산, 진로 1단위 적용. 한국사는 실제 반영 교과에 포함.", headers.length - 1);
         header(sheet, styles, headers);
         sheet.getRow(2).setHeightInPoints(48);
         Sheet detail = workbook.createSheet("교과별 산출 근거");
@@ -360,10 +361,30 @@ class TranscriptValidationExcelWriter {
         title(detail, styles, "한국공학대 교과별 산출 근거 - 실제 선택과목의 합계", TUK_DETAIL_HEADERS.length - 1);
         titleAtRowOne(detail, styles, "전체 M = 전체 환산점수×적용 이수단위 합 ÷ 전체 적용 이수단위 합. 교과별 평균의 단순평균이 아닙니다.", TUK_DETAIL_HEADERS.length - 1);
         header(detail, styles, TUK_DETAIL_HEADERS);
-        List<TranscriptBatchVerificationResult.Success> results = verification.successes().stream()
-            .sorted(Comparator.comparingInt(success -> success.application().rowNumber())).toList();
+        record ResultRow(TransferApplicationRow application, TranscriptBatchVerificationResult.Success success,
+            TranscriptBatchVerificationResult.Failure failure) {}
+        List<ResultRow> results = new ArrayList<>();
+        verification.successes().forEach(success -> results.add(new ResultRow(success.application(), success, null)));
+        verification.failures().forEach(failure -> results.add(new ResultRow(failure.application(), null, failure)));
+        results.sort(Comparator.comparingInt(value -> value.application().rowNumber()));
         int rowIndex = 3, detailRow = 3;
-        for (var success : results) {
+        for (var entry : results) {
+            if (entry.failure() != null) {
+                var failure = entry.failure();
+                var application = entry.application();
+                Object[] values = new Object[headers.length];
+                values[0] = application.rowNumber(); values[1] = application.applicantNumber();
+                values[2] = application.admissionTrackName(); values[3] = application.recruitmentUnitName();
+                values[4] = "미산출"; values[5] = failure.reason();
+                Row row = sheet.createRow(rowIndex++);
+                writeRow(row, values, styles, -1);
+                for (int column = 6; column < headers.length; column++) row.getCell(column).setBlank();
+                row.getCell(4).setCellStyle(styles.warning);
+                row.getCell(5).setCellStyle(styles.warning);
+                row.setHeightInPoints(60);
+                continue;
+            }
+            var success = entry.success();
             var application = success.application();
             var result = success.verification();
             int applicantDetailStart = detailRow;
@@ -380,6 +401,7 @@ class TranscriptValidationExcelWriter {
             List<Object> values = new ArrayList<>();
             values.add(application.rowNumber()); values.add(application.applicantNumber());
             values.add(application.admissionTrackName()); values.add(application.recruitmentUnitName());
+            values.add("산출 완료"); values.add(null);
             values.add(selectedInquiry);
             for (SubjectCategory subject : TukSubjectCalculations.SUBJECTS) {
                 String label = TukSubjectCalculations.label(subject);
@@ -400,6 +422,7 @@ class TranscriptValidationExcelWriter {
             values.add(result.baseScore()); values.add(summary.scoreMultiplier()); values.add(result.finalScore());
             Row row = sheet.createRow(rowIndex++);
             writeRow(row, values.toArray(), styles, -1);
+            row.getCell(5).setBlank();
             row.getCell(headers.length - 1).setCellStyle(styles.finalScoreFor(result.finalScore()));
             if (social != null && science != null) {
                 int firstColumn = columns.indexOf((social.selected() ? "사회" : "과학") + " 일반 반영 과목수");
@@ -427,8 +450,10 @@ class TranscriptValidationExcelWriter {
         }
         finishTable(sheet, rowIndex - 3, headers.length);
         sheet.createFreezePane(4, 3);
-        setWidths(sheet, headers, Set.of(2, 3, 4));
-        for (int column = 5; column < headers.length; column++) {
+        setWidths(sheet, headers, Set.of(2, 3, 5, 6));
+        sheet.setColumnWidth(4, 14 * 256);
+        sheet.setColumnWidth(5, 65 * 256);
+        for (int column = 7; column < headers.length; column++) {
             sheet.setColumnWidth(column, 16 * 256);
         }
         finishTable(detail, detailRow - 3, TUK_DETAIL_HEADERS.length);
