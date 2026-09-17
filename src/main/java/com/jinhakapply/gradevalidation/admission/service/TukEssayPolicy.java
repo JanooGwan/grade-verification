@@ -18,9 +18,15 @@ public final class TukEssayPolicy {
         if ((rule.getAdmissionYear() != 2026 && rule.getAdmissionYear() != 2027)
             || !TextNormalizer.normalizePolicyText(rule.getUniversity().getName()).contains("한국공학")
             || !TextNormalizer.normalizePolicyText(track).contains("논술")) return Mode.TRANSCRIPT;
+        return mode(rule.getAdmissionYear(), track, data);
+    }
+
+    public static Mode mode(int admissionYear, String track, StudentCommonEvaluationSnapshot data) {
+        if ((admissionYear != 2026 && admissionYear != 2027)
+            || !TextNormalizer.normalizePolicyText(track).contains("논술")) return Mode.TRANSCRIPT;
         if (data.educationBackground() != EducationBackground.DOMESTIC_HIGH_SCHOOL) return Mode.COMPARISON;
         if (data.graduationStatus() != GraduationStatus.GRADUATE) return Mode.TRANSCRIPT;
-        int cutoffYear = comparisonTranscriptCutoffYear(rule.getAdmissionYear());
+        int cutoffYear = comparisonTranscriptCutoffYear(admissionYear);
         if (data.graduationDate() != null) {
             return YearMonth.from(data.graduationDate()).compareTo(YearMonth.of(cutoffYear, 2)) <= 0
                 ? Mode.COMPARISON : Mode.TRANSCRIPT;
@@ -32,7 +38,7 @@ public final class TukEssayPolicy {
     }
 
     /** 모집요강 연도별 논술 비교내신 경계. 해당 연도 2월 졸업자까지 비교내신 대상이다. */
-    private static int comparisonTranscriptCutoffYear(int admissionYear) {
+    public static int comparisonTranscriptCutoffYear(int admissionYear) {
         return switch (admissionYear) {
             case 2026 -> 2024;
             case 2027 -> 2025;

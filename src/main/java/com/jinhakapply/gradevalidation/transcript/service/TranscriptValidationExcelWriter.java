@@ -129,7 +129,7 @@ class TranscriptValidationExcelWriter {
                 createSummarySheet(
                     workbook, styles, originalFileName, sourceFormat, applicationRows,
                     totalRows, courses.size(), errors.size(), skipped.size(), warnings,
-                    verification, skipped, errors
+                    verification, skipped, errors, universityName != null && universityName.contains("한국공학")
                 );
             }
             workbook.write(output);
@@ -149,7 +149,8 @@ class TranscriptValidationExcelWriter {
         List<String> warnings,
         TranscriptBatchVerificationResult verification,
         List<TranscriptImportRowError> skipped,
-        List<TranscriptImportRowError> errors
+        List<TranscriptImportRowError> errors,
+        boolean tuk
     ) {
         Sheet sheet = workbook.createSheet("검증 요약");
         sheet.setDisplayGridlines(false);
@@ -160,11 +161,26 @@ class TranscriptValidationExcelWriter {
         rowIndex = keyValue(sheet, styles, rowIndex, "파일명", originalFileName, "인식 형식", formatLabel(sourceFormat));
         rowIndex++;
         rowIndex = section(sheet, styles, rowIndex, "검증 집계");
-        rowIndex = keyValue(sheet, styles, rowIndex, "지원정보", applicationRows, "전체 성적", totalRows);
+        Object applicationCount = verification.applicationScopeComplete() ? applicationRows : "확인 불가";
+        Object failureCount = verification.applicationScopeComplete() ? verification.failures().size() : "확인 불가";
+        rowIndex = keyValue(sheet, styles, rowIndex, "지원정보", applicationCount, tuk ? "내보낸 과목 행" : "전체 성적", totalRows);
         rowIndex = keyValue(sheet, styles, rowIndex, "정상", validRows, "제외", skippedRows);
         rowIndex = keyValue(sheet, styles, rowIndex, "오류", invalidRows, "DB 저장 가능", invalidRows == 0 ? "가능" : "저장 정책에 따름");
         rowIndex = keyValue(sheet, styles, rowIndex, "성적 검증 성공", verification.successes().size(),
-            "성적 검증 실패", verification.failures().size());
+            tuk ? "미산출" : "성적 검증 실패", failureCount);
+
+        if (tuk) {
+            rowIndex++;
+            rowIndex = section(sheet, styles, rowIndex, "지원자 산출 현황");
+            rowIndex = keyValue(sheet, styles, rowIndex, "전체 지원자", applicationCount,
+                "산출 완료", verification.successes().size());
+            rowIndex = keyValue(sheet, styles, rowIndex, "미산출 합계", failureCount,
+                "안내", "미산출은 불합격을 의미하지 않습니다.");
+            sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 3, 7));
+            if (verification.applicationScopeComplete()) {
+                rowIndex = appendTukUnscoredSummary(sheet, styles, rowIndex, verification.failures());
+            }
+        }
 
         if (warnings != null && !warnings.isEmpty()) {
             rowIndex++;
@@ -179,9 +195,10 @@ class TranscriptValidationExcelWriter {
 
         if (!verification.failures().isEmpty()) {
             rowIndex++;
-            rowIndex = section(sheet, styles, rowIndex, "성적 검증 실패 상세");
+            rowIndex = section(sheet, styles, rowIndex, tuk ? "미산출 지원자 상세" : "성적 검증 실패 상세");
             rowIndex = tableHeader(sheet, styles, rowIndex, new String[] {
-                "지원정보 행", "수험번호", "전형명", "모집단위명", "대상 과목 수", "실패 코드", "실패 사유"
+                "지원정보 행", "수험번호", "전형명", "모집단위명", "대상 과목 수",
+                tuk ? "미산출 코드" : "실패 코드", tuk ? "미산출 사유" : "실패 사유"
             });
             for (TranscriptBatchVerificationResult.Failure failure : verification.failures()) {
                 TransferApplicationRow application = failure.application();
@@ -189,6 +206,10 @@ class TranscriptValidationExcelWriter {
                     application.rowNumber(), application.applicantNumber(), application.admissionTrackName(),
                     application.recruitmentUnitName(), failure.availableCourseCount(), failure.code(), failure.reason()
                 }, styles, 5);
+                if (tuk) {
+                    sheet.getRow(rowIndex - 1).getCell(6).setCellStyle(styles.warning);
+                    sheet.getRow(rowIndex - 1).setHeightInPoints(48);
+                }
             }
         }
         rowIndex = appendImportIssues(sheet, styles, rowIndex, "가져오기 제외 상세", skipped, styles.warning);
@@ -199,6 +220,36 @@ class TranscriptValidationExcelWriter {
             sheet.setColumnWidth(column, widths[column] * 256);
         }
         sheet.createFreezePane(0, 2);
+    }
+
+    private int appendTukUnscoredSummary(Sheet sheet, Styles styles, int rowIndex,
+        List<TranscriptBatchVerificationResult.Failure> failures) {
+        record Group(String category, String reason) {}
+        Map<Group, Integer> counts = new LinkedHashMap<>();
+        for (var failure : failures) {
+            String reason = "ESSAY_SCORE_REQUIRED".equals(failure.code())
+                ? TukUnscoredExport.essayReason(failure.application().admissionYear(), failure.availableCourseCount())
+                : failure.reason();
+            counts.merge(new Group(TukUnscoredExport.category(failure), reason), 1, Integer::sum);
+        }
+        rowIndex++;
+        rowIndex = section(sheet, styles, rowIndex, "미산출 사유별 인원");
+        rowIndex = tableHeader(sheet, styles, rowIndex, new String[] {"구분", "", "인원", "미산출 이유"});
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 0, 1));
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 3, 7));
+        for (var entry : counts.entrySet()) {
+            Row row = sheet.createRow(rowIndex++);
+            writeRow(row, new Object[] {entry.getKey().category(), null, entry.getValue(), entry.getKey().reason()}, styles, -1);
+            row.getCell(0).setCellStyle(styles.warning);
+            row.getCell(3).setCellStyle(styles.warning);
+            row.setHeightInPoints(42);
+            sheet.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 1));
+            sheet.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 3, 7));
+        }
+        Row total = sheet.createRow(rowIndex++);
+        writeRow(total, new Object[] {"합계", null, failures.size()}, styles, -1);
+        sheet.addMergedRegion(new CellRangeAddress(total.getRowNum(), total.getRowNum(), 0, 1));
+        return rowIndex;
     }
 
     private int appendImportIssues(

@@ -18,6 +18,41 @@ import org.springframework.stereotype.Repository;
 public class SavedVerificationQueryRepository {
     private final JdbcTemplate jdbcTemplate;
 
+    /** 같은 업로드의 지원정보와 과목만 조회한다. */
+    public List<ApplicationExportProjection> findExportApplications(Long sourceImportId) {
+        return jdbcTemplate.query("""
+            SELECT application.id, student.applicant_number, student.name AS student_name,
+                   track.name AS track_name, unit.code AS unit_code, unit.name AS unit_name,
+                   student.graduation_year, student.graduation_date, student.graduation_status,
+                   student.education_background, student.high_school_type,
+                   COALESCE(courses.course_count, 0) AS course_count
+            FROM student_application application
+            JOIN student ON student.id = application.student_id
+            JOIN recruitment_unit unit ON unit.id = application.recruitment_unit_id
+            JOIN admission_track track ON track.id = unit.admission_track_id
+            LEFT JOIN (
+                SELECT student_id, COUNT(*) AS course_count
+                FROM student_transcript_course WHERE source_import_id = ? GROUP BY student_id
+            ) courses ON courses.student_id = student.id
+            WHERE application.source_import_id = ?
+            ORDER BY application.id
+            """, (rs, row) -> new ApplicationExportProjection(
+                rs.getLong("id"), row + 1, rs.getString("applicant_number"), rs.getString("student_name"),
+                rs.getString("track_name"), rs.getString("unit_code"), rs.getString("unit_name"),
+                rs.getObject("graduation_year", Integer.class),
+                rs.getDate("graduation_date") == null ? null : rs.getDate("graduation_date").toLocalDate(),
+                rs.getString("graduation_status"), rs.getString("education_background"),
+                rs.getString("high_school_type"), rs.getInt("course_count")
+            ), sourceImportId, sourceImportId);
+    }
+
+    public record ApplicationExportProjection(
+        Long applicationId, int rowNumber, String applicantNumber, String studentName,
+        String trackName, String unitCode, String unitName, Integer graduationYear,
+        java.time.LocalDate graduationDate, String graduationStatus, String educationBackground,
+        String highSchoolType, int courseCount
+    ) {}
+
     public List<SavedVerificationBatchResponse> findBatches(Long universityId, int admissionYear) {
         return jdbcTemplate.query("""
             SELECT transcript_import.id AS source_import_id,

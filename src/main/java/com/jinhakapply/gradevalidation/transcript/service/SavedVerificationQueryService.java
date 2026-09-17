@@ -145,13 +145,34 @@ public class SavedVerificationQueryService {
         }
         if (successes.isEmpty()) throw CustomException.of(VERIFICATION_RUN_NOT_FOUND);
 
+        List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>();
+        boolean applicationScopeComplete = true;
+        List<String> warnings = new ArrayList<>();
+        warnings.add("DB에 저장된 검증 회차 #%d 결과를 재계산 없이 내보냈습니다.".formatted(sourceImportId));
+        if (batch.universityName().contains("한국공학")
+            && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027)) {
+            var applications = repository.findExportApplications(sourceImportId);
+            var savedIds = successes.stream().map(s -> s.application().applicationId())
+                .collect(java.util.stream.Collectors.toSet());
+            var currentIds = applications.stream().map(a -> a.applicationId())
+                .collect(java.util.stream.Collectors.toSet());
+            if (!applications.isEmpty() && currentIds.containsAll(savedIds)) {
+                applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
+                    .map(a -> TukUnscoredExport.failure(batch.admissionYear(), a)).forEach(failures::add);
+                warnings.add("미산출 사유는 같은 업로드의 현재 지원정보·학생부 유무와 기준연도로 확인했습니다. 불합격을 의미하지 않습니다.");
+            } else {
+                applicationScopeComplete = false;
+                warnings.add("기존 업로드의 지원정보가 교체되었거나 확인되지 않아 전체·미산출 인원을 복원할 수 없습니다. 집계는 저장 결과 범위입니다.");
+            }
+            warnings.add("검증 기준연도: %d학년도".formatted(batch.admissionYear()));
+        }
         TranscriptBatchVerificationResult result = new TranscriptBatchVerificationResult(
-            List.copyOf(successes), List.of()
+            List.copyOf(successes), List.copyOf(failures), applicationScopeComplete
         );
         validationExcelWriter.write(
             batch.originalFileName(), batch.sourceFormat(), batch.universityName(),
-            successes.size(), courses.size(), List.of(), List.copyOf(courses), List.of(),
-            List.of("DB에 저장된 검증 회차 #%d 결과를 재계산 없이 내보냈습니다.".formatted(sourceImportId)),
+            successes.size() + failures.size(), courses.size(), List.of(), List.copyOf(courses), List.of(),
+            List.copyOf(warnings),
             result, output
         );
     }

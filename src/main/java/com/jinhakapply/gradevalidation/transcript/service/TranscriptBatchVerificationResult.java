@@ -7,8 +7,12 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 
 record TranscriptBatchVerificationResult(
     List<Success> successes,
-    List<Failure> failures
+    List<Failure> failures,
+    boolean applicationScopeComplete
 ) {
+    TranscriptBatchVerificationResult(List<Success> successes, List<Failure> failures) {
+        this(successes, failures, true);
+    }
     record Success(
         TransferApplicationRow application,
         String studentName,
