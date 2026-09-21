@@ -30,7 +30,8 @@ class TukSourceExcelParserTest {
         assertThat(result.applicantProfiles().get("TEST-B").graduationDate()).isEqualTo(LocalDate.of(2024,3,1));
         assertThat(result.applicantProfiles().get("TEST-C").educationBackground()).isEqualTo(EducationBackground.GED);
         assertThat(result.applicantProfiles().get("TEST-B").graduationStatus()).isEqualTo(GraduationStatus.GRADUATE);
-        assertThat(result.courses().get(0).subjectCategory()).isEqualTo(SubjectCategory.SOCIAL);
+        assertThat(result.courses().get(0).subjectCategory()).isEqualTo(SubjectCategory.OTHER);
+        assertThat(result.courses().get(0).grade()).isEqualTo(4);
         assertThat(result.courses().get(1).careerSubject()).isTrue();
         assertThat(result.courses().get(1).rankPosition()).isNull();
         assertThat(result.courses().get(2).grade()).isNull();
@@ -55,11 +56,14 @@ class TukSourceExcelParserTest {
         student.updateProfile("수정",null,null,2025);
         assertThat(student.getGraduationDate()).isNull();
     }
-    @Test void validatesDateAndKeepsCoreFallbackMappings() {
+    @Test void validatesDateAndMapsOnlyExplicitSubjectCodes() {
         assertThat(TukSourceExcelParser.graduationDate("20240229")).isEqualTo(LocalDate.of(2024,2,29));
         assertThatThrownBy(()->TukSourceExcelParser.graduationDate("20260230")).isInstanceOf(IllegalArgumentException.class);
-        assertThat(TukSourceExcelParser.category(null,"과학 계열")).isEqualTo(SubjectCategory.SCIENCE);
-        assertThat(TukSourceExcelParser.category(null,"영어")).isEqualTo(SubjectCategory.ENGLISH);
+        assertThat(TukSourceExcelParser.category(null)).isEqualTo(SubjectCategory.OTHER);
+        assertThat(TukSourceExcelParser.category("")).isEqualTo(SubjectCategory.OTHER);
+        assertThat(TukSourceExcelParser.category("과학 계열")).isEqualTo(SubjectCategory.SCIENCE);
+        assertThat(TukSourceExcelParser.category("영어")).isEqualTo(SubjectCategory.ENGLISH);
+        assertThat(TukSourceExcelParser.category("한국사")).isEqualTo(SubjectCategory.SOCIAL);
     }
     @Test void evaluatesPreviousYearSourceAgainst2027RulesWithoutChangingSourceDatesOrNames() throws Exception {
         try (var book = new XSSFWorkbook(workbook(false, false).getInputStream());

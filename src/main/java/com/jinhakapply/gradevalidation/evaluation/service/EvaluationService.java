@@ -40,6 +40,7 @@ import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepos
 import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine;
 import com.jinhakapply.gradevalidation.evaluation.policy.DeclarativeSelectionPolicyEngine.CourseCandidate;
 import com.jinhakapply.gradevalidation.evaluation.policy.SelectionPolicyValidator;
+import com.jinhakapply.gradevalidation.evaluation.policy.TukSubjectPolicy;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
 import com.jinhakapply.gradevalidation.university.domain.University;
@@ -173,7 +174,7 @@ public class EvaluationService {
         validateSyuMinimumSemesters(rule, candidates);
         validateKbuSelectionGroups(rule, scope.selectionStrategy(), candidates);
         CourseSelection selection = selectCourses(
-            rule, scope.selectionStrategy(), candidates.stream().filter(Candidate::eligible).toList()
+            rule, scope.selectionStrategy(), candidates
         );
         if (isTukGuidebookYear(rule) && candidates.stream()
             .filter(candidate -> selection.indexes().contains(candidate.index()))
@@ -313,7 +314,7 @@ public class EvaluationService {
 
             BigDecimal rankPercentile = exclusionReason == null ? resolveRankPercentile(rule, course) : null;
             BigDecimal effectiveGrade = exclusionReason == null ? resolveEffectiveGrade(rule, course, rankPercentile) : null;
-            if (exclusionReason == null && effectiveGrade == null) exclusionReason = "등급 또는 환산 가능한 성취도 정보가 없습니다.";
+            if (exclusionReason == null && effectiveGrade == null) exclusionReason = TukSubjectPolicy.MISSING_GRADE_REASON;
             BigDecimal convertedScore = effectiveGrade == null ? null : resolveConvertedScore(rule, course, effectiveGrade);
             candidates.add(new Candidate(index, course, effectiveGrade, convertedScore, rankPercentile, exclusionReason));
         }
@@ -493,7 +494,8 @@ public class EvaluationService {
     }
 
     private CourseSelection selectCourses(EvaluationRule rule, SelectionStrategy selectionStrategy,
-        List<Candidate> eligible) {
+        List<Candidate> candidates) {
+        List<Candidate> eligible = candidates.stream().filter(Candidate::eligible).toList();
         if (eligible.isEmpty()) return CourseSelection.empty();
         if (rule.getSelectionPolicy() != null) {
             Set<Integer> selected = selectionPolicyEngine.select(rule.getSelectionPolicy(), eligible.stream()
@@ -511,7 +513,10 @@ public class EvaluationService {
             case TOP_N_COURSES -> CourseSelection.of(indexesOf(eligible.stream().sorted(courseComparator()).limit(rule.getSelectionCount()).toList()));
             case TOP_N_COURSES_PER_SUBJECT -> CourseSelection.of(selectTopCoursesPerSubject(rule, eligible));
             case CORE_SCIENCE_TOP_N -> selectCoreScienceSubjects(rule, eligible);
-            case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible);
+            case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> selectCoreAndBestOptionalSubject(rule, eligible,
+                isTukGuidebookYear(rule) ? candidates.stream().filter(candidate ->
+                    TukSubjectPolicy.countsForInquiryCredits(candidate.effectiveGrade(), candidate.exclusionReason())).toList()
+                    : eligible);
             case TOP_N_SEMESTERS -> isKbu2026(rule)
                 ? CourseSelection.of(selectKbuTopGroups(eligible,
                     candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(),
@@ -700,10 +705,11 @@ public class EvaluationService {
         return new CourseSelection(selected, appliedSubjects);
     }
 
-    private CourseSelection selectCoreAndBestOptionalSubject(EvaluationRule rule, List<Candidate> eligible) {
+    private CourseSelection selectCoreAndBestOptionalSubject(EvaluationRule rule, List<Candidate> eligible,
+        List<Candidate> inquiryCandidates) {
         List<SubjectCategory> optionalSubjects = List.of(SubjectCategory.SOCIAL, SubjectCategory.SCIENCE);
         SubjectCategory optional = optionalSubjects.stream().max(Comparator
-            .comparing((SubjectCategory category) -> totalCreditsExcludingKoreanHistory(eligible, category))
+            .comparing((SubjectCategory category) -> totalCreditsExcludingKoreanHistory(inquiryCandidates, category))
             .thenComparing(category -> -rule.getSubjectPriorities().getOrDefault(category, Integer.MAX_VALUE)))
             .orElse(SubjectCategory.SOCIAL);
         Set<SubjectCategory> selectedSubjects = Set.of(
@@ -760,7 +766,7 @@ public class EvaluationService {
     }
 
     private boolean isKoreanHistory(VerifyGradeRequest.CourseGrade course) {
-        return course.courseName().replaceAll("\\s", "").contains("한국사");
+        return TukSubjectPolicy.isKoreanHistory(course.courseName());
     }
 
     private <K> Set<Integer> selectTopGroups(EvaluationRule rule, List<Candidate> eligible,

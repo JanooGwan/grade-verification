@@ -187,15 +187,16 @@ final class TukSourceExcelParser {
         String rawAchievement = f.get("ACHIEVEMENT");
         AchievementLevel achievement = rawAchievement != null && Set.of("A", "B", "C", "D", "E").contains(rawAchievement)
             ? AchievementLevel.valueOf(rawAchievement) : null;
-        SubjectCategory category = category(f.get("CODENAME"), f.get("ORGANIZATIONNAME"));
+        SubjectCategory category = category(f.get("CODENAME"));
         return new TranscriptExcelRow(row, required(f, "SUHUMNO"), "미등록", null, null, null,
             year, term, category, required(f, "SUBJECTNAME"), grade, GradeScale.NINE_LEVEL, achievement,
             null, null, null, positive(f.get("STUDENTCOUNT")), positive(f.get("HSBRANK")), positive(f.get("SAMERANK")),
             null, credits, separation.equals("진로"), false);
     }
 
-    static SubjectCategory category(String code, String organization) {
-        String value = code != null ? code : organization == null ? "" : organization;
+    static SubjectCategory category(String code) {
+        // 원본 교과명으로 추정하면 미분류 전문·교양 과목까지 일반 반영교과에 들어갈 수 있다.
+        String value = code == null ? "" : code;
         return switch (value) {
             case "국어" -> SubjectCategory.KOREAN;
             case "수학" -> SubjectCategory.MATH;

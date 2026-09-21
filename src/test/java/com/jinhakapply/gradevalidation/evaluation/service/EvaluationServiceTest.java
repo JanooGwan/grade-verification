@@ -205,13 +205,13 @@ class EvaluationServiceTest {
             course(1, 1, SubjectCategory.SOCIAL, "사회문화", 4, "4"),
             course(1, 1, SubjectCategory.SCIENCE, "물리학", 1, "4"),
             course(1, 1, SubjectCategory.SOCIAL, "한국사", 1, "3"),
-            course(2, 1, SubjectCategory.SOCIAL, "한국사 심화", 2, "3")));
+            course(2, 1, SubjectCategory.SOCIAL, "한국 사", 2, "3")));
 
         GradeVerificationResponse response = service.verify(request);
 
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::courseName)
-            .contains("사회문화", "한국사").doesNotContain("물리학", "한국사 심화");
+            .contains("사회문화", "한국사").doesNotContain("물리학", "한국 사");
         assertThat(response.calculations()).filteredOn(item -> item.courseName().equals("한국사"))
             .extracting(GradeVerificationResponse.CourseCalculation::appliedSubjectCategory)
             .containsExactly(SubjectCategory.SOCIAL);

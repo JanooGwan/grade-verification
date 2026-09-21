@@ -54,6 +54,29 @@ class TukScoreRegressionTest {
                     error -> assertThat(error.getDetail()).contains("석차등급"));
         }
     }
+    @Test void recognizesOnlyKoreanHistoryAndDoesNotRemapSocialUnderstandingToScience() {
+        for (int year : List.of(2026, 2027)) {
+            var courses = List.of(
+                social("한국사", 2, false), social("한국 사", 3, false),
+                social("한국 사회의 이해", 1, true), social("한국사 심화 탐구", 2, true));
+            var engineering = evaluator.verify(rule(year, "학생부교과(교과우수자)", "공학계열"),
+                new VerifyGradeRequest(1L, courses));
+            assertThat(engineering.calculations().stream().filter(c -> c.included()).map(c -> c.courseName()))
+                .containsExactly("한국사");
+            assertThat(engineering.finalScore()).isEqualByComparingTo("495");
+            var business = evaluator.verify(rule(year, "학생부교과(교과우수자)", "경영학부"),
+                new VerifyGradeRequest(1L, courses));
+            assertThat(business.calculations().stream().filter(c -> c.included()).map(c -> c.courseName()))
+                .containsExactly("한국사", "한국 사회의 이해", "한국사 심화 탐구");
+            assertThat(business.finalScore()).isEqualByComparingTo("496");
+        }
+    }
+
+    private VerifyGradeRequest.CourseGrade social(String name, int grade, boolean career) {
+        return new VerifyGradeRequest.CourseGrade(1, 1, SubjectCategory.SOCIAL, name, career ? null : grade,
+            career ? (grade == 1 ? AchievementLevel.A : AchievementLevel.B) : null,
+            null, null, null, 100, career, false, new BigDecimal("3"));
+    }
     @Test void excludesAchievementSubjectsFromSpecializedTrack() {
         var result=evaluator.verify(rule(2026,"학생부교과(특성화고교졸업자)","전체 모집단위"),new VerifyGradeRequest(1L,List.of(
             course("물리학",3,null,false,"3"),course("진로과학",null,AchievementLevel.A,true,"5"))));

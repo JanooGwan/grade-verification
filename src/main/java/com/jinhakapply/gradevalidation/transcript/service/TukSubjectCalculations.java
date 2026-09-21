@@ -10,6 +10,7 @@ import java.util.Map;
 import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRule;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.evaluation.policy.TukSubjectPolicy;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse.CourseCalculation;
 import com.jinhakapply.gradevalidation.transcript.service.TranscriptBatchVerificationResult.IntermediateCalculation;
@@ -51,11 +52,11 @@ final class TukSubjectCalculations {
             Map<SubjectCategory, List<CourseCalculation>> eligible = new java.util.EnumMap<>(SubjectCategory.class);
             Map<SubjectCategory, BigDecimal> credits = new java.util.EnumMap<>(SubjectCategory.class);
             for (SubjectCategory subject : inquirySubjects) {
-                // EvaluationService의 선택 전 후보와 동일: 미반영 학기·평가정보 없는 과목 제외, 한국사 제외.
+                // 점수 산출 대상과 달리 등급 없는 이수과목도 비교에 포함한다. 미반영 학기·한국사는 제외한다.
                 List<CourseCalculation> candidates = result.calculations().stream()
                     .filter(course -> course.subjectCategory() == subject)
-                    .filter(course -> course.effectiveGrade() != null && course.convertedScore() != null)
-                    .filter(course -> !course.courseName().replaceAll("\\s", "").contains("한국사")).toList();
+                    .filter(course -> TukSubjectPolicy.countsForInquiryCredits(course.effectiveGrade(), course.exclusionReason()))
+                    .filter(course -> !TukSubjectPolicy.isKoreanHistory(course.courseName())).toList();
                 eligible.put(subject, candidates);
                 credits.put(subject, candidates.stream().map(CourseCalculation::credits).reduce(BigDecimal.ZERO, BigDecimal::add));
             }

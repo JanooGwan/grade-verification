@@ -26,14 +26,14 @@ class TukSubjectExportTest {
 
     @Test void showsPreselectionRawCreditsAndActualChoiceIncludingSocialTieBreak() throws Exception {
         for (int year : List.of(2026, 2027)) {
-            for (int careerCredits : List.of(5, 6, 7)) {
+            for (int careerCredits : List.of(3, 4, 5)) {
                 var rule = rule(year, "경영학부");
                 var courses = new ArrayList<VerifyGradeRequest.CourseGrade>();
                 for (int grade = 1; grade <= 5; grade++) courses.add(course(SubjectCategory.SOCIAL, "사회" + grade, grade, null, false, 2));
                 courses.add(course(SubjectCategory.SCIENCE, "과학", 4, null, false, 4));
                 courses.add(course(SubjectCategory.SCIENCE, "진로과학", null, AchievementLevel.C, true, careerCredits));
                 courses.add(course(SubjectCategory.SOCIAL, "한국사", 2, null, false, 30));
-                courses.add(course(SubjectCategory.SCIENCE, "평가정보 없는 과학", null, AchievementLevel.A, false, 100));
+                courses.add(course(SubjectCategory.SCIENCE, "과학탐구실험", null, AchievementLevel.A, false, 2));
                 courses.add(new VerifyGradeRequest.CourseGrade(3, 2, SubjectCategory.SCIENCE, "미반영학기 과학", 1,
                     null, null, null, null, 100, false, false, new BigDecimal("100")));
                 var result = evaluator.verify(rule, new VerifyGradeRequest(1L, courses));
@@ -47,14 +47,16 @@ class TukSubjectExportTest {
                 var social = find(summaries, TukSubjectCalculations.INQUIRY, "사회");
                 var science = find(summaries, TukSubjectCalculations.INQUIRY, "과학");
                 assertThat(social.totalCredits()).isEqualByComparingTo("10");
-                assertThat(science.totalCredits()).isEqualByComparingTo(Integer.toString(4 + careerCredits));
-                assertThat(social.selected()).isEqualTo(careerCredits <= 6);
-                assertThat(science.selected()).isEqualTo(careerCredits > 6);
-                var chosen = find(summaries, TukSubjectCalculations.SUBJECT, careerCredits > 6 ? "과학" : "사회");
-                assertThat(chosen.courseCount()).isEqualTo(careerCredits > 6 ? 3 : 4);
-                assertThat(chosen.ordinaryCourseCount()).isEqualTo(careerCredits > 6 ? 2 : 4);
-                assertThat(chosen.careerCourseCount()).isEqualTo(careerCredits > 6 ? 1 : 0);
-                if (careerCredits > 6) {
+                assertThat(science.totalCredits()).isEqualByComparingTo(Integer.toString(6 + careerCredits));
+                assertThat(social.selected()).isEqualTo(careerCredits <= 4);
+                assertThat(science.selected()).isEqualTo(careerCredits > 4);
+                assertThat(result.calculations().stream().filter(c -> c.courseName().equals("과학탐구실험")))
+                    .allSatisfy(c -> assertThat(c.included()).isFalse());
+                var chosen = find(summaries, TukSubjectCalculations.SUBJECT, careerCredits > 4 ? "과학" : "사회");
+                assertThat(chosen.courseCount()).isEqualTo(careerCredits > 4 ? 3 : 4);
+                assertThat(chosen.ordinaryCourseCount()).isEqualTo(careerCredits > 4 ? 2 : 4);
+                assertThat(chosen.careerCourseCount()).isEqualTo(careerCredits > 4 ? 1 : 0);
+                if (careerCredits > 4) {
                     assertThat(chosen.totalCredits()).isEqualByComparingTo("35");
                     assertThat(chosen.averageGrade()).isEqualByComparingTo("2.2857");
                     assertThat(chosen.averageConvertedScore()).isEqualByComparingTo("98.7143");
@@ -64,18 +66,18 @@ class TukSubjectExportTest {
                     assertThat(workbook.getSheet("성적 산출 중간값")).isNull();
                     Sheet main = workbook.getSheet("학생별 검증 결과");
                     for (String subject : List.of("사회", "과학")) {
-                        boolean highlighted = subject.equals(careerCredits > 6 ? "과학" : "사회");
+                        boolean highlighted = subject.equals(careerCredits > 4 ? "과학" : "사회");
                         for (String suffix : List.of(" 일반 반영 과목수", " 진로 반영 과목수", " 가중평균등급", " 가중평균환산점수")) {
                             Cell cell = value(main, subject + suffix);
                             assertThat(cell.getCellStyle().getFillPattern() == FillPatternType.SOLID_FOREGROUND).isEqualTo(highlighted);
                         }
                     }
-                    assertThat(value(main, (careerCredits > 6 ? "과학" : "사회") + " 일반 반영 과목수").getNumericCellValue())
-                        .isEqualTo(careerCredits > 6 ? 2 : 4);
-                    assertThat(value(main, (careerCredits > 6 ? "과학" : "사회") + " 진로 반영 과목수").getNumericCellValue())
-                        .isEqualTo(careerCredits > 6 ? 1 : 0);
+                    assertThat(value(main, (careerCredits > 4 ? "과학" : "사회") + " 일반 반영 과목수").getNumericCellValue())
+                        .isEqualTo(careerCredits > 4 ? 2 : 4);
+                    assertThat(value(main, (careerCredits > 4 ? "과학" : "사회") + " 진로 반영 과목수").getNumericCellValue())
+                        .isEqualTo(careerCredits > 4 ? 1 : 0);
                     assertThat(value(main, "선택 탐구교과").getStringCellValue()).isEqualTo(
-                        careerCredits == 6 ? "사회(이수단위 동률)" : careerCredits > 6 ? "과학" : "사회");
+                        careerCredits == 4 ? "사회(이수단위 동률)" : careerCredits > 4 ? "과학" : "사회");
                     assertThat(value(main, "교과 반영점수").getNumericCellValue()).isEqualTo(result.finalScore().doubleValue());
                     assertThat(main.getRow(2)).extracting(Cell::getStringCellValue)
                         .doesNotContain("등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
