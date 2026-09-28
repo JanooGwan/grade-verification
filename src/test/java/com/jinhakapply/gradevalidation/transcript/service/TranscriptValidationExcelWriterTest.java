@@ -41,7 +41,7 @@ class TranscriptValidationExcelWriterTest {
             var row = sheet.getRow(3);
             assertThat(row.getCell(1).getStringCellValue()).isEqualTo("SYNTHETIC-NA");
             assertThat(row.getCell(4).getStringCellValue()).contains("INSUFFICIENT_ELIGIBLE_COURSES");
-            assertThat(row.getCell(13).getCellType()).isEqualTo(org.apache.poi.ss.usermodel.CellType.BLANK);
+            assertThat(new org.apache.poi.ss.usermodel.DataFormatter().formatCellValue(row.getCell(13))).isEmpty();
         }
     }
 

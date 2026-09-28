@@ -28,8 +28,8 @@ import lombok.NoArgsConstructor;
 @Table(
     name = "student_transcript_course",
     uniqueConstraints = @UniqueConstraint(
-        name = "uk_transcript_course_normalized",
-        columnNames = {"student_id", "school_year", "semester", "course_name_normalized"}
+        name = "uk_transcript_course_source_row",
+        columnNames = {"student_id", "source_file_name", "source_row_number"}
     )
 )
 @NoArgsConstructor(access = PROTECTED)

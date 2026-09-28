@@ -196,7 +196,7 @@ class TransferExcelParser {
             courses.set(index, withClassification(course, category, professionalCourse));
         }
         List<TranscriptExcelRow> deduplicatedCourses = deduplicateCourses(
-            courses, skipped, skippedRows, duplicateRows
+            courses, courseMetadata, skipped, skippedRows, duplicateRows
         );
         if (deduplicatedCourses.isEmpty()) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "가져올 과목 성적이 없습니다.");
@@ -206,7 +206,7 @@ class TransferExcelParser {
             warnings.add("반영교과설정 시트가 없어 편제명으로 교과를 분류했습니다. 대학별 반영 교과 설정을 확인해 주세요.");
         }
         if (duplicateRows[0] > 0) {
-            warnings.add("공백·가운뎃점을 제외한 과목명이 같은 중복 행 %,d건은 마지막 행으로 통합했습니다."
+            warnings.add("동일 과목 식별정보의 중복 행 %,d건은 마지막 행으로 통합했습니다. 한국어 전달양식은 원본 코드 조합도 비교합니다."
                 .formatted(duplicateRows[0]));
         }
         return new TransferExcelParseResult(
@@ -231,15 +231,18 @@ class TransferExcelParser {
 
     private List<TranscriptExcelRow> deduplicateCourses(
         List<TranscriptExcelRow> courses,
+        Map<Integer, CourseSourceMetadata> courseMetadata,
         List<TranscriptImportRowError> skipped,
         int[] skippedRows,
         int[] duplicateRows
     ) {
         Map<CourseIdentity, TranscriptExcelRow> unique = new LinkedHashMap<>();
         for (TranscriptExcelRow course : courses) {
+            // 이름이 같아도 원본 편제·교과·과목 코드가 다르면 별개의 성적이다.
+            CourseSourceMetadata metadata = courseMetadata.get(course.rowNumber());
             CourseIdentity identity = new CourseIdentity(
                 course.applicantNumber(), course.schoolYear(), course.semester(),
-                normalizeCourseName(course.courseName())
+                normalizeCourseName(course.courseName()), metadata.subjectKey()
             );
             TranscriptExcelRow replaced = unique.put(identity, course);
             if (replaced != null) {
@@ -443,7 +446,8 @@ class TransferExcelParser {
         String applicantNumber,
         int schoolYear,
         int semester,
-        String normalizedCourseName
+        String normalizedCourseName,
+        TransferSubjectSettings.Key sourceKey
     ) {}
 
     private AchievementLevel achievement(String value) {

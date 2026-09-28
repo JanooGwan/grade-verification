@@ -355,7 +355,7 @@ class MySqlRepositoryIntegrationTest {
             university, 2027, "A-002", "두 번째 학생", null, null, 2027
         ));
         courseRepository.saveAndFlush(course(first, "수학", 2));
-        courseRepository.saveAndFlush(course(first, "영어", 4));
+        courseRepository.saveAndFlush(course(first, "영어", 4, 2));
         courseRepository.saveAndFlush(course(second, "국어", 1));
 
         List<Student> students = studentRepository.findAllByUniversity_IdAndAdmissionYearAndApplicantNumberIn(
@@ -463,13 +463,31 @@ class MySqlRepositoryIntegrationTest {
         );
     }
 
+    @Test
+    void preservesSameNormalizedNameAtDifferentSourceRowsAndRejectsRepeatedSourceRow() {
+        University university = universityRepository.saveAndFlush(University.create("DUP", "테스트대학교"));
+        Student student = studentRepository.saveAndFlush(Student.create(
+            university, 2026, "SYNTHETIC-001", "테스트", null, null, 2000));
+        var first = courseRepository.saveAndFlush(course(student, "합성 과목", 2, 1));
+        var second = courseRepository.saveAndFlush(course(student, "합성과목", 8, 2));
+        assertThat(first.getCourseNameNormalized()).isEqualTo(second.getCourseNameNormalized());
+        assertThat(courseRepository.findAllByStudent_IdIn(List.of(student.getId())))
+            .extracting(StudentTranscriptCourse::getGrade).containsExactlyInAnyOrder(2, 8);
+        assertThatThrownBy(() -> courseRepository.saveAndFlush(course(student, "다른 이름", 3, 2)))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     private StudentTranscriptCourse course(Student student, String name, int grade) {
+        return course(student, name, grade, 1);
+    }
+
+    private StudentTranscriptCourse course(Student student, String name, int grade, int sourceRow) {
         StudentTranscriptCourse course = StudentTranscriptCourse.create(
             student, 1, 1, SubjectCategory.MATH, name
         );
         course.updateScore(
             grade, null, null, null, null, null, new BigDecimal("3"),
-            false, false, "integration.xlsx", 1
+            false, false, "integration.xlsx", sourceRow
         );
         return course;
     }

@@ -136,6 +136,52 @@ class TransferSubjectSettingsTest {
         assertThat(result.courses().get(1).subjectCategory()).isEqualTo(SubjectCategory.ENGLISH);
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 5, 7, 9})
+    void preservesSameNameCoursesWithDifferentSourceCodes(int codeColumn) throws Exception {
+        var parsed = parser.parse(workbook(book -> {
+            Sheet courses = book.getSheet("교과학습발달");
+            for (int row = courses.getLastRowNum(); row > 0; row--) courses.removeRow(courses.getRow(row));
+            course(courses, 1, "00103", "사회", "00014", "합성 과목", 2, 1);
+            course(courses, 2, "00103", "사회", "00014", "합성과목", 8, 1);
+            courses.getRow(2).getCell(codeColumn).setCellValue("999");
+        }));
+        assertThat(parsed.skippedRows()).isZero();
+        assertThat(parsed.courses()).extracting(TranscriptExcelRow::grade).containsExactly(2, 8);
+        var courses = parsed.courses().stream().map(c -> new VerifyGradeRequest.CourseGrade(
+            c.schoolYear(), c.semester(), c.subjectCategory(), c.courseName(), c.grade(), null,
+            null, null, null, null, false, false, c.credits())).toList();
+        var result = new EvaluationService(null, null, new DeclarativeSelectionPolicyEngine())
+            .verify(rule(false), new VerifyGradeRequest(1L, courses));
+        assertThat(result.includedCourseCount()).isEqualTo(2);
+        assertThat(result.finalScore()).isEqualByComparingTo("50");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void preservesDifferentCodesEvenWhenNamesAndGradesMatchWithoutRequiringSettings(boolean settings) throws Exception {
+        var parsed = parser.parse(workbook(book -> {
+            Sheet courses = book.getSheet("교과학습발달");
+            course(courses, 6, "00103", "사회", "999", "아동 복지", 1, 1);
+            if (!settings) book.removeSheetAt(book.getSheetIndex("반영교과설정"));
+        }));
+        assertThat(parsed.skippedRows()).isZero();
+        assertThat(parsed.courses()).hasSize(6);
+    }
+
+    @Test
+    void mergesRepeatedSourceIdentityWithEquivalentNumericCodeFormatting() throws Exception {
+        var parsed = parser.parse(workbook(book -> {
+            Sheet courses = book.getSheet("교과학습발달");
+            course(courses, 6, "103", "사회", "14", "아동복지", 8, 1);
+            courses.getRow(6).getCell(7).setCellValue(0);
+        }));
+        assertThat(parsed.skippedRows()).isEqualTo(1);
+        assertThat(parsed.courses()).hasSize(5);
+        assertThat(parsed.courses()).filteredOn(c -> c.courseName().equals("아동복지"))
+            .singleElement().satisfies(c -> assertThat(c.grade()).isEqualTo(8));
+    }
+
     private MockMultipartFile workbook(Consumer<XSSFWorkbook> customize) throws Exception {
         try (var book = new XSSFWorkbook(); var output = new ByteArrayOutputStream()) {
             Sheet applications = book.createSheet("지원자정보");
