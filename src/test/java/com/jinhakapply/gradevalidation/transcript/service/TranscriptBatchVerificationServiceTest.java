@@ -183,6 +183,25 @@ class TranscriptBatchVerificationServiceTest {
     }
 
     @Test
+    void includesEligibleLegacyThirdYearSecondSemesterInKbuSummary() {
+        var service = new TranscriptBatchVerificationService(
+            ruleRepository, evaluationService, new EvaluationRuleMatcher());
+        when(rule.getAdmissionYear()).thenReturn(2026);
+        when(rule.getUniversity()).thenReturn(university);
+        when(university.getCode()).thenReturn("KBOK");
+        when(verification.selectionStrategy()).thenReturn(SelectionStrategy.TOP_N_SEMESTERS);
+        when(verification.calculations()).thenReturn(List.of(
+            calculation("국어", 3, 2, SubjectCategory.KOREAN, "2", "3", true)));
+        assertThat(service.buildIntermediateCalculations(rule, verification))
+            .filteredOn(item -> item.groupName().equals("3학년 2학기"))
+            .singleElement().satisfies(item -> {
+                assertThat(item.selected()).isTrue();
+                assertThat(item.courseCount()).isEqualTo(1);
+                assertThat(item.averageGrade()).isEqualByComparingTo("2");
+            });
+    }
+
+    @Test
     void aggregatesKbuHealthDepartmentSubjectAveragesAndSelections() {
         TranscriptBatchVerificationService service = new TranscriptBatchVerificationService(
             ruleRepository, evaluationService, new EvaluationRuleMatcher()

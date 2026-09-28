@@ -111,6 +111,41 @@ class SavedVerificationQueryServiceTest {
         verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void kbuIncludesUnscoredApplicantsOnlyWhenTheImportStillMatches(boolean sameImport) throws Exception {
+        when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(new SavedVerificationBatchResponse(
+            80L, 5L, "경복대학교", 2026, "synthetic.xlsx", "KOREAN_MULTI_SHEET_V1", 1, LocalDateTime.now())));
+        when(repository.findExportResultsAfter(80L, 0L, 200)).thenReturn(List.of(
+            new SavedVerificationQueryRepository.ExportProjection(91L, 31L, 4L, "TEST-4", "테스트",
+                "수시 일반고", "TEST", "일반학과", "{stored-result}")));
+        when(objectMapper.readValue("{stored-result}", GradeVerificationResponse.class)).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        when(ruleRepository.findOneById(31L)).thenReturn(java.util.Optional.of(rule));
+        when(batchVerificationService.buildIntermediateCalculations(rule, verification)).thenReturn(List.of());
+        when(repository.findExportApplications(80L)).thenReturn(List.of(
+            TukUnscoredExportTest.applicant(sameImport ? 4 : 5, "수시 일반고", "DOMESTIC_HIGH_SCHOOL",
+                java.time.LocalDate.of(2026, 2, 1), 10),
+            TukUnscoredExportTest.applicant(2, "수시 일반고", "DOMESTIC_HIGH_SCHOOL",
+                java.time.LocalDate.of(2026, 2, 1), 10)));
+        doAnswer(invocation -> {
+            TranscriptBatchVerificationResult result = invocation.getArgument(9);
+            assertThat(result.successes()).hasSize(1);
+            assertThat(result.applicationScopeComplete()).isEqualTo(sameImport);
+            assertThat(result.failures()).hasSize(sameImport ? 1 : 0);
+            if (sameImport) {
+                assertThat(result.failures().getFirst().code()).isEqualTo("UNSCORED_REASON_UNAVAILABLE");
+                assertThat(result.failures().getFirst().application().applicantNumber()).isEqualTo("TEST-2");
+            }
+            assertThat((Integer) invocation.getArgument(3)).isEqualTo(sameImport ? 2 : 1);
+            return null;
+        }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
+            anyList(), anyList(), anyList(), anyList(), any(), any());
+        service.export(80L);
+        verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
+        org.mockito.Mockito.verifyNoMoreInteractions(batchVerificationService);
+    }
+
     @Test
     void streamsSyuSavedResultsWithoutLoadingResultJson() {
         LocalDateTime savedAt = LocalDateTime.of(2027, 1, 2, 3, 4);

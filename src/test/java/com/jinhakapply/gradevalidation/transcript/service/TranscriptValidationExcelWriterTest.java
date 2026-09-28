@@ -27,6 +27,25 @@ class TranscriptValidationExcelWriterTest {
     private final TranscriptValidationExcelWriter writer = new TranscriptValidationExcelWriter();
 
     @Test
+    void retainsUnscoredKbuApplicantWithBlankFinalScore() throws Exception {
+        var application = new TransferApplicationRow(2, 2026, "SYNTHETIC-NA", "TEST",
+            "수시 일반고", "TEST", "일반학과", 2026);
+        var failure = new TranscriptBatchVerificationResult.Failure(application, "테스트", 3,
+            "INSUFFICIENT_ELIGIBLE_COURSES", "직업과정 이수 학기 제외 후 반영 가능한 성적이 없습니다.");
+        byte[] bytes = writer.write("synthetic.xlsx", "KOREAN_MULTI_SHEET_V1", "경복대학교",
+            1, 3, List.of(), List.of(), List.of(), List.of(),
+            new TranscriptBatchVerificationResult(List.of(), List.of(failure)));
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            var sheet = book.getSheet("학생별 검증 결과");
+            assertThat(sheet.getLastRowNum()).isEqualTo(3);
+            var row = sheet.getRow(3);
+            assertThat(row.getCell(1).getStringCellValue()).isEqualTo("SYNTHETIC-NA");
+            assertThat(row.getCell(4).getStringCellValue()).contains("INSUFFICIENT_ELIGIBLE_COURSES");
+            assertThat(row.getCell(13).getCellType()).isEqualTo(org.apache.poi.ss.usermodel.CellType.BLANK);
+        }
+    }
+
+    @Test
     void writesCondensedResultsAndIssueSummary() throws Exception {
         TranscriptExcelRow course = new TranscriptExcelRow(
             12, "A-001", "테스트 학생", null, null, 2027,

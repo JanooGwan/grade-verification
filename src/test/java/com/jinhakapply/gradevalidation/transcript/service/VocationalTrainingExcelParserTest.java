@@ -44,6 +44,24 @@ class VocationalTrainingExcelParserTest {
         ));
     }
 
+    @Test
+    void distinguishesSpecializationFromVocationalAndAlternativeEducationInEveryYear() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("Sheet1");
+            writeRow(sheet.createRow(0), new Object[] {"입학연도", "수험번호",
+                "1학년 1학기", "1학년 2학기", "2학년 1학기", "2학년 2학기", "3학년 1학기", "3학년 2학기"});
+            writeRow(sheet.createRow(1), new Object[] {2026, "SYNTHETIC-1",
+                "대안교육위탁기관", "직업과정위탁교육", "(세부전공) 디자인", "(세부 전공) 컴퓨터",
+                "(세부전공) 디자인\n직업교육 위탁과정", "   "});
+            workbook.write(output);
+            var result = parser.parse(new MockMultipartFile("file", "synthetic.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray()), 2026);
+            assertThat(result.semesters("SYNTHETIC-1")).containsExactlyInAnyOrder(
+                new VocationalTrainingSemester(1, 1), new VocationalTrainingSemester(1, 2),
+                new VocationalTrainingSemester(3, 1));
+        }
+    }
+
     private void writeRow(Row row, Object[] values) {
         for (int index = 0; index < values.length; index++) {
             Object value = values[index];

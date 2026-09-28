@@ -655,7 +655,7 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void kbuPre2002AnnualRecordsUseAllGraduationYearGrades() {
+    void kbuPre2002AnnualRecordsKeepBestSemesterSelection() {
         EvaluationRule kbuRule = rule(SelectionStrategy.TOP_N_SEMESTERS, 2,
             ScoreAggregation.AVERAGE_GRADE_THEN_SCORE, decimals("33.3333", "33.3333", "33.3334"),
             decimals("1", "1", "1", "1", "1", "1"));
@@ -672,9 +672,9 @@ class EvaluationServiceTest {
             )
         ));
 
-        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.ALL_COURSES);
-        assertThat(response.includedCourseCount()).isEqualTo(3);
-        assertThat(response.averageGrade()).isEqualByComparingTo("4.0000");
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.TOP_N_SEMESTERS);
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+        assertThat(response.averageGrade()).isEqualByComparingTo("3.0000");
     }
 
     @Test
@@ -749,7 +749,7 @@ class EvaluationServiceTest {
         assertThat(response.calculations()).filteredOn(calculation -> !calculation.included())
             .singleElement().satisfies(calculation -> {
                 assertThat(calculation.courseName()).isEqualTo("독서");
-                assertThat(calculation.exclusionReason()).contains("3학년 직업과정");
+                assertThat(calculation.exclusionReason()).contains("직업과정 이수 학기");
             });
     }
 
@@ -822,17 +822,16 @@ class EvaluationServiceTest {
     }
 
     @Test
-    void kbuRejectsGeneralTrackWithFewerThanTwoGradableSemesters() {
+    void kbuUsesAvailableSemesterWhenOnlyOneIsGradable() {
         EvaluationRule kbuRule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
         mockRule(kbuRule);
 
-        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, List.of(
+        var response = service.verify(new VerifyGradeRequest(1L, List.of(
             course(1, 1, SubjectCategory.KOREAN, "국어", 2, "3"),
             course(1, 1, SubjectCategory.MATH, "수학", 2, "3")
-        )))).isInstanceOfSatisfying(CustomException.class, exception -> {
-            assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES);
-            assertThat(exception.getDetail()).contains("2개 학기");
-        });
+        )));
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+        assertThat(response.finalScore()).isEqualByComparingTo("87.5");
     }
 
     @Test
@@ -1088,6 +1087,91 @@ class EvaluationServiceTest {
         rule.markVerified("tester", null);
         rule.publish("tester", null);
         return rule;
+    }
+
+    @Test
+    void kbuExcludesVocationalSemestersInEveryYearAndUsesTheRemainingSemester() {
+        mockRule(kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2));
+        var response = service.verify(new VerifyGradeRequest(1L, false, HighSchoolType.GENERAL, 2026,
+            List.of(vocationalCourse(1, 1), vocationalCourse(1, 2),
+                vocationalCourse(2, 1), vocationalCourse(2, 2),
+                course(3, 1, SubjectCategory.KOREAN, "정규 수업", 5, "3"))));
+        assertThat(response.includedCourseCount()).isEqualTo(1);
+        assertThat(response.finalScore()).isEqualByComparingTo("50");
+        assertThat(response.calculations()).filteredOn(c -> !c.included()).hasSize(4)
+            .allSatisfy(c -> assertThat(c.exclusionReason()).contains("직업과정 이수 학기"));
+    }
+
+    @Test
+    void kbuRejectsAllVocationalSemestersInsteadOfReturningZero() {
+        mockRule(kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2));
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, false,
+            HighSchoolType.GENERAL, 2026, List.of(vocationalCourse(1, 1), vocationalCourse(2, 1),
+                vocationalCourse(3, 1)))))
+            .isInstanceOfSatisfying(CustomException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ApiResponseCode.INSUFFICIENT_ELIGIBLE_COURSES));
+    }
+
+    @Test
+    void kbuThirdYearSecondSemesterBoundaryIsGraduationYear2001() {
+        mockRule(kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2));
+        var courses = List.of(course(1, 1, SubjectCategory.KOREAN, "1학년", 7, "3"),
+            course(2, 1, SubjectCategory.KOREAN, "2학년", 5, "3"),
+            course(3, 2, SubjectCategory.KOREAN, "3학년 2학기", 1, "3"));
+        var legacy = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 2001, courses));
+        var modern = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 2002, courses));
+        assertThat(legacy.selectionStrategy()).isEqualTo(SelectionStrategy.TOP_N_SEMESTERS);
+        assertThat(legacy.finalScore()).isEqualByComparingTo("75");
+        assertThat(legacy.calculations()).filteredOn(c -> c.semester() == 2)
+            .singleElement().satisfies(c -> assertThat(c.included()).isTrue());
+        assertThat(modern.finalScore()).isEqualByComparingTo("37.5");
+        assertThat(modern.calculations()).filteredOn(c -> c.semester() == 2)
+            .singleElement().satisfies(c -> assertThat(c.included()).isFalse());
+    }
+
+    @Test
+    void kbuLegacyHealthTrackKeepsBestThreeSubjects() {
+        mockRule(kbuRule(SelectionStrategy.TOP_N_SUBJECTS, 3));
+        var response = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 2000,
+            List.of(course(1, 1, SubjectCategory.KOREAN, "국어", 1, "3"),
+                course(2, 1, SubjectCategory.MATH, "수학", 3, "3"),
+                course(3, 2, SubjectCategory.ENGLISH, "영어", 5, "3"),
+                course(3, 1, SubjectCategory.SOCIAL, "사회", 9, "3"))));
+        assertThat(response.selectionStrategy()).isEqualTo(SelectionStrategy.TOP_N_SUBJECTS);
+        assertThat(response.includedCourseCount()).isEqualTo(3);
+        assertThat(response.finalScore()).isEqualByComparingTo("75");
+    }
+
+    @Test
+    void kbuLegacyAnnualRanksCanUseOneAvailableSubjectGroup() {
+        mockRule(kbuRule(SelectionStrategy.TOP_N_SUBJECTS, 3));
+        var response = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 1996,
+            List.of(course(1, 1, SubjectCategory.KOREAN, "1학년 석차", 1, "30"),
+                course(2, 1, SubjectCategory.KOREAN, "2학년 석차", 3, "30"),
+                course(3, 1, SubjectCategory.KOREAN, "3학년 석차", 5, "30"))));
+        assertThat(response.includedCourseCount()).isEqualTo(3);
+        assertThat(response.finalScore()).isEqualByComparingTo("75");
+    }
+
+    @Test
+    void kbuGraduationExceptionDoesNotChangeOtherUniversitiesOrAdmissionYears() {
+        for (boolean otherUniversity : List.of(true, false)) {
+            var rule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+            if (otherUniversity) ReflectionTestUtils.setField(rule.getUniversity(), "name", "테스트대학교");
+            else ReflectionTestUtils.setField(rule, "admissionYear", 2027);
+            mockRule(rule);
+            var response = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 2001,
+                List.of(course(1, 1, SubjectCategory.KOREAN, "정규 수업", 5, "3"),
+                    course(3, 2, SubjectCategory.KOREAN, "3학년 2학기", 1, "3"))));
+            assertThat(response.includedCourseCount()).isEqualTo(1);
+            assertThat(response.finalScore()).isEqualByComparingTo("50");
+        }
+    }
+
+    private VerifyGradeRequest.CourseGrade vocationalCourse(int year, int semester) {
+        return new VerifyGradeRequest.CourseGrade(year, semester, SubjectCategory.KOREAN, "위탁 수업",
+            1, GradeScale.NINE_LEVEL, null, null, null, null, null, null, null, null,
+            false, false, true, new BigDecimal("3"));
     }
 
     private EvaluationRule kbuRule(SelectionStrategy selection, int selectionCount) {

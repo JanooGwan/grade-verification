@@ -67,7 +67,7 @@ class VocationalTrainingExcelParser {
                 }
                 Set<VocationalTrainingSemester> semesters = new LinkedHashSet<>();
                 for (SemesterColumn column : SEMESTER_COLUMNS) {
-                    if (text(row, columns.get(column.header()), formatter) != null) {
+                    if (isVocationalTraining(text(row, columns.get(column.header()), formatter))) {
                         semesters.add(column.semester());
                     }
                 }
@@ -81,6 +81,15 @@ class VocationalTrainingExcelParser {
         } catch (IOException | RuntimeException exception) {
             throw invalid("직업과정 위탁생 Excel을 읽지 못했습니다.");
         }
+    }
+
+    private boolean isVocationalTraining(String value) {
+        if (value == null) return false;
+        String normalized = value.replaceAll("\\s+", "");
+        // 세부전공만 기재된 학기는 위탁교육 이수 학기가 아니다.
+        return !normalized.contains("세부전공")
+            || normalized.contains("직업교육") || normalized.contains("직업과정")
+            || normalized.contains("위탁") || normalized.contains("대안교육");
     }
 
     private Map<String, Integer> columns(Row row, DataFormatter formatter) {

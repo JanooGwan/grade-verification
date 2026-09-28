@@ -149,8 +149,10 @@ public class SavedVerificationQueryService {
         boolean applicationScopeComplete = true;
         List<String> warnings = new ArrayList<>();
         warnings.add("DB에 저장된 검증 회차 #%d 결과를 재계산 없이 내보냈습니다.".formatted(sourceImportId));
-        if (batch.universityName().contains("한국공학")
-            && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027)) {
+        boolean tuk = batch.universityName().contains("한국공학")
+            && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
+        boolean kbu = batch.universityName().contains("경복") && batch.admissionYear() == 2026;
+        if (tuk || kbu) {
             var applications = repository.findExportApplications(sourceImportId);
             var savedIds = successes.stream().map(s -> s.application().applicationId())
                 .collect(java.util.stream.Collectors.toSet());
@@ -169,8 +171,11 @@ public class SavedVerificationQueryService {
                         success.verification(), success.selectedCourses(), success.intermediateCalculations(), success.schoolInfo());
                 });
                 applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
-                    .map(a -> TukUnscoredExport.failure(batch.admissionYear(), a)).forEach(failures::add);
-                warnings.add("미산출 사유는 같은 업로드의 현재 지원정보·학생부 유무와 기준연도로 확인했습니다. 불합격을 의미하지 않습니다.");
+                    .map(a -> tuk ? TukUnscoredExport.failure(batch.admissionYear(), a)
+                        : unscoredFailure(batch.admissionYear(), a)).forEach(failures::add);
+                warnings.add(tuk
+                    ? "미산출 사유는 같은 업로드의 현재 지원정보·학생부 유무와 기준연도로 확인했습니다. 불합격을 의미하지 않습니다."
+                    : "저장 결과가 없는 지원자도 미산출로 표시했습니다. 당시 실패 사유는 저장되지 않으므로 성적검증 실패 내역을 확인해 주세요. 불합격을 의미하지 않습니다.");
             } else {
                 applicationScopeComplete = false;
                 warnings.add("기존 업로드의 지원정보가 교체되었거나 확인되지 않아 전체·미산출 인원을 복원할 수 없습니다. 집계는 저장 결과 범위입니다.");
@@ -186,6 +191,15 @@ public class SavedVerificationQueryService {
             List.copyOf(warnings),
             result, output
         );
+    }
+
+    private TranscriptBatchVerificationResult.Failure unscoredFailure(int year,
+        SavedVerificationQueryRepository.ApplicationExportProjection row) {
+        var application = new TransferApplicationRow(row.applicationId(), row.rowNumber(), year,
+            row.applicantNumber(), null, row.trackName(), row.unitCode(), row.unitName(), row.graduationYear(), null);
+        return new TranscriptBatchVerificationResult.Failure(application, row.studentName(), row.courseCount(),
+            "UNSCORED_REASON_UNAVAILABLE",
+            "저장된 산출 결과가 없습니다. 성적검증 실패 내역에서 반영 가능한 성적과 실패 사유를 확인해 주세요.");
     }
 
     private GradeVerificationResponse withoutCalculations(GradeVerificationResponse verification) {

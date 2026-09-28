@@ -165,14 +165,13 @@ public class EvaluationService {
         if (!rule.isPublished()) {
             throw CustomException.of(INVALID_EVALUATION_RULE_STATUS, "게시된 규칙만 성적 계산에 사용할 수 있습니다.");
         }
-        EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType(), request.graduationYear());
+        EvaluationScope scope = resolveEvaluationScope(rule, request.highSchoolType());
         List<Candidate> candidates = prepareCandidates(
             rule, request.courses(), request.graduated(), includesProfessionalCourses(rule, scope),
-            scope.includeAllSubjectCategories(), request.highSchoolType()
+            scope.includeAllSubjectCategories(), request.highSchoolType(), request.graduationYear()
         );
         candidates = addMjcMissingGradeCandidates(rule, request.highSchoolType(), candidates);
         validateSyuMinimumSemesters(rule, candidates);
-        validateKbuSelectionGroups(rule, scope.selectionStrategy(), candidates);
         CourseSelection selection = selectCourses(
             rule, scope.selectionStrategy(), candidates
         );
@@ -184,6 +183,11 @@ public class EvaluationService {
                 "한국공학대학교는 반영교과에 석차등급 또는 구교육과정 석차가 있는 과목이 1개 이상 필요합니다.");
         }
         Set<Integer> selectedIndexes = selection.indexes();
+        // 경복대는 남아 있는 학기/교과 수만큼 선택하되, 반영 가능한 성적이 없으면 미산출한다.
+        if (isKbu2026(rule) && selectedIndexes.isEmpty()) {
+            throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
+                "경복대학교 반영 범위에서 직업과정 이수 학기 등을 제외한 후 산출 가능한 교과성적이 없습니다.");
+        }
         if (selectedIndexes.size() < rule.getMinimumCourseCount()) {
             throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
                 "반영 가능한 교과성적이 최소 " + rule.getMinimumCourseCount() + "과목 이상이어야 합니다.");
@@ -286,7 +290,7 @@ public class EvaluationService {
 
     private List<Candidate> prepareCandidates(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,
         boolean graduated, boolean includeProfessionalCourses, boolean includeAllSubjectCategories,
-        HighSchoolType highSchoolType) {
+        HighSchoolType highSchoolType, Integer graduationYear) {
         List<Candidate> candidates = new ArrayList<>();
         HighSchoolType resolvedHighSchoolType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
         for (int index = 0; index < courses.size(); index++) {
@@ -297,7 +301,7 @@ public class EvaluationService {
             else if (!includeAllSubjectCategories && !hasEligibleSubjectWeight(rule, course))
                 exclusionReason = "반영하지 않는 교과입니다.";
             else if (course.schoolYear() == 3 && course.semester() == 2
-                && !includesThirdYearSecondSemester(rule, graduated))
+                && !includesThirdYearSecondSemester(rule, graduated, graduationYear))
                 exclusionReason = "3학년 2학기는 이 규칙의 반영 범위가 아닙니다.";
             else if (isMjcTwoYear(rule, resolvedHighSchoolType)
                 && (course.schoolYear() > 2 || (course.schoolYear() == 2 && course.semester() > 1)))
@@ -305,8 +309,8 @@ public class EvaluationService {
             else if (isSyuGuidebookYear(rule) && Integer.valueOf(1).equals(course.studentCount()))
                 exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
             else if (isKbu2026(rule) && resolvedHighSchoolType == HighSchoolType.GENERAL
-                && course.schoolYear() == 3 && course.vocationalTrainingSemester())
-                exclusionReason = "경복대학교는 일반계 고교의 3학년 직업과정 성적을 반영하지 않습니다.";
+                && course.vocationalTrainingSemester())
+                exclusionReason = "경복대학교는 일반계 고교의 직업과정 이수 학기 성적을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
                 exclusionReason = "전문교과는 이 규칙에서 제외됩니다.";
             else if (course.careerSubject() && rule.getAchievementConversion() == AchievementConversion.EXCLUDE)
@@ -376,8 +380,8 @@ public class EvaluationService {
         ));
     }
 
-    private boolean includesThirdYearSecondSemester(EvaluationRule rule, boolean graduated) {
-        return rule.isIncludeThirdYearSecondSemester()
+    private boolean includesThirdYearSecondSemester(EvaluationRule rule, boolean graduated, Integer graduationYear) {
+        return isKbuPre2002Graduate(rule, graduationYear) || rule.isIncludeThirdYearSecondSemester()
             || (graduated && rule.isIncludeThirdYearSecondSemesterForGraduates());
     }
 
@@ -543,13 +547,9 @@ public class EvaluationService {
                 && rule.getSelectionPolicy().filter().includeProfessionalCourses());
     }
 
-    private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType,
-        Integer graduationYear) {
+    private EvaluationScope resolveEvaluationScope(EvaluationRule rule, HighSchoolType highSchoolType) {
         HighSchoolType resolvedType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
         if (isMjcTwoYear(rule, resolvedType)) {
-            return new EvaluationScope(SelectionStrategy.ALL_COURSES, rule.isIncludeProfessionalCourses(), false);
-        }
-        if (isKbuLegacyAnnualPolicy(rule, graduationYear)) {
             return new EvaluationScope(SelectionStrategy.ALL_COURSES, rule.isIncludeProfessionalCourses(), false);
         }
         if (!isHanshinAdmissionYear(rule) || !resolvedType.usesHanshinAllOrdinaryCoursesPolicy()) {
@@ -577,7 +577,7 @@ public class EvaluationService {
             && normalizePolicyText(rule.getUniversity().getName()).contains("명지전문");
     }
 
-    private boolean isKbuLegacyAnnualPolicy(EvaluationRule rule, Integer graduationYear) {
+    private boolean isKbuPre2002Graduate(EvaluationRule rule, Integer graduationYear) {
         return graduationYear != null && graduationYear <= 2001 && rule.getAdmissionYear() == 2026
             && normalizePolicyText(rule.getUniversity().getName()).contains("경복");
     }
@@ -621,30 +621,6 @@ public class EvaluationService {
             throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
                 "삼육대학교 해당 전형은 반영 교과영역의 성적이 "
                     + requiredSemesters + "개 학기 이상 있어야 합니다.");
-        }
-    }
-
-    private void validateKbuSelectionGroups(EvaluationRule rule, SelectionStrategy selectionStrategy,
-        List<Candidate> candidates) {
-        if (!isKbu2026(rule)) return;
-        List<Candidate> eligible = candidates.stream().filter(Candidate::eligible).toList();
-        if (selectionStrategy == SelectionStrategy.TOP_N_SEMESTERS) {
-            long semesters = eligible.stream()
-                .map(candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester())
-                .distinct().count();
-            if (semesters < rule.getSelectionCount()) {
-                throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
-                    "경복대학교 일반학과는 반영 가능한 교과성적이 "
-                        + rule.getSelectionCount() + "개 학기 이상 있어야 합니다.");
-            }
-        }
-        if (selectionStrategy == SelectionStrategy.TOP_N_SUBJECTS) {
-            long subjects = eligible.stream().map(candidate -> candidate.course().subjectCategory()).distinct().count();
-            if (subjects < rule.getSelectionCount()) {
-                throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
-                    "경복대학교 간호·보건계열은 반영 가능한 교과성적이 "
-                        + rule.getSelectionCount() + "개 교과 이상 있어야 합니다.");
-            }
         }
     }
 
