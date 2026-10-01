@@ -32,7 +32,7 @@ class TukSubjectExportTest {
                 for (int grade = 1; grade <= 5; grade++) courses.add(course(SubjectCategory.SOCIAL, "사회" + grade, grade, null, false, 2));
                 courses.add(course(SubjectCategory.SCIENCE, "과학", 4, null, false, 4));
                 courses.add(course(SubjectCategory.SCIENCE, "진로과학", null, AchievementLevel.C, true, careerCredits));
-                courses.add(course(SubjectCategory.SOCIAL, "한국사", 2, null, false, 30));
+                courses.add(course(SubjectCategory.OTHER, "한국사", 2, null, false, 30));
                 courses.add(course(SubjectCategory.SCIENCE, "과학탐구실험", null, AchievementLevel.A, false, 2));
                 courses.add(new VerifyGradeRequest.CourseGrade(3, 2, SubjectCategory.SCIENCE, "미반영학기 과학", 1,
                     null, null, null, null, 100, false, false, new BigDecimal("100")));

@@ -386,7 +386,7 @@ public class EvaluationService {
     }
 
     private boolean hasEligibleSubjectWeight(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
-        if (!isKoreanHistory(course)) return rule.subjectWeight(course.subjectCategory()).signum() > 0;
+        if (!shouldRemapKoreanHistory(rule, course)) return rule.subjectWeight(course.subjectCategory()).signum() > 0;
         return switch (rule.getSelectionStrategy()) {
             case CORE_SCIENCE_TOP_N -> rule.subjectWeight(SubjectCategory.SCIENCE).signum() > 0;
             case CORE_PLUS_BEST_CREDIT_OPTIONAL_TOP_N -> rule.subjectWeight(SubjectCategory.SOCIAL).signum() > 0
@@ -671,7 +671,7 @@ public class EvaluationService {
         Set<SubjectCategory> selectedSubjects = Set.of(
             SubjectCategory.KOREAN, SubjectCategory.MATH, SubjectCategory.ENGLISH, SubjectCategory.SCIENCE);
         Map<Integer, SubjectCategory> appliedSubjects = new HashMap<>();
-        eligible.stream().filter(this::isKoreanHistory)
+        eligible.stream().filter(candidate -> shouldRemapKoreanHistory(rule, candidate.course()))
             .forEach(candidate -> appliedSubjects.put(candidate.index(), SubjectCategory.SCIENCE));
         List<Candidate> included = eligible.stream()
             .filter(candidate -> selectedSubjects.contains(appliedSubjects.getOrDefault(
@@ -691,7 +691,7 @@ public class EvaluationService {
         Set<SubjectCategory> selectedSubjects = Set.of(
             SubjectCategory.KOREAN, SubjectCategory.MATH, SubjectCategory.ENGLISH, optional);
         Map<Integer, SubjectCategory> appliedSubjects = new HashMap<>();
-        eligible.stream().filter(this::isKoreanHistory)
+        eligible.stream().filter(candidate -> shouldRemapKoreanHistory(rule, candidate.course()))
             .forEach(candidate -> appliedSubjects.put(candidate.index(), optional));
         List<Candidate> included = eligible.stream()
             .filter(candidate -> selectedSubjects.contains(appliedSubjects.getOrDefault(
@@ -743,6 +743,13 @@ public class EvaluationService {
 
     private boolean isKoreanHistory(VerifyGradeRequest.CourseGrade course) {
         return TukSubjectPolicy.isKoreanHistory(course.courseName());
+    }
+
+    private boolean shouldRemapKoreanHistory(EvaluationRule rule, VerifyGradeRequest.CourseGrade course) {
+        // 한국공학대 원본에서 사회로 분류된 한국사는 해당 교과를 유지한다.
+        // 별도 한국사 교과(교과 코드 없음)는 기존처럼 선택된 탐구교과에 포함한다.
+        return isKoreanHistory(course)
+            && (!isTukGuidebookYear(rule) || course.subjectCategory() != SubjectCategory.SOCIAL);
     }
 
     private <K> Set<Integer> selectTopGroups(EvaluationRule rule, List<Candidate> eligible,

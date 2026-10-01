@@ -57,7 +57,7 @@ class TukScoreRegressionTest {
     @Test void recognizesOnlyKoreanHistoryAndDoesNotRemapSocialUnderstandingToScience() {
         for (int year : List.of(2026, 2027)) {
             var courses = List.of(
-                social("한국사", 2, false), social("한국 사", 3, false),
+                history(SubjectCategory.OTHER, "한국사", 2), history(SubjectCategory.OTHER, "한국 사", 3),
                 social("한국 사회의 이해", 1, true), social("한국사 심화 탐구", 2, true));
             var engineering = evaluator.verify(rule(year, "학생부교과(교과우수자)", "공학계열"),
                 new VerifyGradeRequest(1L, courses));
@@ -70,6 +70,54 @@ class TukScoreRegressionTest {
                 .containsExactly("한국사", "한국 사회의 이해", "한국사 심화 탐구");
             assertThat(business.finalScore()).isEqualByComparingTo("496");
         }
+    }
+
+    @Test void keepsSocialHistoryOutOfEngineeringScienceWithoutChangingStandaloneHistory() {
+        for (int year : List.of(2026, 2027)) {
+            for (String track : List.of("학생부교과(교과우수자)", "학생부교과(지역균형)", "논술(논술우수자)")) {
+                var science = List.of(course("물리학", 4, null, false, "3"),
+                    course("화학", 4, null, false, "3"), course("생명과학", 4, null, false, "3"),
+                    course("지구과학", 4, null, false, "3"));
+                var courses = new ArrayList<>(science);
+                courses.add(history(SubjectCategory.SOCIAL, "한국사", 1));
+                var rule = rule(year, track, "공학계열");
+                var result = evaluator.verify(rule, new VerifyGradeRequest(1L, courses));
+                assertThat(result.includedCourseCount()).isEqualTo(4);
+                assertThat(result.finalScore()).isEqualByComparingTo(track.contains("논술") ? "97" : "485");
+                assertThat(result.calculations().getLast().included()).isFalse();
+                assertThat(result.calculations().getLast().appliedSubjectCategory()).isEqualTo(SubjectCategory.SOCIAL);
+                assertThat(result.calculations().getLast().exclusionReason()).isEqualTo("반영하지 않는 교과입니다.");
+
+                courses.set(4, history(SubjectCategory.OTHER, "한국사", 1));
+                var standalone = evaluator.verify(rule, new VerifyGradeRequest(1L, courses));
+                assertThat(standalone.calculations().getLast().included()).isTrue();
+                assertThat(standalone.calculations().getLast().appliedSubjectCategory()).isEqualTo(SubjectCategory.SCIENCE);
+                assertThat(standalone.includedCourseCount()).isEqualTo(4);
+                assertThat(standalone.finalScore()).isEqualByComparingTo(track.contains("논술") ? "97.75" : "488.75");
+            }
+        }
+    }
+
+    @Test void keepsSocialHistoryInSocialWhenBusinessSelectsScienceOrSocial() {
+        for (int year : List.of(2026, 2027)) {
+            var rule = rule(year, "학생부교과(교과우수자)", "경영학부");
+            var scienceChoice = evaluator.verify(rule, new VerifyGradeRequest(1L, List.of(
+                course("물리학", 6, null, false, "4"), history(SubjectCategory.SOCIAL, "한국사", 1))));
+            assertThat(scienceChoice.calculations().getLast().included()).isFalse();
+            assertThat(scienceChoice.calculations().getLast().appliedSubjectCategory()).isEqualTo(SubjectCategory.SOCIAL);
+            assertThat(scienceChoice.finalScore()).isEqualByComparingTo("470");
+
+            var socialChoice = evaluator.verify(rule, new VerifyGradeRequest(1L, List.of(
+                social("사회문화", 4, false), history(SubjectCategory.SOCIAL, "한국사", 1))));
+            assertThat(socialChoice.calculations().getLast().included()).isTrue();
+            assertThat(socialChoice.calculations().getLast().appliedSubjectCategory()).isEqualTo(SubjectCategory.SOCIAL);
+            assertThat(socialChoice.finalScore()).isEqualByComparingTo("492.5");
+        }
+    }
+
+    private VerifyGradeRequest.CourseGrade history(SubjectCategory category, String name, int grade) {
+        return new VerifyGradeRequest.CourseGrade(1, 1, category, name, grade, null,
+            null, null, null, 100, false, false, new BigDecimal("3"));
     }
 
     private VerifyGradeRequest.CourseGrade social(String name, int grade, boolean career) {
