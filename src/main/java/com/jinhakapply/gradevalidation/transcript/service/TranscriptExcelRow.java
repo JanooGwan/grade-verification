@@ -31,8 +31,23 @@ record TranscriptExcelRow(
     BigDecimal credits,
     boolean careerSubject,
     boolean professionalCourse,
-    boolean vocationalTrainingSemester
+    boolean vocationalTrainingSemester,
+    String sourceGradeText
 ) {
+    TranscriptExcelRow(
+        int rowNumber, String applicantNumber, String studentName, String highSchoolCode, String highSchoolName,
+        Integer graduationYear, int schoolYear, int semester, SubjectCategory subjectCategory, String courseName,
+        Integer grade, GradeScale gradeScale, AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
+        BigDecimal standardDeviation, Integer studentCount, Integer rankPosition, Integer tiedRankCount,
+        LegacyAchievement legacyAchievement, BigDecimal credits, boolean careerSubject, boolean professionalCourse,
+        boolean vocationalTrainingSemester
+    ) {
+        this(rowNumber, applicantNumber, studentName, highSchoolCode, highSchoolName, graduationYear,
+            schoolYear, semester, subjectCategory, courseName, grade, gradeScale, achievement, rawScore,
+            meanScore, standardDeviation, studentCount, rankPosition, tiedRankCount, legacyAchievement,
+            credits, careerSubject, professionalCourse, vocationalTrainingSemester, null);
+    }
+
     TranscriptExcelRow(
         int rowNumber,
         String applicantNumber,
@@ -120,7 +135,7 @@ record TranscriptExcelRow(
             rowNumber, applicantNumber, studentName, highSchoolCode, highSchoolName, graduationYear,
             schoolYear, semester, subjectCategory, courseName, grade, gradeScale, achievement, rawScore,
             meanScore, standardDeviation, studentCount, rankPosition, tiedRankCount, legacyAchievement,
-            credits, careerSubject, professionalCourse, value
+            credits, careerSubject, professionalCourse, value, sourceGradeText
         );
     }
 }

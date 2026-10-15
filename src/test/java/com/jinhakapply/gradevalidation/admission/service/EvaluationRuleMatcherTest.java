@@ -45,6 +45,20 @@ class EvaluationRuleMatcherTest {
             "기회균형", "컴퓨터공학과")).isTrue();
     }
 
+    @Test
+    void mapsKbu2027RenamedHealthDepartmentAndRegularAviationToCorrectScoreGroups() {
+        EvaluationRule health = rule("수시 일반", "간호·치위생·작업치료·임상병리·물리치료");
+        when(health.getUniversity().getCode()).thenReturn("KBOK");
+        when(health.getAdmissionYear()).thenReturn(2027);
+        assertThat(matcher.matchesRecruitmentUnit(health, "물리치료학과")).isTrue();
+        EvaluationRule regular = rule("정시 일반(학생부)", "일반학과");
+        when(regular.getUniversity().getCode()).thenReturn("KBOK");
+        when(regular.getAdmissionYear()).thenReturn(2027);
+        assertThat(matcher.matchesRecruitmentUnit(regular, "항공서비스과")).isTrue();
+        assertThat(matcher.matchesRecruitmentUnit(regular, "준오헤어디자인과")).isTrue();
+        assertThat(matcher.matchesRecruitmentUnit(regular, "물리치료학과")).isFalse();
+    }
+
     private EvaluationRule rule(String admissionType, String recruitmentUnit) {
         University university = mock(University.class);
         when(university.getCode()).thenReturn("MJC");

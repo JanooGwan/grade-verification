@@ -55,8 +55,21 @@ public record VerifyGradeRequest(
         boolean careerSubject,
         boolean professionalCourse,
         boolean vocationalTrainingSemester,
-        @NotNull @DecimalMin(value = "0.01") BigDecimal credits
+        @NotNull @DecimalMin(value = "0.01") BigDecimal credits,
+        @Size(max = 50) String sourceGradeText
     ) {
+        public CourseGrade(
+            int schoolYear, int semester, SubjectCategory subjectCategory, String courseName, Integer grade,
+            GradeScale gradeScale, AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,
+            BigDecimal standardDeviation, Integer studentCount, Integer rankPosition, Integer tiedRankCount,
+            LegacyAchievement legacyAchievement, boolean careerSubject, boolean professionalCourse,
+            boolean vocationalTrainingSemester, BigDecimal credits
+        ) {
+            this(schoolYear, semester, subjectCategory, courseName, grade, gradeScale, achievement, rawScore,
+                meanScore, standardDeviation, studentCount, rankPosition, tiedRankCount, legacyAchievement,
+                careerSubject, professionalCourse, vocationalTrainingSemester, credits, null);
+        }
+
         public CourseGrade(
             int schoolYear, int semester, SubjectCategory subjectCategory, String courseName, Integer grade,
             GradeScale gradeScale, AchievementLevel achievement, BigDecimal rawScore, BigDecimal meanScore,

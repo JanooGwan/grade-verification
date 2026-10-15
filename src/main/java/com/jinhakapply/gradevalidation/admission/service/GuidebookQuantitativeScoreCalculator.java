@@ -31,9 +31,8 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
     public boolean supports(EvaluationRule rule) {
         String university = normalizePolicyText(rule.getUniversity().getName());
         return ((rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
-            && (university.contains("한국공학") || university.contains("명지전문")))
-            || (rule.getAdmissionYear() == 2027 && university.contains("삼육"))
-            || (rule.getAdmissionYear() == 2026 && university.contains("경복"));
+            && (university.contains("한국공학") || university.contains("명지전문") || university.contains("경복")))
+            || (rule.getAdmissionYear() == 2027 && university.contains("삼육"));
     }
 
     @Override
@@ -88,7 +87,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
         }
         if (university.contains("경복")) {
             BigDecimal academicMaximum = maximumTotal;
-            BigDecimal allowedBonus = kbuAllowedBonus(track);
+            BigDecimal allowedBonus = kbuAllowedBonus(rule.getAdmissionYear(), track);
             BigDecimal requestedBonus = request.bonusScore() == null ? BigDecimal.ZERO : request.bonusScore();
             if (requestedBonus.signum() < 0 || requestedBonus.compareTo(allowedBonus) > 0
                 || requestedBonus.remainder(new BigDecimal("5")).signum() != 0) {
@@ -99,7 +98,7 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             additionalScore = score(requestedBonus);
             maximumTotal = score(new BigDecimal("100").add(allowedBonus));
             maximumQuantitative = score(academicMaximum.add(allowedBonus));
-            if (isKbuInterviewTrack(track)) {
+            if (isKbuInterviewTrack(track) && (rule.getAdmissionYear() == 2026 || !track.contains("정시"))) {
                 pending.add("면접 정성평가 60점");
             } else if (isKbuPracticalTrack(track)) {
                 pending.add("실기고사 80점");
@@ -503,7 +502,9 @@ public class GuidebookQuantitativeScoreCalculator implements QuantitativeScoreCa
             || track.contains("사회체육");
     }
 
-    private BigDecimal kbuAllowedBonus(String track) {
+    private BigDecimal kbuAllowedBonus(int admissionYear, String track) {
+        if (admissionYear == 2027 && (isKbuHealthTrack(track) || track.contains("기회균형")
+            || track.contains("전문대학이상졸업자") || track.contains("순수외국인"))) return BigDecimal.ZERO;
         boolean susiBalanceOpportunity = track.contains("수시")
             && (track.contains("기회균형") || track.contains("기초생활")
                 || track.contains("차상위") || track.contains("한부모"));

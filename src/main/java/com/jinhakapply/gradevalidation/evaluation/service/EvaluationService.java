@@ -54,7 +54,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class EvaluationService {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
-    private static final String MJC_MISSING_GRADE_COURSE_PREFIX = "성적 미기재 9등급 보정";
     private final EvaluationRuleRepository ruleRepository;
     private final UniversityRepository universityRepository;
     private final DeclarativeSelectionPolicyEngine selectionPolicyEngine;
@@ -170,7 +169,6 @@ public class EvaluationService {
             rule, request.courses(), request.graduated(), includesProfessionalCourses(rule, scope),
             scope.includeAllSubjectCategories(), request.highSchoolType(), request.graduationYear()
         );
-        candidates = addMjcMissingGradeCandidates(rule, request.highSchoolType(), candidates);
         validateSyuMinimumSemesters(rule, candidates);
         CourseSelection selection = selectCourses(
             rule, scope.selectionStrategy(), candidates
@@ -184,7 +182,7 @@ public class EvaluationService {
         }
         Set<Integer> selectedIndexes = selection.indexes();
         // 경복대는 남아 있는 학기/교과 수만큼 선택하되, 반영 가능한 성적이 없으면 미산출한다.
-        if (isKbu2026(rule) && selectedIndexes.isEmpty()) {
+        if (isKbuGuidebookYear(rule) && selectedIndexes.isEmpty()) {
             throw CustomException.of(INSUFFICIENT_ELIGIBLE_COURSES,
                 "경복대학교 반영 범위에서 직업과정 이수 학기 등을 제외한 후 산출 가능한 교과성적이 없습니다.");
         }
@@ -242,7 +240,7 @@ public class EvaluationService {
                 course.rankPosition(), course.tiedRankCount(), course.studentCount(), candidate.rankPercentile(),
                 course.legacyAchievement(), candidate.effectiveGrade(),
                 candidate.convertedScore(), gradeWeight, subjectWeight, course.credits(), appliedCredits, appliedWeight,
-                weightedScore, selected, exclusionReason, course.careerSubject()));
+                weightedScore, selected, exclusionReason, course.careerSubject(), course.sourceGradeText()));
         }
 
         if (isMjcGuidebookYear(rule)) {
@@ -266,7 +264,9 @@ public class EvaluationService {
             .setScale(rule.getFinalScale(), rule.getFinalRounding());
         BigDecimal scoreBeforeFinalRounding = baseScore.multiply(rule.getScoreMultiplier());
         CalculationSummary calculationSummary = new CalculationSummary(
-            calculationFormula(rule.getScoreAggregation(), rule.isApplyGradeWeights()),
+            isMjcGuidebookYear(rule)
+                ? "반영 학년·학기 평균등급(소수 5자리 반올림) → 환산표 × 30%·30%·40% 합산 × 전형 배율. 미기재 학년·학기는 과목·단위 추가 없이 9등급 적용"
+                : calculationFormula(rule.getScoreAggregation(), rule.isApplyGradeWeights()),
             totalGradeTimesCredits, totalConvertedScoreTimesCredits,
             totalGrade, totalConvertedScore, totalWeight, totalIncludedCredits, averageGrade, baseScore,
             rule.getScoreMultiplier(), scoreBeforeFinalRounding,
@@ -274,7 +274,7 @@ public class EvaluationService {
             Map.copyOf(yearWeightDenominators)
         );
 
-        List<String> warnings = buildWarnings(rule, request.courses(), candidates, included);
+        List<String> warnings = buildWarnings(rule, request.courses(), candidates, included, request.highSchoolType());
         return new GradeVerificationResponse(rule.getId(), rule.getName(), rule.getVersion(), rule.getUniversity().getName(),
             rule.getAdmissionType(), rule.getRecruitmentUnit(), finalScore, baseScore, averageGrade,
             scope.selectionStrategy(), rule.getScoreAggregation(), rule.getSourceDocument(), rule.getSourcePages(),
@@ -296,7 +296,9 @@ public class EvaluationService {
         for (int index = 0; index < courses.size(); index++) {
             VerifyGradeRequest.CourseGrade course = courses.get(index);
             String exclusionReason = null;
-            if (rule.isApplyGradeWeights() && rule.gradeWeight(course.schoolYear()).signum() == 0)
+            if (course.credits() == null || course.credits().signum() <= 0)
+                exclusionReason = "이수단위가 없거나 0 이하인 과목입니다.";
+            else if (rule.isApplyGradeWeights() && rule.gradeWeight(course.schoolYear()).signum() == 0)
                 exclusionReason = "학년 반영 비율이 0입니다.";
             else if (!includeAllSubjectCategories && !hasEligibleSubjectWeight(rule, course))
                 exclusionReason = "반영하지 않는 교과입니다.";
@@ -308,7 +310,7 @@ public class EvaluationService {
                 exclusionReason = "2년제 고등학교는 1학년 1·2학기와 2학년 1학기만 반영합니다.";
             else if (isSyuGuidebookYear(rule) && Integer.valueOf(1).equals(course.studentCount()))
                 exclusionReason = "삼육대학교는 재적인원이 1명인 과목을 반영하지 않습니다.";
-            else if (isKbu2026(rule) && resolvedHighSchoolType == HighSchoolType.GENERAL
+            else if (isKbuGuidebookYear(rule) && resolvedHighSchoolType == HighSchoolType.GENERAL
                 && course.vocationalTrainingSemester())
                 exclusionReason = "경복대학교는 일반계 고교의 직업과정 이수 학기 성적을 반영하지 않습니다.";
             else if (course.professionalCourse() && !includeProfessionalCourses)
@@ -323,61 +325,6 @@ public class EvaluationService {
             candidates.add(new Candidate(index, course, effectiveGrade, convertedScore, rankPercentile, exclusionReason));
         }
         return candidates;
-    }
-
-    private List<Candidate> addMjcMissingGradeCandidates(
-        EvaluationRule rule,
-        HighSchoolType highSchoolType,
-        List<Candidate> candidates
-    ) {
-        if (!isMjcGuidebookYear(rule)) return candidates;
-        HighSchoolType resolvedType = highSchoolType == null ? HighSchoolType.GENERAL : highSchoolType;
-        List<Candidate> completed = new ArrayList<>(candidates);
-        if (isMjcTwoYear(rule, resolvedType)) {
-            addMjcMissingGradeCandidate(rule, completed, 1, 1);
-            addMjcMissingGradeCandidate(rule, completed, 1, 2);
-            addMjcMissingGradeCandidate(rule, completed, 2, 1);
-            return completed;
-        }
-        addMjcMissingYearCandidate(rule, completed, 1, List.of(1, 2));
-        addMjcMissingYearCandidate(rule, completed, 2, List.of(1, 2));
-        addMjcMissingYearCandidate(rule, completed, 3, List.of(1));
-        return completed;
-    }
-
-    private void addMjcMissingYearCandidate(
-        EvaluationRule rule,
-        List<Candidate> candidates,
-        int schoolYear,
-        List<Integer> semesters
-    ) {
-        boolean exists = candidates.stream().filter(Candidate::eligible)
-            .anyMatch(candidate -> candidate.course().schoolYear() == schoolYear
-                && semesters.contains(candidate.course().semester()));
-        if (!exists) addMjcMissingGradeCandidate(rule, candidates, schoolYear, semesters.getFirst());
-    }
-
-    private void addMjcMissingGradeCandidate(
-        EvaluationRule rule,
-        List<Candidate> candidates,
-        int schoolYear,
-        int semester
-    ) {
-        boolean exists = candidates.stream().filter(Candidate::eligible)
-            .anyMatch(candidate -> candidate.course().schoolYear() == schoolYear
-                && candidate.course().semester() == semester);
-        if (exists) return;
-        VerifyGradeRequest.CourseGrade course = new VerifyGradeRequest.CourseGrade(
-            schoolYear, semester, SubjectCategory.OTHER,
-            MJC_MISSING_GRADE_COURSE_PREFIX + " " + schoolYear + "학년 " + semester + "학기",
-            9, com.jinhakapply.gradevalidation.transcript.domain.GradeScale.NINE_LEVEL,
-            null, null, null, null, null, null, null, null,
-            false, false, false, BigDecimal.ONE
-        );
-        BigDecimal effectiveGrade = BigDecimal.valueOf(9);
-        candidates.add(new Candidate(
-            candidates.size(), course, effectiveGrade, resolveConvertedScore(rule, course, effectiveGrade), null, null
-        ));
     }
 
     private boolean includesThirdYearSecondSemester(EvaluationRule rule, boolean graduated, Integer graduationYear) {
@@ -415,7 +362,7 @@ public class EvaluationService {
             if (course.careerSubject()) return rule.getAchievementGrades().get(course.achievement());
             if (course.grade() == null && rankPercentile == null) return null;
         }
-        if (isKbu2026(rule) && course.achievement() != null) {
+        if (isKbuGuidebookYear(rule) && course.achievement() != null) {
             if (course.careerSubject()) {
                 return rule.getAchievementGrades().get(course.achievement());
             }
@@ -521,7 +468,7 @@ public class EvaluationService {
                 isTukGuidebookYear(rule) ? candidates.stream().filter(candidate ->
                     TukSubjectPolicy.countsForInquiryCredits(candidate.effectiveGrade(), candidate.exclusionReason())).toList()
                     : eligible);
-            case TOP_N_SEMESTERS -> isKbu2026(rule)
+            case TOP_N_SEMESTERS -> isKbuGuidebookYear(rule)
                 ? CourseSelection.of(selectKbuTopGroups(eligible,
                     candidate -> candidate.course().schoolYear() + "-" + candidate.course().semester(),
                     rule.getSelectionCount(), null, true))
@@ -530,7 +477,7 @@ public class EvaluationService {
                     rule.getSelectionCount(), null));
             case TOP_N_SUBJECTS -> isSyuGuidebookYear(rule)
                 ? selectSyuTopDomains(rule, eligible)
-                : (isKbu2026(rule)
+                : (isKbuGuidebookYear(rule)
                     ? CourseSelection.of(selectKbuTopGroups(eligible,
                         candidate -> candidate.course().subjectCategory(), rule.getSelectionCount(),
                         rule.getSubjectPriorities(), false))
@@ -578,12 +525,11 @@ public class EvaluationService {
     }
 
     private boolean isKbuPre2002Graduate(EvaluationRule rule, Integer graduationYear) {
-        return graduationYear != null && graduationYear <= 2001 && rule.getAdmissionYear() == 2026
-            && normalizePolicyText(rule.getUniversity().getName()).contains("경복");
+        return graduationYear != null && graduationYear <= 2001 && isKbuGuidebookYear(rule);
     }
 
-    private boolean isKbu2026(EvaluationRule rule) {
-        return rule.getAdmissionYear() == 2026
+    private boolean isKbuGuidebookYear(EvaluationRule rule) {
+        return (rule.getAdmissionYear() == 2026 || rule.getAdmissionYear() == 2027)
             && normalizePolicyText(rule.getUniversity().getName()).contains("경복");
     }
 
@@ -836,6 +782,12 @@ public class EvaluationService {
             totalConvertedScore = totalConvertedScore.add(interpolateGradeScore(rule, averageGrade).multiply(weight));
             totalWeight = totalWeight.add(weight);
         }
+        // 미기재 학년·학기의 9등급은 점수에만 적용한다. 원천 과목·단위를 만들지 않는다.
+        BigDecimal missingWeight = ONE_HUNDRED.subtract(totalWeight);
+        totalGrade = totalGrade.add(new BigDecimal("9").multiply(missingWeight));
+        totalConvertedScore = totalConvertedScore.add(
+            interpolateGradeScore(rule, new BigDecimal("9")).multiply(missingWeight));
+        totalWeight = ONE_HUNDRED;
         return new MjcAggregation(totalGrade, totalConvertedScore, totalWeight);
     }
 
@@ -895,12 +847,13 @@ public class EvaluationService {
     }
 
     private List<String> buildWarnings(EvaluationRule rule, List<VerifyGradeRequest.CourseGrade> courses,
-        List<Candidate> candidates, int included) {
+        List<Candidate> candidates, int included, HighSchoolType highSchoolType) {
         List<String> warnings = new ArrayList<>();
         if (courses.stream().noneMatch(course -> course.schoolYear() == 3)) warnings.add("3학년 성적이 입력되지 않았습니다.");
-        long substituted = candidates.stream()
-            .filter(candidate -> candidate.course().courseName().startsWith(MJC_MISSING_GRADE_COURSE_PREFIX))
-            .count();
+        long substituted = isMjcGuidebookYear(rule) ? 3 - candidates.stream()
+            .filter(Candidate::eligible)
+            .map(candidate -> gradeWeightGroup(rule, highSchoolType, candidate.course()))
+            .distinct().count() : 0;
         if (substituted > 0) {
             warnings.add("명지전문대학 전산처리지침에 따라 성적이 없는 " + substituted
                 + "개 반영 학년·학기를 9등급으로 적용했습니다.");

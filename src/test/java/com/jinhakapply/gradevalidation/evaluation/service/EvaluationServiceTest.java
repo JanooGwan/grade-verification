@@ -561,7 +561,9 @@ class EvaluationServiceTest {
         assertThat(response.finalScore()).isEqualByComparingTo("62.00000");
         assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
             .extracting(GradeVerificationResponse.CourseCalculation::courseName)
-            .anyMatch(name -> name.toString().contains("3학년 1학기"));
+            .containsExactlyInAnyOrder("1학년 국어", "2학년 수학");
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("6");
         assertThat(response.warnings()).anyMatch(warning -> warning.contains("9등급으로 적용"));
     }
 
@@ -575,7 +577,9 @@ class EvaluationServiceTest {
         )));
 
         assertThat(response.finalScore()).isEqualByComparingTo("20.00000");
-        assertThat(response.includedCourseCount()).isEqualTo(3);
+        assertThat(response.includedCourseCount()).isZero();
+        assertThat(response.calculations()).hasSize(1);
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("0");
     }
 
     @Test
@@ -606,7 +610,7 @@ class EvaluationServiceTest {
         ));
 
         assertThat(response.finalScore()).isEqualByComparingTo("68.00000");
-        assertThat(response.calculationSummary().yearWeightDenominators()).containsOnlyKeys(11, 12, 21);
+        assertThat(response.calculationSummary().yearWeightDenominators()).containsOnlyKeys(11, 21);
     }
 
     @Test
@@ -622,7 +626,7 @@ class EvaluationServiceTest {
             achievementCourse("표준편차 0", "90", "80", "0")
         )));
 
-        assertThat(response.includedCourseCount()).isEqualTo(3);
+        assertThat(response.includedCourseCount()).isEqualTo(1);
         assertThat(response.calculations()).filteredOn(item -> !item.included())
             .hasSize(4)
             .allSatisfy(calculation ->
@@ -1158,7 +1162,7 @@ class EvaluationServiceTest {
         for (boolean otherUniversity : List.of(true, false)) {
             var rule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
             if (otherUniversity) ReflectionTestUtils.setField(rule.getUniversity(), "name", "테스트대학교");
-            else ReflectionTestUtils.setField(rule, "admissionYear", 2027);
+            else ReflectionTestUtils.setField(rule, "admissionYear", 2028);
             mockRule(rule);
             var response = service.verify(new VerifyGradeRequest(1L, true, HighSchoolType.GENERAL, 2001,
                 List.of(course(1, 1, SubjectCategory.KOREAN, "정규 수업", 5, "3"),
@@ -1166,6 +1170,69 @@ class EvaluationServiceTest {
             assertThat(response.includedCourseCount()).isEqualTo(1);
             assertThat(response.finalScore()).isEqualByComparingTo("50");
         }
+    }
+
+    @Test
+    void kbu2027HealthUsesWholeBestSemestersIncludingOtherSubjects() {
+        var rule = kbuRule(SelectionStrategy.TOP_N_SEMESTERS, 2);
+        ReflectionTestUtils.setField(rule, "admissionYear", 2027);
+        ReflectionTestUtils.setField(rule, "recruitmentUnit", "간호학과");
+        rule.getAchievementGrades().put(AchievementLevel.A, BigDecimal.ONE);
+        mockRule(rule);
+        var response = service.verify(new VerifyGradeRequest(1L, false, HighSchoolType.GENERAL, 2027, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "국어", 5, "3"),
+            course(2, 1, SubjectCategory.MATH, "수학", 2, "3"),
+            careerCourse(3, 1, SubjectCategory.OTHER, "진로선택", AchievementLevel.A, "3"),
+            vocationalCourse(2, 2))));
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+        assertThat(response.averageGrade()).isEqualByComparingTo("1.5");
+        assertThat(response.finalScore()).isEqualByComparingTo("93.75");
+        assertThat(response.calculations()).filteredOn(GradeVerificationResponse.CourseCalculation::included)
+            .extracting(GradeVerificationResponse.CourseCalculation::courseName)
+            .containsExactlyInAnyOrder("수학", "진로선택");
+    }
+
+    @Test
+    void mjc2027MissingYearPreservesScoreWithoutInventingCoursesAndKeepsUnselectedRows() {
+        mockRule(mjcRule(2027));
+        var response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.KOREAN, "비반영 국어", 8, "3"),
+            course(1, 2, SubjectCategory.KOREAN, "우수 국어", 1, "3"),
+            course(2, 1, SubjectCategory.MATH, "수학", 3, "3"))));
+        assertThat(response.finalScore()).isEqualByComparingTo("62");
+        assertThat(response.includedCourseCount()).isEqualTo(2);
+        assertThat(response.excludedCourseCount()).isEqualTo(1);
+        assertThat(response.calculations()).hasSize(3);
+        assertThat(response.calculations().getFirst().included()).isFalse();
+        assertThat(response.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("6");
+    }
+
+    @Test
+    void mjcKeepsZeroCreditSourceCourseExcludedFromScore() {
+        mockRule(mjcRule(2027));
+        var response = service.verify(new VerifyGradeRequest(1L, List.of(
+            course(1, 1, SubjectCategory.OTHER, "이수만 있는 과목", 1, "0"))));
+        assertThat(response.finalScore()).isEqualByComparingTo("20");
+        assertThat(response.calculations()).singleElement().satisfies(c -> {
+            assertThat(c.included()).isFalse();
+            assertThat(c.exclusionReason()).contains("이수단위");
+        });
+    }
+
+    @Test
+    void hanshin2027RequiresTwelveCoursesAndAllowsExactlyTwelve() {
+        var rule = rule(SelectionStrategy.TOP_N_COURSES, 12, ScoreAggregation.COURSE_SCORE_AVERAGE,
+            decimals("1", "1", "1"), decimals("1", "1", "1", "1", "1", "0"),
+            AchievementConversion.EXCLUDE);
+        ReflectionTestUtils.setField(rule.getUniversity(), "name", "한신대학교");
+        ReflectionTestUtils.setField(rule, "admissionYear", 2027);
+        ReflectionTestUtils.setField(rule, "minimumCourseCount", 12);
+        mockRule(rule);
+        var courses = java.util.stream.IntStream.range(0, 12)
+            .mapToObj(i -> course(1, 1, SubjectCategory.KOREAN, "과목" + i, 2, "3")).toList();
+        assertThatThrownBy(() -> service.verify(new VerifyGradeRequest(1L, courses.subList(0, 11))))
+            .isInstanceOf(CustomException.class);
+        assertThat(service.verify(new VerifyGradeRequest(1L, courses)).includedCourseCount()).isEqualTo(12);
     }
 
     private VerifyGradeRequest.CourseGrade vocationalCourse(int year, int semester) {

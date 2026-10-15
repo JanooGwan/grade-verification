@@ -151,7 +151,8 @@ public class SavedVerificationQueryService {
         warnings.add("DB에 저장된 검증 회차 #%d 결과를 재계산 없이 내보냈습니다.".formatted(sourceImportId));
         boolean tuk = batch.universityName().contains("한국공학")
             && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
-        boolean kbu = batch.universityName().contains("경복") && batch.admissionYear() == 2026;
+        boolean kbu = batch.universityName().contains("경복")
+            && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
         if (tuk || kbu) {
             var applications = repository.findExportApplications(sourceImportId);
             var savedIds = successes.stream().map(s -> s.application().applicationId())
@@ -224,7 +225,8 @@ public class SavedVerificationQueryService {
             calculation.schoolYear(), calculation.semester(), calculation.subjectCategory(),
             calculation.courseName(), calculation.grade(), calculation.gradeScale(), calculation.achievement(),
             null, null, null, calculation.cohortSize(), calculation.rankPosition(), calculation.tiedRankCount(),
-            calculation.legacyAchievement(), calculation.credits(), false, false
+            calculation.legacyAchievement(), calculation.credits(), Boolean.TRUE.equals(calculation.careerSubject()), false,
+            false, calculation.sourceGradeText()
         );
     }
 }

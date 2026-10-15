@@ -27,6 +27,26 @@ class TranscriptValidationExcelWriterTest {
     private final TranscriptValidationExcelWriter writer = new TranscriptValidationExcelWriter();
 
     @Test
+    void retainsNonNumericSourceGradeAndZeroCreditRowInMjcExport() throws Exception {
+        var course = new TranscriptExcelRow(2, "SYNTHETIC", "합성", null, null, 2027,
+            1, 1, SubjectCategory.OTHER, "이수과목", null, GradeScale.NINE_LEVEL, null,
+            null, null, null, null, null, null, null, BigDecimal.ZERO, false, false, false, "이수");
+        var application = new TransferApplicationRow(2, 2027, "SYNTHETIC", "TEST",
+            "정원내 특별전형(일반고)", "TEST", "컴퓨터공학과", 2027);
+        var failure = new TranscriptBatchVerificationResult.Failure(application, "합성", 1,
+            "TEST_FAILURE", "원천 보존 확인");
+        byte[] bytes = writer.write("synthetic.csv", "MJC_SOURCE_CSV_BUNDLE_V1", "명지전문대학교",
+            1, 1, List.of(), List.of(course), List.of(), List.of(),
+            new TranscriptBatchVerificationResult(List.of(), List.of(failure)));
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            var sheet = book.getSheet("학생별 과목 비교");
+            assertThat(sheet.getLastRowNum()).isEqualTo(3);
+            assertThat(sheet.getRow(3).getCell(12).getStringCellValue()).isEqualTo("이수");
+            assertThat(sheet.getRow(3).getCell(14).getNumericCellValue()).isZero();
+        }
+    }
+
+    @Test
     void retainsUnscoredKbuApplicantWithBlankFinalScore() throws Exception {
         var application = new TransferApplicationRow(2, 2026, "SYNTHETIC-NA", "TEST",
             "수시 일반고", "TEST", "일반학과", 2026);

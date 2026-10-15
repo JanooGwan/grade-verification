@@ -466,6 +466,21 @@ class GuidebookQuantitativeScoreCalculatorTest {
         return response;
     }
 
+    @Test
+    void kbu2027RemovesHealthBonusButRetains2026Bonus() {
+        var scores = scores(100, 87.5, 75, 62.5, 50, 37.5, 25, 12.5, 0);
+        var previous = rule("KBOK", "경복대학교", 2026, "1", scores);
+        var current = rule("KBOK", "경복대학교", 2027, "1", scores);
+        assertThat(calculator.supports(current)).isTrue();
+        var common = common(EducationBackground.DOMESTIC_HIGH_SCHOOL, null, 0, 0);
+        assertThat(calculator.calculate(previous, "수시 일반 간호학과", verification("87.5"), request("5"), common)
+            .additionalScore()).isEqualByComparingTo("5");
+        assertThatThrownBy(() -> calculator.calculate(current, "수시 일반 간호학과",
+            verification("87.5"), request("5"), common)).isInstanceOf(CustomException.class);
+        assertThat(calculator.calculate(current, "수시 일반 간호학과", verification("87.5"), request(null), common)
+            .maximumTotalScore()).isEqualByComparingTo("100");
+    }
+
     private CalculateApplicationScoreRequest request(String bonus) {
         return new CalculateApplicationScoreRequest(null, null, bonus == null ? null : new BigDecimal(bonus));
     }

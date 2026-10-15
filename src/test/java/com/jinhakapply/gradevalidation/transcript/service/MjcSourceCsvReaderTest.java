@@ -39,7 +39,7 @@ class MjcSourceCsvReaderTest {
     }
 
     @Test
-    void streamsCoursesAndSkipsNonPositiveCredits() throws Exception {
+    void streamsAllSourceCoursesIncludingZeroCreditsAndNonNumericGrades() throws Exception {
         Path subjects = write("05.csv", """
             "examNumber","grade","term","organizationName","subjectName","unit","rankingGrade","achievement","originalScore","avgScore","standardDeviation","studentCount","rank","sameRank","subjectSeparationCode"
             "MJC-SYN-001","1","1","국어","화법과 작문","3","2","\\N","90","80","10","100","\\N","\\N","01"
@@ -52,19 +52,36 @@ class MjcSourceCsvReaderTest {
         var result = reader.streamCourses(subjects, 2, rows::addAll);
 
         assertThat(result.totalRows()).isEqualTo(4);
-        assertThat(result.importedRows()).isEqualTo(3);
-        assertThat(result.skippedRows()).isEqualTo(1);
-        assertThat(rows).hasSize(3);
+        assertThat(result.importedRows()).isEqualTo(4);
+        assertThat(result.skippedRows()).isZero();
+        assertThat(rows).hasSize(4);
         assertThat(rows.get(0).subjectCategory()).isEqualTo(SubjectCategory.KOREAN);
         assertThat(rows.get(1).careerSubject()).isTrue();
         assertThat(rows.get(2).grade()).isNull();
         assertThat(rows.get(2).achievement()).isNull();
+        assertThat(rows.get(2).credits()).isEqualByComparingTo("0");
+        assertThat(rows.get(3).sourceGradeText()).isEqualTo("P");
     }
 
     @Test
     void parsesEscapedQuotesAndEmptyValues() {
         assertThat(MjcSourceCsvReader.parseLine("\"과목,명\",\"A\"\"B\",\"\""))
             .containsExactly("과목,명", "A\"B", "");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"P", "·", "이수", "우수", "보통", "미흡"})
+    void preservesNonNumericRankingGradeText(String text) throws Exception {
+        Path source = write("non-numeric.csv",
+            "examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n"
+                + "SYNTHETIC,1,1,교양,이수과목,0," + text + ",\\N,\\N,\\N,\\N,100,\\N,\\N,01\n");
+        List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
+        reader.streamCourses(source, 10, rows::addAll);
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.sourceGradeText()).isEqualTo(text);
+            assertThat(row.grade()).isNull();
+            assertThat(row.credits()).isEqualByComparingTo("0");
+        });
     }
 
     private Path write(String name, String content) throws Exception {

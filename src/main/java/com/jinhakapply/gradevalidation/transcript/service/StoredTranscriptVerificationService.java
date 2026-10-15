@@ -268,7 +268,7 @@ public class StoredTranscriptVerificationService {
                    course.credits,
                    course.career_subject,
                    course.professional_course,
-                   course.vocational_training_semester
+                   course.vocational_training_semester, course.source_grade_text
             FROM student_transcript_course course
             JOIN student ON student.id = course.student_id
             WHERE student.university_id = ?
@@ -298,7 +298,7 @@ public class StoredTranscriptVerificationService {
                 resultSet.getBigDecimal("credits"),
                 resultSet.getBoolean("career_subject"),
                 resultSet.getBoolean("professional_course"),
-                resultSet.getBoolean("vocational_training_semester")
+                resultSet.getBoolean("vocational_training_semester"), resultSet.getString("source_grade_text")
             ), universityId, admissionYear);
     }
 

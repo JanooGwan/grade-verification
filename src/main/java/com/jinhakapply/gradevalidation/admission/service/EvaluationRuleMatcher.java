@@ -39,6 +39,10 @@ public class EvaluationRuleMatcher {
         String ruleUnit = normalizePolicyText(rule.getRecruitmentUnit());
         String sourceUnit = normalizePolicyText(unitName);
         if (ruleUnit.equals(sourceUnit) || COMMON_UNIT_NAMES.contains(ruleUnit)) return true;
+        if ("KBOK".equalsIgnoreCase(rule.getUniversity().getCode())) {
+            return ruleUnit.equals(normalizePolicyText(KbuRecruitmentUnits.group(
+                rule.getAdmissionYear(), rule.getAdmissionType(), unitName)));
+        }
         if ("TUK".equalsIgnoreCase(rule.getUniversity().getCode())) {
             return ruleUnit.equals(TukRecruitmentUnits.group(rule.getAdmissionYear(), unitName));
         }

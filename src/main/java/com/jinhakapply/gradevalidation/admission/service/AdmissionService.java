@@ -264,9 +264,10 @@ public class AdmissionService {
     private VerifyGradeRequest.CourseGrade toCourseGrade(StudentTranscriptCourse course) {
         return new VerifyGradeRequest.CourseGrade(
             course.getSchoolYear(), course.getSemester(), course.getSubjectCategory(), course.getCourseName(),
-            course.getGrade(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
-            course.getStandardDeviation(), course.getStudentCount(), course.isCareerSubject(),
-            course.isProfessionalCourse(), course.isVocationalTrainingSemester(), course.getCredits()
+            course.getGrade(), course.getGradeScale(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
+            course.getStandardDeviation(), course.getStudentCount(), course.getRankPosition(), course.getTiedRankCount(),
+            course.getLegacyAchievement(), course.isCareerSubject(), course.isProfessionalCourse(),
+            course.isVocationalTrainingSemester(), course.getCredits(), course.getSourceGradeText()
         );
     }
 

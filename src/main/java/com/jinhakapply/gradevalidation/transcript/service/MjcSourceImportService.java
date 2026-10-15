@@ -59,7 +59,7 @@ public class MjcSourceImportService {
             Path baseInfo = copy(baseInfoFile, directory.resolve("04_base_info.csv"), digest, "04");
             Path subjects = copy(subjectScoreFile, directory.resolve("05_subject_scores.csv"), digest, "05");
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
-                university, admissionYear, "MJC-2026-source-csv-bundle",
+                university, admissionYear, "MJC-" + admissionYear + "-source-csv-bundle",
                 HexFormat.of().formatHex(digest.digest()), MjcSourceCsvReader.SOURCE_FORMAT,
                 directory.toAbsolutePath().toString()
             ));
@@ -98,7 +98,7 @@ public class MjcSourceImportService {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             Path workbook = copy(file, directory.resolve("mjc-integrated.xlsx"), digest, "workbook");
             String originalName = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
-                ? "MJC-2026-integrated.xlsx" : file.getOriginalFilename();
+                ? "MJC-" + admissionYear + "-integrated.xlsx" : file.getOriginalFilename();
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
                 university, admissionYear, originalName,
                 HexFormat.of().formatHex(digest.digest()), MjcSourceWorkbookExtractor.SOURCE_FORMAT,
@@ -134,8 +134,8 @@ public class MjcSourceImportService {
     }
 
     private void validate(int admissionYear, MultipartFile... files) {
-        if (admissionYear != 2026) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 원천 CSV는 2026학년도만 지원합니다.");
+        if (admissionYear != 2026 && admissionYear != 2027) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 원천 CSV는 2026·2027학년도를 지원합니다.");
         }
         long totalSize = 0;
         for (MultipartFile file : files) {
@@ -157,8 +157,8 @@ public class MjcSourceImportService {
     }
 
     private void validateWorkbook(int admissionYear, MultipartFile file) {
-        if (admissionYear != 2026) {
-            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 통합 Excel은 2026학년도만 지원합니다.");
+        if (admissionYear != 2026 && admissionYear != 2027) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "명지전문대 통합 Excel은 2026·2027학년도를 지원합니다.");
         }
         if (file == null || file.isEmpty()) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "통합 Excel 파일이 비어 있습니다.");

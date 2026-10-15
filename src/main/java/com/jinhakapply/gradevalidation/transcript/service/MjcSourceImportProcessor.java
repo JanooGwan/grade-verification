@@ -277,16 +277,17 @@ class MjcSourceImportProcessor {
                 student_id, source_import_id, school_year, semester, subject_category, course_name,
                 course_name_normalized, grade_value, grade_scale, achievement, raw_score, mean_score,
                 standard_deviation, student_count, rank_position, tied_rank_count, legacy_achievement,
-                credits, career_subject, professional_course, source_file_name, source_row_number,
+                credits, career_subject, professional_course, source_grade_text, source_file_name, source_row_number,
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?,
-                '05_교과학습발달상황_SubjectScore.csv', ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                ?, '05_교과학습발달상황_SubjectScore.csv', ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             ON DUPLICATE KEY UPDATE source_import_id=VALUES(source_import_id), subject_category=VALUES(subject_category),
                 grade_value=VALUES(grade_value), achievement=VALUES(achievement), raw_score=VALUES(raw_score),
                 mean_score=VALUES(mean_score), standard_deviation=VALUES(standard_deviation),
                 student_count=VALUES(student_count), rank_position=VALUES(rank_position),
                 tied_rank_count=VALUES(tied_rank_count), credits=VALUES(credits),
                 career_subject=VALUES(career_subject), professional_course=VALUES(professional_course),
+                source_grade_text=VALUES(source_grade_text),
                 source_file_name=VALUES(source_file_name), source_row_number=VALUES(source_row_number),
                 updated_at=CURRENT_TIMESTAMP(6)
             """;
@@ -301,8 +302,8 @@ class MjcSourceImportProcessor {
                 import_id, source_row_number, applicant_number, school_year, semester, subject_category,
                 course_name, grade_value, grade_scale, achievement, raw_score, mean_score, standard_deviation,
                 student_count, rank_position, tied_rank_count, legacy_achievement, credits, career_subject,
-                professional_course, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP(6))
+                professional_course, source_grade_text, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
             """;
         jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> bindCourse(
             statement, row, null, importId, false
@@ -346,6 +347,7 @@ class MjcSourceImportProcessor {
         statement.setBigDecimal(index++, row.credits());
         statement.setBoolean(index++, row.careerSubject());
         statement.setBoolean(index++, row.professionalCourse());
+        setString(statement, index++, row.sourceGradeText());
         if (currentCourse) statement.setInt(index, row.rowNumber());
     }
 

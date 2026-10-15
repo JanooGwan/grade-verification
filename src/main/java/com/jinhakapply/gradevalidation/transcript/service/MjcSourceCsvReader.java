@@ -54,14 +54,11 @@ class MjcSourceCsvReader {
     StreamResult streamCourses(Path path, int batchSize, Consumer<List<CourseRow>> batchConsumer) {
         List<CourseRow> batch = new ArrayList<>(batchSize);
         int[] total = {0};
-        int[] skipped = {0};
         read(path, row -> {
             total[0]++;
             BigDecimal credits = row.optionalDecimal("unit");
-            if (credits == null || credits.signum() <= 0) {
-                skipped[0]++;
-                return;
-            }
+            if (credits == null) credits = BigDecimal.ZERO;
+            if (credits.signum() < 0) throw row.error("이수단위는 음수일 수 없습니다.");
             Integer grade = row.optionalRankingGrade("rankingGrade");
             if (grade != null && (grade < 1 || grade > 9)) {
                 throw row.error("석차등급은 1~9 사이여야 합니다.");
@@ -76,7 +73,7 @@ class MjcSourceCsvReader {
                 row.optionalDecimal("standardDeviation"), row.optionalInteger("studentCount"),
                 row.optionalInteger("rank"), row.optionalInteger("sameRank"), credits,
                 "02".equals(separationCode) || "2".equals(separationCode),
-                isProfessional(organizationName)
+                isProfessional(organizationName), row.optional("rankingGrade")
             );
             batch.add(value);
             if (batch.size() >= batchSize) {
@@ -85,7 +82,7 @@ class MjcSourceCsvReader {
             }
         });
         if (!batch.isEmpty()) batchConsumer.accept(List.copyOf(batch));
-        return new StreamResult(total[0], total[0] - skipped[0], skipped[0]);
+        return new StreamResult(total[0], total[0], 0);
     }
 
     private void read(Path path, Consumer<CsvRow> consumer) {
@@ -217,7 +214,8 @@ class MjcSourceCsvReader {
         Integer tiedRankCount,
         BigDecimal credits,
         boolean careerSubject,
-        boolean professionalCourse
+        boolean professionalCourse,
+        String sourceGradeText
     ) {}
 
     record StreamResult(int totalRows, int importedRows, int skippedRows) {}

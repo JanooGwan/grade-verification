@@ -136,7 +136,7 @@ public class ApplicationScoreService {
             course.getGrade(), course.getGradeScale(), course.getAchievement(), course.getRawScore(), course.getMeanScore(),
             course.getStandardDeviation(), course.getStudentCount(), course.getRankPosition(), course.getTiedRankCount(),
             course.getLegacyAchievement(), course.isCareerSubject(), course.isProfessionalCourse(),
-            course.isVocationalTrainingSemester(), course.getCredits()
+            course.isVocationalTrainingSemester(), course.getCredits(), course.getSourceGradeText()
         );
     }
 

@@ -66,6 +66,9 @@ public class StudentTranscriptCourse {
     @Column(name = "grade_value")
     private Integer grade;
 
+    @Column(name = "source_grade_text", length = 50)
+    private String sourceGradeText;
+
     @Enumerated(STRING)
     @Column(name = "grade_scale", nullable = false, length = 20)
     private GradeScale gradeScale;

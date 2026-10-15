@@ -15,6 +15,7 @@ import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.admission.service.EvaluationRuleMatcher;
+import com.jinhakapply.gradevalidation.admission.service.KbuRecruitmentUnits;
 import com.jinhakapply.gradevalidation.admission.service.TukEssayPolicy;
 import com.jinhakapply.gradevalidation.admission.domain.StudentCommonEvaluationSnapshot;
 import com.jinhakapply.gradevalidation.transcript.domain.GraduationStatus;
@@ -208,7 +209,7 @@ class TranscriptBatchVerificationService {
         GradeVerificationResponse verification
     ) {
         if (isTukRule(rule)) return TukSubjectCalculations.summarize(rule, verification);
-        if (rule.getAdmissionYear() != 2026 || verification.calculations() == null) {
+        if ((rule.getAdmissionYear() != 2026 && rule.getAdmissionYear() != 2027) || verification.calculations() == null) {
             return List.of();
         }
         if (isMjcRule(rule)) {
@@ -516,11 +517,12 @@ class TranscriptBatchVerificationService {
         TransferApplicationRow application
     ) {
         String admissionType = normalizePolicyText(application.admissionTrackName());
-        String recruitmentUnit = normalizePolicyText(kbuRuleUnit(application.recruitmentUnitName()));
         return rules.stream()
             .filter(this::isKbuRule)
             .filter(rule -> normalizePolicyText(rule.getAdmissionType()).equals(admissionType))
-            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(recruitmentUnit))
+            .filter(rule -> normalizePolicyText(rule.getRecruitmentUnit()).equals(normalizePolicyText(
+                KbuRecruitmentUnits.group(rule.getAdmissionYear(), application.admissionTrackName(),
+                    application.recruitmentUnitName()))))
             .toList();
     }
 
@@ -540,14 +542,7 @@ class TranscriptBatchVerificationService {
     }
 
     static String kbuRuleUnit(String recruitmentUnitName) {
-        String unit = normalizePolicyText(recruitmentUnitName);
-        if (unit.contains("실용음악") || unit.contains("공연예술")) return KBU_PRACTICAL_UNITS;
-        if (unit.contains("항공서비스") || unit.contains("준오헤어디자인")) return KBU_INTERVIEW_UNITS;
-        if (unit.contains("간호") || unit.contains("치위생") || unit.contains("작업치료")
-            || unit.contains("임상병리") || unit.contains("물리치료")) {
-            return KBU_HEALTH_UNITS;
-        }
-        return KBU_GENERAL_UNITS;
+        return KbuRecruitmentUnits.group(2026, "수시", recruitmentUnitName);
     }
 
     private boolean requiresDedicatedHanshinRule(String admissionTrackName) {
@@ -570,7 +565,7 @@ class TranscriptBatchVerificationService {
             course.grade(), course.gradeScale(), course.achievement(), course.rawScore(), course.meanScore(),
             course.standardDeviation(), course.studentCount(), course.rankPosition(), course.tiedRankCount(),
             course.legacyAchievement(), course.careerSubject(), course.professionalCourse(),
-            course.vocationalTrainingSemester(), course.credits()
+            course.vocationalTrainingSemester(), course.credits(), course.sourceGradeText()
         );
     }
 
