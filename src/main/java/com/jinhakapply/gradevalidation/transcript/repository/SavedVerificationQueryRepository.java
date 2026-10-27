@@ -18,6 +18,16 @@ import org.springframework.stereotype.Repository;
 public class SavedVerificationQueryRepository {
     private final JdbcTemplate jdbcTemplate;
 
+    public java.util.Map<String, String[]> findMjcFailureReasons(Long importId) {
+        java.util.Map<String, String[]> result = new java.util.HashMap<>();
+        jdbcTemplate.query("""
+            SELECT applicant_number, verification_code, verification_reason
+            FROM student_mjc_archive_applicant WHERE import_id=? AND verification_code IS NOT NULL
+            """, (org.springframework.jdbc.core.RowCallbackHandler) row -> result.put(row.getString("applicant_number"),
+                new String[]{row.getString("verification_code"), row.getString("verification_reason")}), importId);
+        return result;
+    }
+
     /** 같은 업로드의 지원정보와 과목만 조회한다. */
     public List<ApplicationExportProjection> findExportApplications(Long sourceImportId) {
         return jdbcTemplate.query("""
@@ -94,12 +104,15 @@ public class SavedVerificationQueryRepository {
                    transcript_import.original_file_name,
                    transcript_import.source_format,
                    COUNT(verification.id) AS result_count,
-                   MAX(verification.created_at) AS saved_at
-            FROM verification_run verification
-            JOIN student_transcript_import transcript_import
-              ON transcript_import.id = verification.source_import_id
+                   COALESCE(MAX(verification.created_at), MAX(transcript_import.updated_at)) AS saved_at
+            FROM student_transcript_import transcript_import
+            LEFT JOIN verification_run verification
+              ON verification.source_import_id = transcript_import.id
             JOIN university ON university.id = transcript_import.university_id
             WHERE transcript_import.id = ?
+              AND (verification.id IS NOT NULL OR
+                   (transcript_import.source_format = 'MJC_CURRENT_SOURCE_ZIP_V1'
+                    AND transcript_import.status IN ('COMPLETED', 'COMPLETED_WITH_ERRORS')))
             GROUP BY transcript_import.id, university.id, university.name,
                      transcript_import.admission_year, transcript_import.original_file_name,
                      transcript_import.source_format

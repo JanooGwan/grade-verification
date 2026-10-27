@@ -38,6 +38,14 @@ import org.springframework.stereotype.Component;
 
 @Component
 class TranscriptValidationExcelWriter {
+    private final int comparisonRowLimit;
+
+    TranscriptValidationExcelWriter() { this(1_048_576); }
+
+    TranscriptValidationExcelWriter(int comparisonRowLimit) {
+        if (comparisonRowLimit < 4 || comparisonRowLimit > 1_048_576) throw new IllegalArgumentException("Invalid sheet row limit");
+        this.comparisonRowLimit = comparisonRowLimit;
+    }
     private static final String[] RESULT_HEADERS = {
         "지원정보 행", "수험번호", "전형명", "모집단위명",
         "등급×이수단위 합", "환산점수×이수단위 합", "총 반영 이수단위",
@@ -131,6 +139,23 @@ class TranscriptValidationExcelWriter {
                     totalRows, courses.size(), errors.size(), skipped.size(), warnings,
                     verification, skipped, errors, universityName != null && universityName.contains("한국공학")
                 );
+            }
+            if (verification.successes().stream().anyMatch(success -> success.verification().sourceValues() != null
+                && !success.verification().sourceValues().isEmpty())) {
+                Sheet source = workbook.createSheet("원자료 연결 및 보조값");
+                source.setDisplayGridlines(false);
+                int rowIndex = tableHeader(source, styles, 0, new String[]{"수험번호", "전형명", "모집단위명", "항목", "값"});
+                for (var success : verification.successes()) {
+                    var values = success.verification().sourceValues();
+                    if (values == null) continue;
+                    for (var entry : values.entrySet()) {
+                        writeRow(source.createRow(rowIndex++), new Object[]{success.application().applicantNumber(),
+                            success.application().admissionTrackName(), success.application().recruitmentUnitName(),
+                            entry.getKey(), entry.getValue()}, styles, -1);
+                    }
+                }
+                source.createFreezePane(0, 1);
+                for (int column = 0; column < 5; column++) source.setColumnWidth(column, (column == 4 ? 80 : 28) * 256);
             }
             workbook.write(output);
         }
@@ -678,13 +703,7 @@ class TranscriptValidationExcelWriter {
         boolean kbu
     ) {
         String[] headers = kbu ? KBU_COURSE_COMPARISON_HEADERS : COURSE_COMPARISON_HEADERS;
-        Sheet sheet = workbook.createSheet("학생별 과목 비교");
-        sheet.setDisplayGridlines(false);
-        title(
-            sheet, styles, "학생별 전체 과목 및 반영 과목 비교 - 노란색 셀은 성적 계산에 선택된 과목",
-            headers.length - 1
-        );
-        header(sheet, styles, headers);
+        ComparisonPages pages = new ComparisonPages(workbook, styles, headers, kbu);
 
         Map<String, List<TranscriptExcelRow>> coursesByApplicant = new HashMap<>();
         for (TranscriptExcelRow course : courses) {
@@ -693,7 +712,6 @@ class TranscriptValidationExcelWriter {
 
         List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
         results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
-        int rowIndex = 3;
         for (TranscriptBatchVerificationResult.Success success : results) {
             List<TranscriptBatchVerificationResult.SelectedCourse> selectedCourses =
                 new ArrayList<>(success.selectedCourses());
@@ -712,11 +730,12 @@ class TranscriptValidationExcelWriter {
                 success.application().applicantNumber(), List.of()
             ));
             applicantCourses.sort(courseComparator());
-            int applicantStartRow = rowIndex;
+            pages.ensureCapacity(applicantCourses.size());
+            int applicantStartRow = pages.rowIndex;
             for (int index = 0; index < applicantCourses.size(); index++) {
                 TranscriptExcelRow course = applicantCourses.get(index);
                 TranscriptBatchVerificationResult.SelectedCourse selected = selectedByCourse.get(course);
-                Row row = sheet.createRow(rowIndex++);
+                Row row = pages.sheet.createRow(pages.rowIndex++);
                 writeCourseComparisonRow(
                     row, styles, success.application(), success.studentName(), success.schoolInfo(), course, kbu,
                     selected == null ? "미선택" : "선택됨", selectionOrderByCourse.get(course), selected,
@@ -724,7 +743,7 @@ class TranscriptValidationExcelWriter {
                 );
                 if (selected != null) row.getCell(5).setCellStyle(styles.selected);
             }
-            mergeApplicantIdentity(sheet, applicantStartRow, rowIndex - 1, styles, false);
+            mergeApplicantIdentity(pages.sheet, applicantStartRow, pages.rowIndex - 1, styles, false);
         }
 
         List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>(verification.failures());
@@ -734,23 +753,60 @@ class TranscriptValidationExcelWriter {
                 failure.application().applicantNumber(), List.of()
             ));
             applicantCourses.sort(courseComparator());
-            int applicantStartRow = rowIndex;
+            pages.ensureCapacity(applicantCourses.size());
+            int applicantStartRow = pages.rowIndex;
             for (int index = 0; index < applicantCourses.size(); index++) {
                 TranscriptExcelRow course = applicantCourses.get(index);
-                Row row = sheet.createRow(rowIndex++);
+                Row row = pages.sheet.createRow(pages.rowIndex++);
                 writeCourseComparisonRow(
                     row, styles, failure.application(), failure.studentName(), null, course, kbu,
                     "검증 실패", null, null, index == 0
                 );
                 row.getCell(5).setCellStyle(styles.error);
             }
-            mergeApplicantIdentity(sheet, applicantStartRow, rowIndex - 1, styles, false);
+            mergeApplicantIdentity(pages.sheet, applicantStartRow, pages.rowIndex - 1, styles, false);
         }
 
-        finishTable(sheet, rowIndex - 3, headers.length);
-        sheet.createFreezePane(6, 3);
-        setWidths(sheet, headers, kbu ? Set.of(3, 4, 10) : Set.of(3, 4, 11, 19, 20));
-        sheet.setColumnWidth(2, 24 * 256);
+        pages.finish();
+    }
+
+    private class ComparisonPages {
+        private final SXSSFWorkbook workbook;
+        private final Styles styles;
+        private final String[] headers;
+        private final boolean kbu;
+        private Sheet sheet;
+        private int rowIndex;
+        private int page;
+
+        ComparisonPages(SXSSFWorkbook workbook, Styles styles, String[] headers, boolean kbu) {
+            this.workbook = workbook;
+            this.styles = styles;
+            this.headers = headers;
+            this.kbu = kbu;
+            next();
+        }
+
+        void ensureCapacity(int count) {
+            if (count > comparisonRowLimit - 3) throw new IllegalArgumentException("한 지원자의 과목 수가 Excel 시트 한도를 초과합니다.");
+            if (rowIndex + count > comparisonRowLimit) { finish(); next(); }
+        }
+
+        void next() {
+            page++;
+            sheet = workbook.createSheet(page == 1 ? "학생별 과목 비교" : "학생별 과목 비교 " + page);
+            sheet.setDisplayGridlines(false);
+            title(sheet, styles, "학생별 전체 과목 및 반영 과목 비교 - 노란색 셀은 성적 계산에 선택된 과목", headers.length - 1);
+            header(sheet, styles, headers);
+            rowIndex = 3;
+        }
+
+        void finish() {
+            finishTable(sheet, rowIndex - 3, headers.length);
+            sheet.createFreezePane(6, 3);
+            setWidths(sheet, headers, kbu ? Set.of(3, 4, 10) : Set.of(3, 4, 11, 19, 20));
+            sheet.setColumnWidth(2, 24 * 256);
+        }
     }
 
     private void writeCourseComparisonRow(
@@ -965,6 +1021,7 @@ class TranscriptValidationExcelWriter {
     }
 
     private String formatLabel(String sourceFormat) {
+        if (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(sourceFormat)) return "명지전문대 현재 수신 원자료 ZIP";
         if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
         if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
         return "표준 성적양식";

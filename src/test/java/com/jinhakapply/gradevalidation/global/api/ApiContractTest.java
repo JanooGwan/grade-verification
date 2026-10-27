@@ -183,6 +183,18 @@ class ApiContractTest {
     }
 
     @Test
+    void queuesMjcCurrentSourceZipAndReturnsAccepted() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "synthetic-source.zip", "application/zip", new byte[]{1, 2, 3});
+        when(mjcSourceImportService.queueArchive(anyInt(), anyLong(), any(MultipartFile.class)))
+            .thenReturn(new SourceImportStartResponse(10L, TranscriptImportStatus.QUEUED, "MJC_CURRENT_SOURCE_ZIP_V1", "queued"));
+        mockMvc.perform(multipart("/api/transcripts/imports/source/mjc/zip").file(file)
+                .param("admissionYear", "2027").param("universityId", "1"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(10))
+            .andExpect(jsonPath("$.sourceFormat").value("MJC_CURRENT_SOURCE_ZIP_V1"));
+    }
+
+    @Test
     void downloadsStoredTranscriptValidationResultAsExcel() throws Exception {
         doAnswer(invocation -> {
             invocation.<OutputStream>getArgument(2).write(new byte[] {4, 5, 6});

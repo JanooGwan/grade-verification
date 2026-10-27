@@ -19,8 +19,25 @@ public record GradeVerificationResponse(
     String sourceDocument, String sourcePages,
     int includedCourseCount, int excludedCourseCount, CalculationSummary calculationSummary,
     List<CourseCalculation> calculations,
-    List<String> warnings
+    List<String> warnings,
+    Map<String, String> sourceValues
 ) {
+    public GradeVerificationResponse(Long ruleId, String ruleName, int ruleVersion, String universityName,
+        String admissionType, String recruitmentUnit, BigDecimal finalScore, BigDecimal baseScore,
+        BigDecimal averageGrade, SelectionStrategy selectionStrategy, ScoreAggregation scoreAggregation,
+        String sourceDocument, String sourcePages, int includedCourseCount, int excludedCourseCount,
+        CalculationSummary calculationSummary, List<CourseCalculation> calculations, List<String> warnings) {
+        this(ruleId, ruleName, ruleVersion, universityName, admissionType, recruitmentUnit, finalScore, baseScore,
+            averageGrade, selectionStrategy, scoreAggregation, sourceDocument, sourcePages, includedCourseCount,
+            excludedCourseCount, calculationSummary, calculations, warnings, Map.of());
+    }
+
+    public GradeVerificationResponse withSourceValues(Map<String, String> values) {
+        return new GradeVerificationResponse(ruleId, ruleName, ruleVersion, universityName, admissionType,
+            recruitmentUnit, finalScore, baseScore, averageGrade, selectionStrategy, scoreAggregation, sourceDocument,
+            sourcePages, includedCourseCount, excludedCourseCount, calculationSummary, calculations, warnings, values);
+    }
+
     public record CalculationSummary(
         String formula,
         BigDecimal gradeTimesCreditsSum,

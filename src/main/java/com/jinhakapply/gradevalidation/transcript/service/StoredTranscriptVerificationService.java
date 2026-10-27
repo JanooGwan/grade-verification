@@ -124,6 +124,7 @@ public class StoredTranscriptVerificationService {
             stored.applications(),
             stored.courses(),
             stored.schoolInfoByApplicant(),
+            loadArchiveInputs(stored.transcriptImport()),
             (application, result) -> {
                 if (application.applicationId() == null) {
                     throw new IllegalStateException("DB 지원정보 식별자가 없어 검증 결과를 저장할 수 없습니다.");
@@ -143,6 +144,16 @@ public class StoredTranscriptVerificationService {
             }
         );
         requireMatchedVerificationRule(verification);
+        if (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(stored.transcriptImport().getSourceFormat())) {
+            jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
+                sourceImportId);
+            for (var failure : verification.failures()) {
+                jdbcTemplate.update("""
+                    UPDATE student_mjc_archive_applicant SET verification_code=?, verification_reason=?
+                    WHERE import_id=? AND applicant_number=?
+                    """, failure.code(), failure.reason(), sourceImportId, failure.application().applicantNumber());
+            }
+        }
         return new StoredVerificationPersistenceResponse(
             sourceImportId,
             stored.applications().size(),
@@ -160,7 +171,9 @@ public class StoredTranscriptVerificationService {
             admissionYear,
             stored.applications(),
             stored.courses(),
-            stored.schoolInfoByApplicant()
+            stored.schoolInfoByApplicant(),
+            loadArchiveInputs(stored.transcriptImport()),
+            (application, result) -> { }
         );
         requireMatchedVerificationRule(verification);
         return new StoredVerification(
@@ -172,7 +185,8 @@ public class StoredTranscriptVerificationService {
         StudentTranscriptImport transcriptImport = loadLatestCompletedImport(universityId, admissionYear);
         List<TransferApplicationRow> applications = loadApplications(universityId, admissionYear);
         List<TranscriptExcelRow> courses = loadCourses(universityId, admissionYear);
-        if (applications.isEmpty() || courses.isEmpty()) {
+        if (applications.isEmpty() || (courses.isEmpty()
+            && !MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat()))) {
             throw CustomException.of(
                 STORED_TRANSCRIPT_DATA_NOT_FOUND,
                 "최신 DB 저장본에 지원정보 또는 과목 성적이 없습니다. 완전한 파일을 다시 업로드해 주세요."
@@ -209,6 +223,16 @@ public class StoredTranscriptVerificationService {
 
     private boolean isSyuSource(StudentTranscriptImport transcriptImport) {
         return SyuSourceExcelStreamer.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat());
+    }
+
+    private Map<String, MjcArchiveApplicant> loadArchiveInputs(StudentTranscriptImport transcriptImport) {
+        if (!MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat())) return Map.of();
+        Map<String, MjcArchiveApplicant> result = new LinkedHashMap<>();
+        jdbcTemplate.query("SELECT applicant_number, source_metadata FROM student_mjc_archive_applicant WHERE import_id=?",
+            (org.springframework.jdbc.core.RowCallbackHandler) row -> result.put(row.getString("applicant_number"),
+                objectMapper.readValue(row.getString("source_metadata"), MjcArchiveApplicant.class)), transcriptImport.getId());
+        if (result.isEmpty()) throw CustomException.of(INVALID_TRANSCRIPT_FILE, "ZIP 원자료 연결 정보가 없습니다. ZIP을 다시 업로드해 주세요.");
+        return result;
     }
 
     private List<TransferApplicationRow> loadApplications(Long universityId, int admissionYear) {

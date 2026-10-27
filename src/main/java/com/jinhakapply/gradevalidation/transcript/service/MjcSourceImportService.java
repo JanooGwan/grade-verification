@@ -35,6 +35,39 @@ public class MjcSourceImportService {
     private final MjcSourceImportProcessor processor;
     private final UniversityRepository universityRepository;
 
+    public SourceImportStartResponse queueArchive(int admissionYear, Long universityId, MultipartFile file) {
+        if ((admissionYear != 2026 && admissionYear != 2027) || file == null || file.isEmpty()
+            || file.getSize() > MAX_FILE_SIZE || file.getOriginalFilename() == null
+            || !file.getOriginalFilename().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "2026·2027학년도 원자료 ZIP(최대 200MB)을 선택해 주세요.");
+        }
+        University university = requireMjcUniversity(universityId);
+        Path directory = null;
+        try {
+            directory = Files.createTempDirectory("mjc-source-archive-");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            Path archive = copy(file, directory.resolve("source.zip"), digest, "archive");
+            StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
+                university, admissionYear, "MJC-" + admissionYear + "-current-source.zip",
+                HexFormat.of().formatHex(digest.digest()), MjcSourceArchiveExtractor.SOURCE_FORMAT,
+                directory.toAbsolutePath().toString()
+            ));
+            try {
+                processor.processArchive(queued.getId(), universityId, admissionYear, directory, archive);
+            } catch (TaskRejectedException exception) {
+                queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                importRepository.saveAndFlush(queued);
+                throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            }
+            directory = null;
+            return new SourceImportStartResponse(queued.getId(), queued.getStatus(),
+                MjcSourceArchiveExtractor.SOURCE_FORMAT, "원자료 ZIP 확인 및 저장을 시작했습니다. 완료 후 성적 검증을 실행해 주세요.");
+        } catch (CustomException exception) { throw exception; }
+        catch (Exception exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "원자료 ZIP을 임시 저장하지 못했습니다.");
+        } finally { if (directory != null) deleteDirectory(directory); }
+    }
+
     public SourceImportStartResponse queue(
         int admissionYear,
         Long universityId,

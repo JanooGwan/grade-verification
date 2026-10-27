@@ -48,6 +48,15 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @Validated
 public interface TranscriptApi {
 
+    @Operation(summary = "명지전문대 현재 수신 원자료 ZIP 가져오기",
+        description = "execution.csv, file-index.csv 및 모든 part를 검사한 뒤 한 번에 저장합니다. 암호화 ZIP은 지원하지 않습니다.")
+    @PostMapping(value = "/imports/source/mjc/zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<SourceImportStartResponse> importMjcSourceZip(
+        @RequestParam @Min(2000) @Max(2100) int admissionYear,
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestPart("file") MultipartFile file
+    );
+
     @Operation(
         summary = "삼육대 대용량 원천 Excel 가져오기",
         description = "학생부 교과 성적·학생부출결 시트를 스트리밍으로 읽고 백그라운드에서 배치 저장합니다."

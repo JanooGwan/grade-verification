@@ -143,7 +143,8 @@ public class SavedVerificationQueryService {
             }
             if (storedResults.size() < EXPORT_PAGE_SIZE) break;
         }
-        if (successes.isEmpty()) throw CustomException.of(VERIFICATION_RUN_NOT_FOUND);
+        boolean mjcArchive = MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(batch.sourceFormat());
+        if (successes.isEmpty() && !mjcArchive) throw CustomException.of(VERIFICATION_RUN_NOT_FOUND);
 
         List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>();
         boolean applicationScopeComplete = true;
@@ -153,7 +154,7 @@ public class SavedVerificationQueryService {
             && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
         boolean kbu = batch.universityName().contains("경복")
             && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
-        if (tuk || kbu) {
+        if (tuk || kbu || mjcArchive) {
             var applications = repository.findExportApplications(sourceImportId);
             var savedIds = successes.stream().map(s -> s.application().applicationId())
                 .collect(java.util.stream.Collectors.toSet());
@@ -171,9 +172,15 @@ public class SavedVerificationQueryService {
                     return new TranscriptBatchVerificationResult.Success(application, success.studentName(),
                         success.verification(), success.selectedCourses(), success.intermediateCalculations(), success.schoolInfo());
                 });
+                var mjcReasons = mjcArchive ? repository.findMjcFailureReasons(sourceImportId) : Map.<String, String[]>of();
                 applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
-                    .map(a -> tuk ? TukUnscoredExport.failure(batch.admissionYear(), a)
-                        : unscoredFailure(batch.admissionYear(), a)).forEach(failures::add);
+                    .map(a -> {
+                        var generic = tuk ? TukUnscoredExport.failure(batch.admissionYear(), a)
+                            : unscoredFailure(batch.admissionYear(), a);
+                        var reason = mjcReasons.get(a.applicantNumber());
+                        return reason == null ? generic : new TranscriptBatchVerificationResult.Failure(
+                            generic.application(), generic.studentName(), generic.availableCourseCount(), reason[0], reason[1]);
+                    }).forEach(failures::add);
                 warnings.add(tuk
                     ? "미산출 사유는 같은 업로드의 현재 지원정보·학생부 유무와 기준연도로 확인했습니다. 불합격을 의미하지 않습니다."
                     : "저장 결과가 없는 지원자도 미산출로 표시했습니다. 당시 실패 사유는 저장되지 않으므로 성적검증 실패 내역을 확인해 주세요. 불합격을 의미하지 않습니다.");
@@ -210,7 +217,7 @@ public class SavedVerificationQueryService {
             verification.finalScore(), verification.baseScore(), verification.averageGrade(),
             verification.selectionStrategy(), verification.scoreAggregation(), verification.sourceDocument(),
             verification.sourcePages(), verification.includedCourseCount(), verification.excludedCourseCount(),
-            verification.calculationSummary(), List.of(), verification.warnings()
+            verification.calculationSummary(), List.of(), verification.warnings(), verification.sourceValues()
         );
     }
 

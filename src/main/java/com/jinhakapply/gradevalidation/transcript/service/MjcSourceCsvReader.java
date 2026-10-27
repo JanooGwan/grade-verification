@@ -1,10 +1,6 @@
 package com.jinhakapply.gradevalidation.transcript.service;
 
-import java.io.BufferedReader;
-import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -73,7 +69,8 @@ class MjcSourceCsvReader {
                 row.optionalDecimal("standardDeviation"), row.optionalInteger("studentCount"),
                 row.optionalInteger("rank"), row.optionalInteger("sameRank"), credits,
                 "02".equals(separationCode) || "2".equals(separationCode),
-                isProfessional(organizationName), row.optional("rankingGrade")
+                isProfessional(organizationName), row.optional("rankingGrade"),
+                row.extra("sourceApplicantId"), row.extra("sourceStudentRecordId"), row.extra("sourceSubjectId")
             );
             batch.add(value);
             if (batch.size() >= batchSize) {
@@ -86,27 +83,13 @@ class MjcSourceCsvReader {
     }
 
     private void read(Path path, Consumer<CsvRow> consumer) {
-        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            String headerLine = reader.readLine();
-            if (headerLine == null) throw new IllegalArgumentException(path.getFileName() + " 헤더가 없습니다.");
-            List<String> headers = parseLine(stripBom(headerLine));
+        int[] rowNumber = {1};
+        MjcArchiveCsv.read(path, raw -> {
             Map<String, Integer> columns = new HashMap<>();
-            for (int index = 0; index < headers.size(); index++) columns.put(headers.get(index).trim(), index);
-            String line;
-            int rowNumber = 1;
-            while ((line = reader.readLine()) != null) {
-                rowNumber++;
-                if (line.isBlank()) continue;
-                List<String> values = parseLine(line);
-                if (values.size() != headers.size()) {
-                    throw new IllegalArgumentException(path.getFileName() + " " + rowNumber
-                        + "행의 열 수가 헤더와 다릅니다.");
-                }
-                consumer.accept(new CsvRow(path.getFileName().toString(), rowNumber, columns, values));
-            }
-        } catch (IOException exception) {
-            throw new IllegalArgumentException(path.getFileName() + " CSV를 읽지 못했습니다.", exception);
-        }
+            List<String> values = new ArrayList<>();
+            raw.forEach((key, value) -> { columns.put(key.trim(), values.size()); values.add(value); });
+            consumer.accept(new CsvRow(path.getFileName().toString(), ++rowNumber[0], columns, values));
+        });
     }
 
     static List<String> parseLine(String line) {
@@ -132,10 +115,6 @@ class MjcSourceCsvReader {
         if (quoted) throw new IllegalArgumentException("닫히지 않은 CSV 따옴표가 있습니다.");
         values.add(value.toString());
         return values;
-    }
-
-    private String stripBom(String value) {
-        return value.startsWith("\uFEFF") ? value.substring(1) : value;
     }
 
     private AchievementLevel achievement(String value) {
@@ -215,7 +194,10 @@ class MjcSourceCsvReader {
         BigDecimal credits,
         boolean careerSubject,
         boolean professionalCourse,
-        String sourceGradeText
+        String sourceGradeText,
+        String sourceApplicantId,
+        String sourceStudentRecordId,
+        String sourceSubjectId
     ) {}
 
     record StreamResult(int totalRows, int importedRows, int skippedRows) {}
@@ -235,9 +217,15 @@ class MjcSourceCsvReader {
         String optional(String name) {
             Integer index = columns.get(name);
             if (index == null) throw error("필수 헤더가 없습니다: " + name);
-            String value = values.get(index).trim();
-            return value.isBlank() || value.equals("\\N") ? null : value;
+            boolean archive = columns.containsKey("sourceApplicantId");
+            String value = archive
+                ? MjcArchiveCsv.decode(values.get(index)) : values.get(index);
+            if (value == null) return null;
+            value = value.trim();
+            return value.isBlank() || (!archive && value.equals("\\N")) ? null : value;
         }
+
+        String extra(String name) { return columns.containsKey(name) ? optional(name) : null; }
 
         int requiredInteger(String name, int minimum, int maximum) {
             Integer value = optionalInteger(name);

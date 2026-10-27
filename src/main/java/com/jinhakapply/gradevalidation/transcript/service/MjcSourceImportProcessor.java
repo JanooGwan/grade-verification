@@ -37,6 +37,24 @@ class MjcSourceImportProcessor {
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
     private final TranscriptSnapshotReplacementService snapshotReplacementService;
+    private final MjcSourceArchiveExtractor archiveExtractor;
+    private final tools.jackson.databind.ObjectMapper objectMapper;
+
+    @Async("sourceImportExecutor")
+    public void processArchive(Long importId, Long universityId, int admissionYear, Path directory, Path archive) {
+        try {
+            updateStatus(importId, "PROCESSING", null);
+            var bundle = archiveExtractor.extract(archive, directory, admissionYear);
+            transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants()));
+        } catch (Exception exception) {
+            // JDBC/parser exceptions can embed applicant values. Never log the exception or its message here.
+            log.warn("MJC archive import failed: importId={}", importId);
+            fail(importId, exception instanceof IllegalArgumentException
+                ? "ZIP 구조·학년도·행 수·연결 정보를 확인해 주세요. 암호화 ZIP은 먼저 해제 후 일반 ZIP으로 다시 압축해 주세요."
+                : "원자료 ZIP 저장에 실패했습니다. 기존 저장본은 유지됩니다.");
+        } finally { MjcSourceImportService.deleteDirectory(directory); }
+    }
 
     @Async("sourceImportExecutor")
     public void process(
@@ -92,6 +110,21 @@ class MjcSourceImportProcessor {
         Path baseInfoFile,
         Path subjectScoreFile
     ) {
+        importCsvBundle(importId, universityId, admissionYear, applicantsFile, baseInfoFile, subjectScoreFile, List.of());
+    }
+
+    private void importCsvBundle(Long importId, Long universityId, int admissionYear,
+        Path applicantsFile, Path baseInfoFile, Path subjectScoreFile, List<MjcArchiveApplicant> archiveApplicants) {
+        // Serialize replacement imports for a university. This query executes only when the user uploads.
+        jdbcTemplate.queryForObject("SELECT id FROM university WHERE id=? FOR UPDATE", Long.class, universityId);
+        Long latestImport = jdbcTemplate.queryForObject("""
+            SELECT MAX(id) FROM student_transcript_import
+            WHERE university_id=? AND admission_year=?
+              AND status IN ('QUEUED', 'PROCESSING', 'COMPLETED', 'COMPLETED_WITH_ERRORS')
+            """, Long.class, universityId, admissionYear);
+        if (latestImport != null && latestImport > importId) {
+            throw new IllegalArgumentException("더 최근의 가져오기가 있어 이전 업로드로 저장본을 교체하지 않았습니다.");
+        }
         List<ApplicantRow> applicants = reader.readApplicants(applicantsFile);
         Map<String, ApplicantRow> applicantsByNumber = applicants.stream().collect(Collectors.toMap(
             ApplicantRow::examNumber, Function.identity(),
@@ -119,6 +152,7 @@ class MjcSourceImportProcessor {
             throw new IllegalStateException("일부 지원자 기본정보를 생성하지 못했습니다.");
         }
         insertApplications(importId, applicants, studentIds, unitIds);
+        if (!archiveApplicants.isEmpty()) saveArchiveMetadata(importId, archiveApplicants, studentIds);
 
         int[] processed = {0};
         StreamResult result = reader.streamCourses(subjectScoreFile, BATCH_SIZE, batch -> {
@@ -133,9 +167,29 @@ class MjcSourceImportProcessor {
         snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantsByNumber.keySet());
         String warning = result.skippedRows() == 0 ? null
             : "이수단위가 없거나 0 이하인 과목 " + result.skippedRows() + "건을 성적 반영에서 제외했습니다.";
+        long unresolved = archiveApplicants.stream().filter(row -> row.issue() != null).count();
+        if (unresolved > 0) warning = "원자료 연결 확인이 필요한 지원자 " + unresolved + "건은 성적검증에서 미산출로 표시합니다.";
         complete(importId, result.totalRows(), result.importedRows(), result.skippedRows(), warning);
         log.info("MJC source CSV import completed: importId={}, applicants={}, totalRows={}, importedRows={}, skippedRows={}",
             importId, applicants.size(), result.totalRows(), result.importedRows(), result.skippedRows());
+    }
+
+    private void saveArchiveMetadata(Long importId, List<MjcArchiveApplicant> applicants, Map<String, Long> studentIds) {
+        jdbcTemplate.update("DELETE FROM student_mjc_archive_applicant WHERE import_id=?", importId);
+        jdbcTemplate.batchUpdate("""
+            INSERT INTO student_mjc_archive_applicant (import_id, applicant_number, source_metadata)
+            VALUES (?, ?, ?)
+            """, applicants, BATCH_SIZE, (statement, row) -> {
+                statement.setLong(1, importId);
+                statement.setString(2, row.examNumber());
+                statement.setString(3, objectMapper.writeValueAsString(row));
+            });
+        jdbcTemplate.batchUpdate("""
+            UPDATE student SET education_background=?, ged_average_score=NULL WHERE id=?
+            """, applicants, BATCH_SIZE, (statement, row) -> {
+                statement.setString(1, "UNRESOLVED".equals(row.academicType()) ? "DOMESTIC_HIGH_SCHOOL" : row.academicType());
+                statement.setLong(2, studentIds.get(row.examNumber()));
+            });
     }
 
     private Map<UnitKey, Long> upsertCatalog(Long universityId, int admissionYear, List<ApplicantRow> applicants) {
@@ -217,7 +271,8 @@ class MjcSourceImportProcessor {
     }
 
     private String graduationStatus(ApplicantRow applicant) {
-        return applicant.graduationStatus() != null && applicant.graduationStatus().contains("예정")
+        return applicant.graduationStatus() != null && (applicant.graduationStatus().contains("예정")
+            || applicant.graduationStatus().equals("EXPECTED_GRADUATE"))
             ? "EXPECTED_GRADUATE" : "GRADUATE";
     }
 
@@ -302,8 +357,8 @@ class MjcSourceImportProcessor {
                 import_id, source_row_number, applicant_number, school_year, semester, subject_category,
                 course_name, grade_value, grade_scale, achievement, raw_score, mean_score, standard_deviation,
                 student_count, rank_position, tied_rank_count, legacy_achievement, credits, career_subject,
-                professional_course, source_grade_text, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
+                professional_course, source_grade_text, source_applicant_id, source_student_record_id, source_subject_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
             """;
         jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> bindCourse(
             statement, row, null, importId, false
@@ -349,6 +404,11 @@ class MjcSourceImportProcessor {
         statement.setBoolean(index++, row.professionalCourse());
         setString(statement, index++, row.sourceGradeText());
         if (currentCourse) statement.setInt(index, row.rowNumber());
+        else {
+            setString(statement, index++, row.sourceApplicantId());
+            setString(statement, index++, row.sourceStudentRecordId());
+            setString(statement, index, row.sourceSubjectId());
+        }
     }
 
     private void updateStatus(Long importId, String status, String errorMessage) {

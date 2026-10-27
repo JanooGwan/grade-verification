@@ -83,6 +83,13 @@ class TranscriptBatchVerificationService {
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant,
         BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer
     ) {
+        return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, Map.of(), verifiedResultConsumer);
+    }
+
+    TranscriptBatchVerificationResult verify(Long universityId, int admissionYear,
+        List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
         }
@@ -113,6 +120,29 @@ class TranscriptBatchVerificationService {
                 continue;
             }
             EvaluationRule rule = matchedRules.getFirst();
+            MjcArchiveApplicant archive = archiveInputs.get(application.applicantNumber());
+            if (!archiveInputs.isEmpty() && archive == null) {
+                failures.add(failure(application, studentName, applicantCourses.size(), "ARCHIVE_METADATA_MISSING",
+                    "지원자 원자료 연결 정보가 없습니다. ZIP을 다시 업로드해 주세요."));
+                continue;
+            }
+            if (archive != null && archive.issue() != null) {
+                failures.add(failure(application, studentName, applicantCourses.size(), archive.issue(),
+                    "원자료 연결 또는 학력 분류를 확인해야 합니다. 누락·복수 원본을 임의로 선택하거나 합산하지 않았습니다."));
+                continue;
+            }
+            if (archive != null && "GED".equals(archive.academicType())) {
+                try {
+                    var result = MjcArchiveScores.ged(rule, application.admissionTrackName(), archive);
+                    verifiedResultConsumer.accept(application, result);
+                    successes.add(new TranscriptBatchVerificationResult.Success(application, studentName, result,
+                        List.of(), List.of(), schoolInfo));
+                } catch (IllegalArgumentException exception) {
+                    failures.add(failure(application, studentName, 0, "GED_INPUT_REVIEW_REQUIRED",
+                        "검정고시 필수과목·중복·유효 원본 및 전형 적용 여부를 확인해야 합니다."));
+                }
+                continue;
+            }
             boolean tuk = isTukRule(rule);
             Integer graduationYear = schoolInfo != null && schoolInfo.graduationYear() != null
                 ? schoolInfo.graduationYear() : application.graduationYear();
@@ -179,6 +209,17 @@ class TranscriptBatchVerificationService {
             try {
                 GradeVerificationResponse verification = evaluationService.verify(rule, request);
                 GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
+                if (archive != null) {
+                    var values = MjcArchiveScores.sourceValues(archive);
+                    for (var group : buildIntermediateCalculations(rule, verification)) {
+                        if (group.averageGrade() != null) values.put("동점자 보조 " + group.groupName() + " 평균등급",
+                            group.averageGrade().toPlainString());
+                    }
+                    if (verification.calculationSummary() != null && verification.calculationSummary().totalIncludedCredits() != null) {
+                        values.put("반영 이수단위 합", verification.calculationSummary().totalIncludedCredits().toPlainString());
+                    }
+                    annotated = annotated.withSourceValues(values);
+                }
                 verifiedResultConsumer.accept(application, annotated);
                 List<TranscriptBatchVerificationResult.SelectedCourse> selected = new ArrayList<>();
                 int sourceCalculationCount = Math.min(
@@ -193,7 +234,7 @@ class TranscriptBatchVerificationService {
                     }
                 }
                 successes.add(new TranscriptBatchVerificationResult.Success(
-                    application, studentName, compact(annotated),
+                    application, studentName, compact(annotated).withSourceValues(annotated.sourceValues()),
                     List.copyOf(selected), buildIntermediateCalculations(rule, verification), schoolInfo
                 ));
             } catch (CustomException exception) {
