@@ -192,6 +192,11 @@ class MjcSourceImportProcessor {
             : "이수단위가 없거나 0 이하인 과목 " + result.skippedRows() + "건을 성적 반영에서 제외했습니다.";
         long unresolved = archiveApplicants.stream().filter(row -> row.issue() != null).count();
         if (unresolved > 0) warning = "원자료 연결 확인이 필요한 지원자 " + unresolved + "건은 성적검증에서 미산출로 표시합니다.";
+        if (result.unresolvedGrades() > 0) {
+            String gradeWarning = "숫자 석차등급으로 해석하지 않은 원본 표기 " + result.unresolvedGrades()
+                + "건을 원문으로 저장했습니다. 반영 범위에 해당하면 성적검증에서 등급 확인 필요로 표시합니다.";
+            warning = warning == null ? gradeWarning : warning + " " + gradeWarning;
+        }
         complete(importId, result.totalRows(), result.importedRows(), result.skippedRows(), warning);
         log.info("MJC source CSV import completed: importId={}, applicants={}, totalRows={}, importedRows={}, skippedRows={}",
             importId, applicants.size(), result.totalRows(), result.importedRows(), result.skippedRows());

@@ -151,6 +151,61 @@ class MjcSourcePreservationTest {
             .append(",\\N,\\N,\\N,\\N,100,\\N,\\N,01\n");
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {2026, 2027})
+    void storesUnknownGradeButDoesNotSilentlySubstituteMissingGradeOrDropItsCredits(int admissionYear) throws Exception {
+        StringBuilder csv = syntheticGradeCsv();
+        append(csv, 1, 1, "합성 정상과목1", "3", "1");
+        append(csv, 2, 1, "합성 정상과목2", "3", "2");
+        append(csv, 3, 1, "합성 정상과목3", "3", "3");
+        append(csv, 1, 2, "합성 미해석과목", "3", "SYNTHETIC_UNRESOLVED");
+        Path path = directory.resolve("unknown-grade.csv");
+        Files.writeString(path, csv);
+        List<MjcSourceCsvReader.CourseRow> imported = new ArrayList<>();
+        var count = new MjcSourceCsvReader().streamCourses(path, 2, imported::addAll);
+        assertThat(count.importedRows()).isEqualTo(4);
+        assertThat(count.unresolvedGrades()).isEqualTo(1);
+        var courses = imported.stream().map(row -> toCourse(row, admissionYear)).toList();
+        var result = verify(admissionYear, courses);
+        assertThat(result.successes()).isEmpty();
+        assertThat(result.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.code()).isEqualTo("MJC_SOURCE_GRADE_REVIEW_REQUIRED");
+            assertThat(failure.reason()).doesNotContain("SYNTHETIC_UNRESOLVED");
+        });
+        try (var workbook = export(courses, result)) {
+            var details = workbook.getSheet("학생별 과목 비교");
+            assertThat(details.getLastRowNum()).isEqualTo(6);
+            assertThat(new DataFormatter().formatCellValue(details.getRow(4).getCell(12))).isEqualTo("SYNTHETIC_UNRESOLVED");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2026, 2027})
+    void unknownGradesOutsideReflectionScopeDoNotChangeValidScores(int admissionYear) throws Exception {
+        StringBuilder csv = syntheticGradeCsv();
+        append(csv, 1, 1, "합성 정상과목1", "3", "1");
+        append(csv, 2, 1, "합성 정상과목2", "3", "2");
+        append(csv, 3, 1, "합성 정상과목3", "3", "3");
+        append(csv, 1, 2, "합성 0단위", "0", "SYNTHETIC_UNRESOLVED");
+        append(csv, 3, 2, "합성 미반영학기", "3", "SYNTHETIC_UNRESOLVED");
+        Path path = directory.resolve("outside-scope.csv");
+        Files.writeString(path, csv);
+        List<MjcSourceCsvReader.CourseRow> imported = new ArrayList<>();
+        new MjcSourceCsvReader().streamCourses(path, 10, imported::addAll);
+        var courses = imported.stream().map(row -> toCourse(row, admissionYear)).toList();
+        var result = verify(admissionYear, courses);
+        assertThat(result.failures()).isEmpty();
+        var success = result.successes().getFirst();
+        assertThat(success.verification().finalScore()).isEqualByComparingTo("890.00000");
+        assertThat(success.verification().calculationSummary().totalIncludedCredits()).isEqualByComparingTo("9");
+        assertThat(success.verification().includedCourseCount()).isEqualTo(3);
+        assertThat(success.verification().excludedCourseCount()).isEqualTo(2);
+    }
+
+    private StringBuilder syntheticGradeCsv() {
+        return new StringBuilder("examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n");
+    }
+
     private TranscriptExcelRow toCourse(MjcSourceCsvReader.CourseRow row, int admissionYear) {
         return new TranscriptExcelRow(row.rowNumber(), row.examNumber(), "합성 지원자", null, null, admissionYear,
             row.schoolYear(), row.semester(), row.subjectCategory(), row.courseName(), row.grade(), GradeScale.NINE_LEVEL,

@@ -50,15 +50,15 @@ class MjcSourceCsvReader {
     StreamResult streamCourses(Path path, int batchSize, Consumer<List<CourseRow>> batchConsumer) {
         List<CourseRow> batch = new ArrayList<>(batchSize);
         int[] total = {0};
+        int[] unresolvedGrades = {0};
         read(path, row -> {
             total[0]++;
             BigDecimal credits = row.optionalDecimal("unit");
             if (credits == null) credits = BigDecimal.ZERO;
             if (credits.signum() < 0) throw row.error("이수단위는 음수일 수 없습니다.");
             Integer grade = row.optionalRankingGrade("rankingGrade");
-            if (grade != null && (grade < 1 || grade > 9)) {
-                throw row.error("석차등급은 1~9 사이여야 합니다.");
-            }
+            String sourceGrade = row.sourceText("rankingGrade");
+            if (requiresGradeReview(grade, sourceGrade)) unresolvedGrades[0]++;
             String organizationName = row.optional("organizationName");
             String separationCode = row.optional("subjectSeparationCode");
             CourseRow value = new CourseRow(
@@ -69,7 +69,7 @@ class MjcSourceCsvReader {
                 row.optionalDecimal("standardDeviation"), row.optionalInteger("studentCount"),
                 row.optionalInteger("rank"), row.optionalInteger("sameRank"), credits,
                 "02".equals(separationCode) || "2".equals(separationCode),
-                isProfessional(organizationName), row.optional("rankingGrade"),
+                isProfessional(organizationName), sourceGrade,
                 row.extra("sourceApplicantId"), row.extra("sourceStudentRecordId"), row.extra("sourceSubjectId")
             );
             batch.add(value);
@@ -79,7 +79,12 @@ class MjcSourceCsvReader {
             }
         });
         if (!batch.isEmpty()) batchConsumer.accept(List.copyOf(batch));
-        return new StreamResult(total[0], total[0], 0);
+        return new StreamResult(total[0], total[0], 0, unresolvedGrades[0]);
+    }
+
+    static boolean requiresGradeReview(Integer grade, String sourceGrade) {
+        return grade == null && sourceGrade != null && !sourceGrade.isBlank()
+            && !NON_NUMERIC_RANKING_GRADES.contains(sourceGrade.trim().toUpperCase(Locale.ROOT));
     }
 
     private void read(Path path, Consumer<CsvRow> consumer) {
@@ -200,7 +205,7 @@ class MjcSourceCsvReader {
         String sourceSubjectId
     ) {}
 
-    record StreamResult(int totalRows, int importedRows, int skippedRows) {}
+    record StreamResult(int totalRows, int importedRows, int skippedRows, int unresolvedGrades) {}
 
     private record CsvRow(
         String fileName,
@@ -227,6 +232,14 @@ class MjcSourceCsvReader {
 
         String extra(String name) { return columns.containsKey(name) ? optional(name) : null; }
 
+        String sourceText(String name) {
+            Integer index = columns.get(name);
+            if (index == null) throw error("필수 헤더가 없습니다: " + name);
+            String value = values.get(index);
+            return columns.containsKey("sourceApplicantId") ? MjcArchiveCsv.decode(value)
+                : value.equals("\\N") ? null : value;
+        }
+
         int requiredInteger(String name, int minimum, int maximum) {
             Integer value = optionalInteger(name);
             if (value == null || value < minimum || value > maximum) {
@@ -250,9 +263,11 @@ class MjcSourceCsvReader {
             if (value == null) return null;
             if (NON_NUMERIC_RANKING_GRADES.contains(value.toUpperCase(Locale.ROOT))) return null;
             try {
-                return new BigDecimal(value.replace(",", "")).intValueExact();
+                int grade = new BigDecimal(value.replace(",", "")).intValueExact();
+                return grade >= 1 && grade <= 9 ? grade : null;
             } catch (ArithmeticException | NumberFormatException exception) {
-                throw error(name + " 값이 석차등급 또는 인식 가능한 비등급 값이 아닙니다.");
+                // Preserve the original text in source_grade_text; its meaning is not guessed here.
+                return null;
             }
         }
 

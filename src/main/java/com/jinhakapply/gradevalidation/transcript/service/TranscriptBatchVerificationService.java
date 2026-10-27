@@ -202,6 +202,11 @@ class TranscriptBatchVerificationService {
 
             HighSchoolType highSchoolType = schoolInfo == null
                 ? HighSchoolType.GENERAL : schoolInfo.highSchoolType();
+            if (isMjcRule(rule) && applicantCourses.stream().anyMatch(course -> requiresMjcSourceGradeReview(course, highSchoolType))) {
+                failures.add(failure(application, studentName, applicantCourses.size(), "MJC_SOURCE_GRADE_REVIEW_REQUIRED",
+                    "반영 학년·학기에 숫자 석차등급으로 해석하지 않은 원본 표기가 있습니다. 원문은 저장했으며 임의의 등급이나 점수로 대체하지 않았습니다."));
+                continue;
+            }
             VerifyGradeRequest request = new VerifyGradeRequest(
                 rule.getId(), graduated, highSchoolType, graduationYear,
                 applicantCourses.stream().map(this::toCourseGrade).toList()
@@ -243,6 +248,15 @@ class TranscriptBatchVerificationService {
             }
         }
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
+    }
+
+    private boolean requiresMjcSourceGradeReview(TranscriptExcelRow course, HighSchoolType schoolType) {
+        if (!MjcSourceCsvReader.requiresGradeReview(course.grade(), course.sourceGradeText())
+            || course.credits() == null || course.credits().signum() <= 0) return false;
+        if (schoolType == HighSchoolType.TWO_YEAR) {
+            return course.schoolYear() == 1 || (course.schoolYear() == 2 && course.semester() == 1);
+        }
+        return course.schoolYear() <= 2 || (course.schoolYear() == 3 && course.semester() == 1);
     }
 
     List<TranscriptBatchVerificationResult.IntermediateCalculation> buildIntermediateCalculations(

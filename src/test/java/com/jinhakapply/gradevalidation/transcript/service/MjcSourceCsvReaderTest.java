@@ -89,4 +89,35 @@ class MjcSourceCsvReaderTest {
         Files.writeString(path, content, StandardCharsets.UTF_8);
         return path;
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"-", "*", "미확인표기", "2.5", "0", "10", "  합성표기  "})
+    void keepsUninterpretedRankingGradeInsteadOfAbortingTheWholeImport(String text) throws Exception {
+        Path source = write("uninterpreted.csv",
+            "examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n"
+                + "SYNTHETIC,1,1,국어,합성과목,3," + text + ",\\N,\\N,\\N,\\N,100,\\N,\\N,01\n");
+        List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
+        var result = reader.streamCourses(source, 10, rows::addAll);
+        assertThat(result.importedRows()).isEqualTo(1);
+        assertThat(result.skippedRows()).isZero();
+        assertThat(result.unresolvedGrades()).isEqualTo(1);
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.grade()).isNull();
+            assertThat(row.sourceGradeText()).isEqualTo(text);
+        });
+    }
+
+    @Test
+    void recognizesValidIntegralDecimalGradesAndKnownNonNumericLabels() throws Exception {
+        Path source = write("recognized.csv",
+            "examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n"
+                + "SYNTHETIC,1,1,국어,합성과목,3,2.000,\\N,\\N,\\N,\\N,100,\\N,\\N,01\n"
+                + "SYNTHETIC,1,1,국어,합성과목2,3, P ,\\N,\\N,\\N,\\N,100,\\N,\\N,01\n");
+        List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
+        var result = reader.streamCourses(source, 10, rows::addAll);
+        assertThat(result.unresolvedGrades()).isZero();
+        assertThat(rows.getFirst().grade()).isEqualTo(2);
+        assertThat(rows.getFirst().sourceGradeText()).isEqualTo("2.000");
+        assertThat(rows.get(1).sourceGradeText()).isEqualTo(" P ");
+    }
 }
