@@ -38,6 +38,33 @@ class MjcSourceArchiveExtractorTest {
     }
 
     @Test
+    void acceptsProducerStudentRecordCodeAcrossAllTwelveParts() throws Exception {
+        var files = fixture(12);
+        files.replaceAll((name, content) -> name.endsWith("-applicants.csv")
+            ? content.replace("DOMESTIC_HIGH_SCHOOL", "STUDENT_RECORD") : content);
+        var bundle = extractor.extract(zip(files, ""), output(), 2027);
+        assertThat(bundle.applicants()).hasSize(12).allSatisfy(applicant -> {
+            assertThat(applicant.academicType()).isEqualTo("DOMESTIC_HIGH_SCHOOL");
+            assertThat(applicant.studentRecordId()).isNotNull();
+            assertThat(applicant.issue()).isNull();
+        });
+        assertThat(MjcArchiveInputIssues.summary(bundle.applicants())).isNull();
+    }
+
+    @Test
+    void unknownClassificationWithLinkedStudentRecordIsNotReportedAsMissingRecord() throws Exception {
+        var files = fixture(1);
+        files.replaceAll((name, content) -> name.endsWith("-applicants.csv")
+            ? content.replace("DOMESTIC_HIGH_SCHOOL", "SYNTHETIC_UNKNOWN_CODE") : content);
+        var bundle = extractor.extract(zip(files, ""), output(), 2027);
+        assertThat(bundle.applicants().getFirst().studentRecordId()).isEqualTo("B1");
+        assertThat(bundle.applicants().getFirst().issue()).isEqualTo("ACADEMIC_TYPE_UNRESOLVED");
+        assertThat(MjcArchiveInputIssues.summary(bundle.applicants()))
+            .contains("학력 분류 코드 인식 필요 1건", "원본 자료가 없다는 뜻이 아닙니다")
+            .doesNotContain("학생부 원본 미연결", "SYNTHETIC_UNKNOWN_CODE");
+    }
+
+    @Test
     void rejectsMissingPartAndWrongYear() throws Exception {
         var files = fixture(12);
         files.remove(part(12, "raw_student_subjects"));

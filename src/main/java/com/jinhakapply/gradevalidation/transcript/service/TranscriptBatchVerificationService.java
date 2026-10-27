@@ -128,7 +128,7 @@ class TranscriptBatchVerificationService {
             }
             if (archive != null && archive.issue() != null) {
                 failures.add(failure(application, studentName, applicantCourses.size(), archive.issue(),
-                    "원자료 연결 또는 학력 분류를 확인해야 합니다. 누락·복수 원본을 임의로 선택하거나 합산하지 않았습니다."));
+                    MjcArchiveInputIssues.reason(archive.issue())));
                 continue;
             }
             if (archive != null && "GED".equals(archive.academicType())) {

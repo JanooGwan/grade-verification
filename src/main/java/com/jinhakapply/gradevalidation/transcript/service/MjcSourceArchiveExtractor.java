@@ -182,6 +182,7 @@ class MjcSourceArchiveExtractor {
         String declared = applicant.get("academicRecordType");
         if (declared != null && !declared.isBlank()) {
             return switch (declared) {
+                case "STUDENT_RECORD" -> "DOMESTIC_HIGH_SCHOOL";
                 case "DOMESTIC_HIGH_SCHOOL", "GED", "FOREIGN_HIGH_SCHOOL" -> declared;
                 default -> "UNRESOLVED"; // Unknown code meanings must not be guessed from a numeric code.
             };

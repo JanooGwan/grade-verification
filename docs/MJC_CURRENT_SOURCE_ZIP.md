@@ -30,9 +30,13 @@ ZIP의 대학·학년도·원자료 기준, part 구성, 파일별 행 수와 �
 정확히 하나일 때만 계산하며 필수과목 누락·중복은 미산출 처리한다. 출결·수동설정·평가점수는
 이번 내신점수에 적용하지 않는다. 실기·면접 합산과 최종 순위 판정은 수행하지 않는다.
 
-현재 명시적으로 인식하는 `academicRecordType` 값은 `DOMESTIC_HIGH_SCHOOL`, `GED`,
-`FOREIGN_HIGH_SCHOOL`이다. 값이 비어 있으면 학생부 또는 검정고시 한 종류만 있는 경우에만
+현재 명시적으로 인식하는 `academicRecordType` 값은 원자료의 `STUDENT_RECORD`(학생부), `GED`,
+내부 호환 코드 `DOMESTIC_HIGH_SCHOOL`, `FOREIGN_HIGH_SCHOOL`이다. `STUDENT_RECORD`는
+학생부 계산 경로인 `DOMESTIC_HIGH_SCHOOL`로 연결한다. 값이 비어 있으면 학생부 또는 검정고시 한 종류만 있는 경우에만
 분류한다. 다른 코드는 의미가 확인될 때까지 `ACADEMIC_TYPE_UNRESOLVED`로 남기며 추측하지 않는다.
+학력 코드 미인식과 학생부·검정고시 원본 미연결·복수 연결은 각각 다른 경고와 건수로 표시한다.
+과거 업로드에서 이미 코드 미인식으로 저장한 연결 정보는 재시작만으로 바뀌지 않으므로
+수정 후 원본 ZIP을 다시 업로드한 다음 성적검증을 실행한다.
 외국고 및 게시 규칙이 없는 전형은 기존 계산 경로에 따라 미산출될 수 있다.
 
 새 형식은 `MJC_CURRENT_SOURCE_ZIP_V1`이다. 실행 전에 백엔드를 재시작해 Flyway V59를
