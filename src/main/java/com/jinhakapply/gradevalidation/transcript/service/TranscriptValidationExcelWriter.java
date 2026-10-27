@@ -500,7 +500,11 @@ class TranscriptValidationExcelWriter {
             == com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy.ALL_COURSES) {
             return semesters + (selected.size() > 1 ? " 모두 반영" : " 반영");
         }
-        return semesters + (schoolYear < 3 ? " 우수" : " 반영");
+        BigDecimal firstSemesterAverage = semesterAverage(success, schoolYear, 1);
+        BigDecimal secondSemesterAverage = semesterAverage(success, schoolYear, 2);
+        boolean tied = schoolYear < 3 && firstSemesterAverage != null && secondSemesterAverage != null
+            && firstSemesterAverage.compareTo(secondSemesterAverage) == 0;
+        return semesters + (schoolYear < 3 ? " 우수" : " 반영") + (tied ? "(동률)" : "");
     }
 
     private void highlightMjcSelectedSemesterAverages(
