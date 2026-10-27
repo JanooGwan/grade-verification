@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
@@ -42,17 +44,17 @@ class MjcSourceImportProcessor {
 
     @Async("sourceImportExecutor")
     public void processArchive(Long importId, Long universityId, int admissionYear, Path directory, Path archive) {
+        var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.ARCHIVE_VALIDATION);
         try {
             updateStatus(importId, "PROCESSING", null);
             var bundle = archiveExtractor.extract(archive, directory, admissionYear);
             transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
-                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants()));
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), stage::set));
         } catch (Exception exception) {
-            // JDBC/parser exceptions can embed applicant values. Never log the exception or its message here.
-            log.warn("MJC archive import failed: importId={}", importId);
-            fail(importId, exception instanceof IllegalArgumentException
-                ? "ZIP 구조·학년도·행 수·연결 정보를 확인해 주세요. 암호화 ZIP은 먼저 해제 후 일반 ZIP으로 다시 압축해 주세요."
-                : "원자료 ZIP 저장에 실패했습니다. 기존 저장본은 유지됩니다.");
+            String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
+            // Log only our allowlisted diagnostic, never the original exception/message/SQL.
+            log.warn("MJC archive import failed: importId={}, diagnostic={}", importId, diagnostic);
+            fail(importId, diagnostic);
         } finally { MjcSourceImportService.deleteDirectory(directory); }
     }
 
@@ -115,6 +117,14 @@ class MjcSourceImportProcessor {
 
     private void importCsvBundle(Long importId, Long universityId, int admissionYear,
         Path applicantsFile, Path baseInfoFile, Path subjectScoreFile, List<MjcArchiveApplicant> archiveApplicants) {
+        importCsvBundle(importId, universityId, admissionYear, applicantsFile, baseInfoFile, subjectScoreFile,
+            archiveApplicants, ignored -> { });
+    }
+
+    private void importCsvBundle(Long importId, Long universityId, int admissionYear,
+        Path applicantsFile, Path baseInfoFile, Path subjectScoreFile, List<MjcArchiveApplicant> archiveApplicants,
+        Consumer<MjcSourceImportDiagnostics.Stage> stage) {
+        stage.accept(MjcSourceImportDiagnostics.Stage.LOCK_SCOPE);
         // Serialize replacement imports for a university. This query executes only when the user uploads.
         jdbcTemplate.queryForObject("SELECT id FROM university WHERE id=? FOR UPDATE", Long.class, universityId);
         Long latestImport = jdbcTemplate.queryForObject("""
@@ -125,6 +135,7 @@ class MjcSourceImportProcessor {
         if (latestImport != null && latestImport > importId) {
             throw new IllegalArgumentException("더 최근의 가져오기가 있어 이전 업로드로 저장본을 교체하지 않았습니다.");
         }
+        stage.accept(MjcSourceImportDiagnostics.Stage.VALIDATE_CSV);
         List<ApplicantRow> applicants = reader.readApplicants(applicantsFile);
         Map<String, ApplicantRow> applicantsByNumber = applicants.stream().collect(Collectors.toMap(
             ApplicantRow::examNumber, Function.identity(),
@@ -136,6 +147,7 @@ class MjcSourceImportProcessor {
             throw new IllegalArgumentException("지원자정보와 학생부 기본정보의 수험번호 구성이 일치하지 않습니다.");
         }
 
+        stage.accept(MjcSourceImportDiagnostics.Stage.REPLACE_SNAPSHOT);
         updateStatus(importId, "PROCESSING", null);
         jdbcTemplate.update(
             "UPDATE student_transcript_import SET source_admission_year=? WHERE id=?", admissionYear, importId);
@@ -144,26 +156,37 @@ class MjcSourceImportProcessor {
             universityId, admissionYear, false
         );
 
+        stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_CATALOG);
         Map<UnitKey, Long> unitIds = upsertCatalog(universityId, admissionYear, applicants);
+        stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_STUDENTS);
         upsertStudents(universityId, admissionYear, applicants, baseInfo);
         List<String> applicantNumbers = new ArrayList<>(applicantsByNumber.keySet());
         Map<String, Long> studentIds = loadStudentIds(universityId, admissionYear, applicantNumbers);
         if (!studentIds.keySet().containsAll(applicantsByNumber.keySet())) {
             throw new IllegalStateException("일부 지원자 기본정보를 생성하지 못했습니다.");
         }
+        stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_APPLICATIONS);
         insertApplications(importId, applicants, studentIds, unitIds);
-        if (!archiveApplicants.isEmpty()) saveArchiveMetadata(importId, archiveApplicants, studentIds);
+        if (!archiveApplicants.isEmpty()) {
+            stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_METADATA);
+            saveArchiveMetadata(importId, archiveApplicants, studentIds);
+        }
 
         int[] processed = {0};
+        stage.accept(MjcSourceImportDiagnostics.Stage.READ_COURSES);
         StreamResult result = reader.streamCourses(subjectScoreFile, BATCH_SIZE, batch -> {
             verifyCourseApplicants(batch, studentIds);
+            stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_COURSES);
             upsertCourses(batch, studentIds, importId);
+            stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_COURSE_SNAPSHOTS);
             insertCourseSnapshots(batch, importId);
             processed[0] += batch.size();
             if (processed[0] % 50_000 < batch.size()) {
                 updateProgress(importId, processed[0], 0);
             }
+            stage.accept(MjcSourceImportDiagnostics.Stage.READ_COURSES);
         });
+        stage.accept(MjcSourceImportDiagnostics.Stage.FINALIZE);
         snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantsByNumber.keySet());
         String warning = result.skippedRows() == 0 ? null
             : "이수단위가 없거나 0 이하인 과목 " + result.skippedRows() + "건을 성적 반영에서 제외했습니다.";

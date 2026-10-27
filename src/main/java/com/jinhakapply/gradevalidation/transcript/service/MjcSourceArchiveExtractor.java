@@ -112,9 +112,9 @@ class MjcSourceArchiveExtractor {
             var applicant = entry.getValue();
             var studentRecords = bases.getOrDefault(id, List.of());
             var gedRecords = geds.getOrDefault(id, List.of());
-            checkCount(applicant, "raw_student_records", studentRecords.size());
-            checkCount(applicant, "raw_ged_records", gedRecords.size());
-            checkCount(applicant, "raw_ged_subjects", gedSubjects.getOrDefault(id, List.of()).size());
+            checkCount(applicant, "raw_student_records", studentRecords.size(), part);
+            checkCount(applicant, "raw_ged_records", gedRecords.size(), part);
+            checkCount(applicant, "raw_ged_subjects", gedSubjects.getOrDefault(id, List.of()).size(), part);
             String type = academicType(applicant, studentRecords, gedRecords);
             String issue = null;
             String studentId = studentRecords.size() == 1 ? required(studentRecords.getFirst(), "id") : null;
@@ -169,7 +169,7 @@ class MjcSourceArchiveExtractor {
             catch (IOException exception) { throw MjcArchiveCsv.invalid(); }
         });
         for (var entry : applicants.entrySet()) {
-            checkCount(entry.getValue(), "raw_student_subjects", courseCounts.getOrDefault(entry.getKey(), 0));
+            checkCount(entry.getValue(), "raw_student_subjects", courseCounts.getOrDefault(entry.getKey(), 0), part);
         }
         // These are deliberately outside this score calculation, but validate file completeness and linkage.
         for (String type : List.of("raw_attendance", "current_subject_overrides", "raw_evaluation_scores")) {
@@ -221,18 +221,27 @@ class MjcSourceArchiveExtractor {
         java.util.function.Consumer<Map<String, String>> consumer) {
         String name = partName(part, type);
         int[] count = {0};
+        int[] activeRow = {1};
         List<String> requiredHeaders = type.equals("applicants")
             ? List.of("id", "examNumber", "admissionTypeCode", "admissionTypeName", "recruitmentUnitCode", "recruitmentUnitName")
             : List.of("applicant_id", "exam_number", "admission_type_code", "recruitment_unit_code", "id");
-        MjcArchiveCsv.read(requiredFile(files, name), requiredHeaders, raw -> {
-            Map<String, String> row = new LinkedHashMap<>();
-            raw.forEach((key, value) -> row.put(key, MjcArchiveCsv.decode(value)));
-            if (++count[0] > 200_000) throw MjcArchiveCsv.invalid();
-            String code = type.equals("applicants") ? required(row, "admissionTypeCode") : required(row, "admission_type_code");
-            if (!code.equals(index.get(name).admissionCode())) throw MjcArchiveCsv.invalid();
-            consumer.accept(row);
-        });
-        if (count[0] != index.get(name).rows()) throw MjcArchiveCsv.invalid();
+        try {
+            MjcArchiveCsv.read(requiredFile(files, name), requiredHeaders, raw -> {
+                activeRow[0] = ++count[0];
+                Map<String, String> row = new LinkedHashMap<>();
+                raw.forEach((key, value) -> row.put(key, MjcArchiveCsv.decode(value)));
+                if (count[0] > 200_000) throw MjcArchiveCsv.invalid();
+                String code = type.equals("applicants") ? required(row, "admissionTypeCode") : required(row, "admission_type_code");
+                if (!code.equals(index.get(name).admissionCode())) throw MjcArchiveCsv.invalid();
+                consumer.accept(row);
+                activeRow[0] = count[0] + 1;
+            });
+        } catch (IllegalArgumentException exception) {
+            throw MjcSourceImportDiagnostics.source(part, type, activeRow[0], false, exception);
+        }
+        if (count[0] != index.get(name).rows()) {
+            throw MjcSourceImportDiagnostics.source(part, type, count[0], true, null);
+        }
     }
 
     private Map<String, Path> unpack(Path archive, Path directory) {
@@ -287,13 +296,13 @@ class MjcSourceArchiveExtractor {
         return result;
     }
 
-    private void checkCount(Map<String, String> row, String key, int count) {
-        if (integer(row, key) != count) throw MjcArchiveCsv.invalid();
+    private void checkCount(Map<String, String> row, String key, int count, int part) {
+        if (integer(row, key) != count) throw MjcSourceImportDiagnostics.countMismatch(part, key, count);
     }
     private static String partName(int part, String type) { return "parts/current-part-%04d-%s.csv".formatted(part, type); }
     private static Path requiredFile(Map<String, Path> files, String name) {
         Path result = files.get(name);
-        if (result == null) throw new IllegalArgumentException("ZIP에 필수 원자료 파일이 없습니다. execution.csv, file-index.csv와 parts 폴더를 함께 포함해 주세요.");
+        if (result == null) throw new IllegalArgumentException("MJC_ZIP_MISSING_FILE:" + name);
         return result;
     }
     private static String required(Map<String, String> row, String key) {

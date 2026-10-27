@@ -13,6 +13,7 @@ import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -34,7 +35,10 @@ class MjcSourceArchiveProcessorTest {
             jdbc, transactions, snapshots, extractor, new ObjectMapper());
         processor.processArchive(123L, 1L, 2027, work, zip);
         verifyNoInteractions(transactions, snapshots);
-        verify(jdbc).update(anyString(), eq("ZIP 구조·학년도·행 수·연결 정보를 확인해 주세요. 암호화 ZIP은 먼저 해제 후 일반 ZIP으로 다시 압축해 주세요."), eq(123L));
+        var message = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(anyString(), message.capture(), eq(123L));
+        assertThat(message.getValue()).contains("단계=ARCHIVE_VALIDATION", "유형=IllegalArgumentException")
+            .doesNotContain("SYNTHETIC-PRIVATE-VALUE");
         assertThat(Files.exists(work)).isFalse();
     }
 }

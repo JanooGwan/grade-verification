@@ -267,7 +267,10 @@ class MjcSourceCsvReader {
         }
 
         IllegalArgumentException error(String message) {
-            return new IllegalArgumentException(fileName + " " + rowNumber + "행: " + message);
+            Integer partColumn = columns.get("sourcePart");
+            String part = partColumn == null ? null : values.get(partColumn);
+            String location = part != null && part.matches("[0-9]{1,4}") ? " [part=" + part + "]" : "";
+            return new IllegalArgumentException(fileName + " " + rowNumber + "행" + location + ": " + message);
         }
     }
 }
