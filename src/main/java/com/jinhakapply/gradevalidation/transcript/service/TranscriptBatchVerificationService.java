@@ -8,6 +8,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,6 +91,22 @@ class TranscriptBatchVerificationService {
         List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
         BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
+        return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, archiveInputs,
+            verifiedResultConsumer, true);
+    }
+
+    TranscriptBatchVerificationResult verifyForPersistence(Long universityId, int admissionYear,
+        List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
+        return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, archiveInputs,
+            verifiedResultConsumer, false);
+    }
+
+    private TranscriptBatchVerificationResult verify(Long universityId, int admissionYear,
+        List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer, boolean retainExportDetails) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
         }
@@ -98,6 +115,8 @@ class TranscriptBatchVerificationService {
         );
         Map<String, List<TranscriptExcelRow>> coursesByApplicant = courses.stream()
             .collect(Collectors.groupingBy(TranscriptExcelRow::applicantNumber));
+        // Scoped to this invocation: published rule changes must be observed on the next verification.
+        Map<RuleMatchKey, List<EvaluationRule>> matchedRuleCache = new HashMap<>();
 
         List<TranscriptBatchVerificationResult.Success> successes = new ArrayList<>();
         List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>();
@@ -118,7 +137,9 @@ class TranscriptBatchVerificationService {
                     MjcArchiveInputIssues.reason(archive.issue())));
                 continue;
             }
-            List<EvaluationRule> matchedRules = matchRules(rules, application);
+            RuleMatchKey matchKey = new RuleMatchKey(application.admissionTrackName(), application.recruitmentUnitName());
+            List<EvaluationRule> matchedRules = matchedRuleCache.computeIfAbsent(matchKey,
+                ignored -> matchRules(rules, application));
             if (matchedRules.isEmpty()) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
                     "RULE_NOT_FOUND", "전형·모집단위에 맞는 게시 규칙이 없습니다."));
@@ -214,9 +235,12 @@ class TranscriptBatchVerificationService {
             try {
                 GradeVerificationResponse verification = evaluationService.verify(rule, request);
                 GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
+                var intermediate = archive != null
+                    ? buildIntermediateCalculations(rule, verification)
+                    : List.<TranscriptBatchVerificationResult.IntermediateCalculation>of();
                 if (archive != null) {
                     var values = MjcArchiveScores.sourceValues(archive);
-                    for (var group : buildIntermediateCalculations(rule, verification)) {
+                    for (var group : intermediate) {
                         if (group.averageGrade() != null) values.put("동점자 보조 " + group.groupName() + " 평균등급",
                             group.averageGrade().toPlainString());
                     }
@@ -226,11 +250,12 @@ class TranscriptBatchVerificationService {
                     annotated = annotated.withSourceValues(values);
                 }
                 verifiedResultConsumer.accept(application, annotated);
-                List<TranscriptBatchVerificationResult.SelectedCourse> selected = new ArrayList<>();
+                List<TranscriptBatchVerificationResult.SelectedCourse> selected = retainExportDetails
+                    ? new ArrayList<>() : List.of();
                 int sourceCalculationCount = Math.min(
                     verification.calculations().size(), applicantCourses.size()
                 );
-                for (int index = 0; index < sourceCalculationCount; index++) {
+                for (int index = 0; retainExportDetails && index < sourceCalculationCount; index++) {
                     GradeVerificationResponse.CourseCalculation calculation = verification.calculations().get(index);
                     if (calculation.included()) {
                         selected.add(new TranscriptBatchVerificationResult.SelectedCourse(
@@ -238,9 +263,10 @@ class TranscriptBatchVerificationService {
                         ));
                     }
                 }
+                if (retainExportDetails && archive == null) intermediate = buildIntermediateCalculations(rule, verification);
                 successes.add(new TranscriptBatchVerificationResult.Success(
                     application, studentName, compact(annotated).withSourceValues(annotated.sourceValues()),
-                    List.copyOf(selected), buildIntermediateCalculations(rule, verification), schoolInfo
+                    List.copyOf(selected), retainExportDetails ? intermediate : List.of(), schoolInfo
                 ));
             } catch (CustomException exception) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
@@ -249,6 +275,8 @@ class TranscriptBatchVerificationService {
         }
         return new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
     }
+
+    private record RuleMatchKey(String admissionTrackName, String recruitmentUnitName) {}
 
     private boolean requiresMjcSourceGradeReview(TranscriptExcelRow course, HighSchoolType schoolType) {
         if (!MjcSourceCsvReader.requiresGradeReview(course.grade(), course.sourceGradeText())

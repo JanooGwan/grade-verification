@@ -81,7 +81,7 @@ class StoredVerificationPersistenceBatchTest {
         when(repository.deleteAllBySourceImportId(41L)).thenReturn(10);
         var calculator = mock(TranscriptBatchVerificationService.class);
         var result = mock(GradeVerificationResponse.class);
-        when(calculator.verify(eq(1L), eq(2027), anyList(), anyList(), anyMap(), anyMap(), any()))
+        when(calculator.verifyForPersistence(eq(1L), eq(2027), anyList(), anyList(), anyMap(), anyMap(), any()))
             .thenAnswer(call -> {
                 BiConsumer<TransferApplicationRow, GradeVerificationResponse> consumer = call.getArgument(6);
                 var successes = new ArrayList<TranscriptBatchVerificationResult.Success>();

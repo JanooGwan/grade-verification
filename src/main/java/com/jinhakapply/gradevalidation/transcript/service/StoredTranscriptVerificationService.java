@@ -132,7 +132,7 @@ public class StoredTranscriptVerificationService {
         var buffer = new StoredVerificationResultBuffer(batchVerificationRunRepository, sourceImportId,
             saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)));
         progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, 0, 0));
-        TranscriptBatchVerificationResult verification = batchVerificationService.verify(
+        TranscriptBatchVerificationResult verification = batchVerificationService.verifyForPersistence(
             universityId,
             admissionYear,
             stored.applications(),
