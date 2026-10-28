@@ -277,11 +277,11 @@ class MjcSourceImportProcessor {
             setInteger(statement, 5, graduationYear(applicant, base));
             statement.setString(6, highSchoolType(base));
             setString(statement, 7, base.applicantSchoolCode());
-            statement.setString(8, graduationStatus(applicant));
+            statement.setString(8, graduationStatus(applicant, base, admissionYear));
         });
     }
 
-    private Integer graduationYear(ApplicantRow applicant, BaseInfoRow base) {
+    private static Integer graduationYear(ApplicantRow applicant, BaseInfoRow base) {
         String date = applicant.graduationDate();
         if (date != null && date.length() >= 4) {
             try {
@@ -298,10 +298,16 @@ class MjcSourceImportProcessor {
         return "GENERAL";
     }
 
-    private String graduationStatus(ApplicantRow applicant) {
-        return applicant.graduationStatus() != null && (applicant.graduationStatus().contains("예정")
-            || applicant.graduationStatus().equals("EXPECTED_GRADUATE"))
-            ? "EXPECTED_GRADUATE" : "GRADUATE";
+    static String graduationStatus(ApplicantRow applicant, BaseInfoRow base, int admissionYear) {
+        String status = applicant.graduationStatus();
+        if (status != null) {
+            status = status.trim();
+            if (status.contains("예정") || status.equals("EXPECTED_GRADUATE")) return "EXPECTED_GRADUATE";
+            if (Set.of("졸업", "졸업자", "GRADUATE").contains(status)) return "GRADUATE";
+        }
+        Integer year = graduationYear(applicant, base);
+        // Match the shared Student policy when the producer supplies no status code.
+        return year != null && year < admissionYear ? "GRADUATE" : "EXPECTED_GRADUATE";
     }
 
     private Map<String, Long> loadStudentIds(

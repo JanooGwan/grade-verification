@@ -33,6 +33,57 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class TranscriptBatchVerificationServiceTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(delimiter = '|', textBlock = """
+        0001a|일반[실기위주]|실용음악과|정원내 일반전형(실기위주)|실기학과
+        0001b|일반[면접위주]|항공서비스과|정원내 일반전형(면접위주)|항공서비스과
+        0105|특별[일반고]|컴퓨터공학과|정원내 특별전형(일반고)|전체 모집단위
+        0106|특별[특성화고]|컴퓨터공학과|정원내 특별전형(특성화고)|전체 모집단위
+        0107|특별[연계교육]|컴퓨터공학과|정원내 특별전형(협약을통한연계교육)|전체 모집단위
+        0109|특별[대학자체기준(어학우수자)]|항공서비스과|정원내 특별전형(대학자체기준)|항공서비스과
+        0201|농어촌|문예창작과|정원외 특별전형(농어촌학생)|일반학과
+        0401|기회균형|산업디자인학과|정원외 특별전형(기회균형)|일반학과
+        """)
+    void currentSourceTracksReachTheirAcademicRuleWithoutUsingOptionalPreparedMappings(
+        String code, String sourceTrack, String sourceUnit, String publishedTrack, String publishedUnit) {
+        var service = new TranscriptBatchVerificationService(ruleRepository, evaluationService, new EvaluationRuleMatcher());
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(2L, 2027, EvaluationRuleStatus.PUBLISHED))
+            .thenReturn(List.of(rule));
+        when(university.getCode()).thenReturn("MJC");
+        when(rule.getUniversity()).thenReturn(university);
+        when(rule.getAdmissionType()).thenReturn(publishedTrack);
+        when(rule.getRecruitmentUnit()).thenReturn(publishedUnit);
+        when(evaluationService.verify(eq(rule), org.mockito.ArgumentMatchers.any())).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        var application = new TransferApplicationRow(2, 2027, "A-001", code, sourceTrack, "UNIT", sourceUnit, 2027);
+        var archive = new MjcArchiveApplicant("SYNTHETIC-ID", "A-001", 1, "DOMESTIC_HIGH_SCHOOL",
+            "SYNTHETIC-RECORD", null, null, null, List.of());
+        var result = service.verify(2L, 2027, List.of(application), List.of(course(3, SubjectCategory.KOREAN, "국어")),
+            Map.of(), Map.of("A-001", archive), (applicant, score) -> { });
+        assertThat(result.failures()).isEmpty();
+        assertThat(result.successes()).hasSize(1);
+        verify(evaluationService).verify(eq(rule), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void previousCollegeInputReasonIsReportedBeforeSearchingForHighSchoolRules() {
+        var service = new TranscriptBatchVerificationService(ruleRepository, evaluationService, new EvaluationRuleMatcher());
+        when(ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(2L, 2027, EvaluationRuleStatus.PUBLISHED))
+            .thenReturn(List.of());
+        var application = new TransferApplicationRow(2, 2027, "SYNTHETIC", "0301",
+            "전문대학이상[전문학사이상]", "UNIT", "합성학과", 2027);
+        var archive = new MjcArchiveApplicant("SYNTHETIC-ID", "SYNTHETIC", 1, "DOMESTIC_HIGH_SCHOOL",
+            null, null, "PREVIOUS_COLLEGE_RECORD_REQUIRED", null, List.of());
+        var result = service.verify(2L, 2027, List.of(application), List.of(), Map.of(),
+            Map.of("SYNTHETIC", archive), (applicant, score) -> { });
+        assertThat(result.successes()).isEmpty();
+        assertThat(result.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.code()).isEqualTo("PREVIOUS_COLLEGE_RECORD_REQUIRED");
+            assertThat(failure.reason()).contains("전적대학 성적");
+        });
+        verifyNoInteractions(evaluationService);
+    }
+
     @Mock EvaluationRuleRepository ruleRepository;
     @Mock EvaluationService evaluationService;
     @Mock EvaluationRule rule;

@@ -70,6 +70,19 @@ class MjcSourceCsvReaderTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(nullValues = "NULL", value = {
+        "01,false", "02,true", "03,false", "2,true", "NULL,false"
+    })
+    void preservesExistingCareerFlagForAllObservedSubjectSeparationCodes(String code, boolean expected) throws Exception {
+        Path source = write("separation.csv",
+            "examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n"
+                + "SYNTHETIC,1,1,국어,합성과목,3,2,\\N,\\N,\\N,\\N,100,\\N,\\N," + (code == null ? "\\N" : code) + "\n");
+        List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
+        reader.streamCourses(source, 10, rows::addAll);
+        assertThat(rows).singleElement().satisfies(row -> assertThat(row.careerSubject()).isEqualTo(expected));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"P", "·", "이수", "우수", "보통", "미흡"})
     void preservesNonNumericRankingGradeText(String text) throws Exception {
         Path source = write("non-numeric.csv",

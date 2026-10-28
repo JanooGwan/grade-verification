@@ -120,7 +120,9 @@ class MjcSourceArchiveExtractor {
             String studentId = studentRecords.size() == 1 ? required(studentRecords.getFirst(), "id") : null;
             List<Map<String, String>> validGeds = gedRecords.stream().filter(row -> "true".equals(row.get("isValid"))).toList();
             String gedId = validGeds.size() == 1 ? required(validGeds.getFirst(), "id") : null;
-            if ("DOMESTIC_HIGH_SCHOOL".equals(type) && studentRecords.size() != 1) {
+            if ("0301".equals(applicant.get("admissionTypeCode"))) {
+                issue = "PREVIOUS_COLLEGE_RECORD_REQUIRED";
+            } else if ("DOMESTIC_HIGH_SCHOOL".equals(type) && studentRecords.size() != 1) {
                 issue = studentRecords.isEmpty() ? "STUDENT_RECORD_MISSING" : "STUDENT_RECORD_MULTIPLE";
             } else if ("GED".equals(type) && validGeds.size() != 1) {
                 issue = validGeds.isEmpty() ? "VALID_GED_RECORD_MISSING" : "VALID_GED_RECORD_MULTIPLE";

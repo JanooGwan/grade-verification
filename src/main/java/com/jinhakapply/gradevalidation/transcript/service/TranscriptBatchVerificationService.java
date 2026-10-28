@@ -107,6 +107,17 @@ class TranscriptBatchVerificationService {
             );
             String studentName = applicantCourses.isEmpty() ? "미등록" : applicantCourses.getFirst().studentName();
             ApplicantSchoolInfoRow schoolInfo = schoolInfoByApplicant.get(application.applicantNumber());
+            MjcArchiveApplicant archive = archiveInputs.get(application.applicantNumber());
+            if (!archiveInputs.isEmpty() && archive == null) {
+                failures.add(failure(application, studentName, applicantCourses.size(), "ARCHIVE_METADATA_MISSING",
+                    "지원자 원자료 연결 정보가 없습니다. ZIP을 다시 업로드해 주세요."));
+                continue;
+            }
+            if (archive != null && archive.issue() != null) {
+                failures.add(failure(application, studentName, applicantCourses.size(), archive.issue(),
+                    MjcArchiveInputIssues.reason(archive.issue())));
+                continue;
+            }
             List<EvaluationRule> matchedRules = matchRules(rules, application);
             if (matchedRules.isEmpty()) {
                 failures.add(failure(application, studentName, applicantCourses.size(),
@@ -120,17 +131,6 @@ class TranscriptBatchVerificationService {
                 continue;
             }
             EvaluationRule rule = matchedRules.getFirst();
-            MjcArchiveApplicant archive = archiveInputs.get(application.applicantNumber());
-            if (!archiveInputs.isEmpty() && archive == null) {
-                failures.add(failure(application, studentName, applicantCourses.size(), "ARCHIVE_METADATA_MISSING",
-                    "지원자 원자료 연결 정보가 없습니다. ZIP을 다시 업로드해 주세요."));
-                continue;
-            }
-            if (archive != null && archive.issue() != null) {
-                failures.add(failure(application, studentName, applicantCourses.size(), archive.issue(),
-                    MjcArchiveInputIssues.reason(archive.issue())));
-                continue;
-            }
             if (archive != null && "GED".equals(archive.academicType())) {
                 try {
                     var result = MjcArchiveScores.ged(rule, application.admissionTrackName(), archive);

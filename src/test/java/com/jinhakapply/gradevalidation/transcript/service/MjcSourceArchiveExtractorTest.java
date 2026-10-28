@@ -52,6 +52,54 @@ class MjcSourceArchiveExtractorTest {
     }
 
     @Test
+    void acceptsNullPreparedMappingsAndEmptySchoolFlagsFromCurrentSourceSchema() throws Exception {
+        var files = fixture(1);
+        files.put(part(1, "applicants"),
+            "id,examNumber,admissionTypeCode,admissionTypeName,recruitmentUnitCode,recruitmentUnitName,highSchoolCode,graduationDate,graduationStatus,academicRecordType,raw_student_records,raw_student_subjects,raw_ged_records,raw_ged_subjects,preparedCalculationType,unitCategory,mappedTypeCode,mappedUnitCode\r\n"
+                + "A1,00000001,0105,특별[일반고],UNIT,합성학과,SYNTHETIC,20270201,\\N,STUDENT_RECORD,1,1,0,0,\\N,\\N,\\N,\\N\r\n");
+        files.put(part(1, "raw_student_records"), COMMON + ",graduateYear,graduateGrade,specializedSchoolYN,applicantScCode\r\n"
+            + "A1,00000001,0105,UNIT,B1,2027,,,\r\n");
+        var bundle = extractor.extract(zip(files, ""), output(), 2027);
+        var reader = new MjcSourceCsvReader();
+        var applicant = reader.readApplicants(bundle.applicantsFile()).getFirst();
+        var base = reader.readBaseInfo(bundle.baseInfoFile()).get(applicant.examNumber());
+        assertThat(bundle.applicants().getFirst().issue()).isNull();
+        assertThat(applicant.admissionTypeCode()).isEqualTo("0105");
+        assertThat(applicant.graduationStatus()).isNull();
+        assertThat(base.graduateGrade()).isNull();
+        assertThat(base.specializedSchoolYn()).isNull();
+        assertThat(MjcSourceImportProcessor.graduationStatus(applicant, base, 2027)).isEqualTo("EXPECTED_GRADUATE");
+    }
+
+    @Test
+    void acceptsMixedGedRequirementCodesWithoutGuessingTheirNumericMeaning() throws Exception {
+        var files = fixture(1);
+        files.put(part(1, "applicants"), files.get(part(1, "applicants"))
+            .replace("DOMESTIC_HIGH_SCHOOL,1,1,0,0", "GED,0,0,1,7"));
+        files.put(part(1, "raw_student_records"), COMMON + "\r\n");
+        files.put(part(1, "raw_student_subjects"), subjectHeader() + "\r\n");
+        files.put(part(1, "raw_ged_records"), COMMON + ",isValid,receiveStatus,acceptedDate\r\n"
+            + "A1,00000001,0105,UNIT,G1,true,RECEIVED,2026-08-01\r\n");
+        String[] subjects = {"국어", "영어", "수학", "한국사", "사회", "과학", "도덕"};
+        String[] codes = {"0", "1", "OPT", "REQ"};
+        var rows = new StringBuilder(COMMON + ",gedRecordId,subjectName,subjectScore,subjectReqCode\r\n");
+        for (int index = 0; index < subjects.length; index++) {
+            rows.append("A1,00000001,0105,UNIT,S").append(index).append(",G1,")
+                .append(subjects[index]).append(",90,").append(codes[index % codes.length]).append("\r\n");
+        }
+        files.put(part(1, "raw_ged_subjects"), rows.toString());
+        files.put("file-index.csv", files.get("file-index.csv")
+            .replace("raw_student_records.csv,1", "raw_student_records.csv,0")
+            .replace("raw_student_subjects.csv,1", "raw_student_subjects.csv,0")
+            .replace("raw_ged_records.csv,0", "raw_ged_records.csv,1")
+            .replace("raw_ged_subjects.csv,0", "raw_ged_subjects.csv,7"));
+        var source = extractor.extract(zip(files, ""), output(), 2027).applicants().getFirst();
+        assertThat(source.issue()).isNull();
+        assertThat(source.gedSubjects()).extracting(MjcArchiveApplicant.GedSubject::name).containsExactly(subjects);
+        assertThat(source.gedSubjects()).allSatisfy(subject -> assertThat(subject.score()).isEqualByComparingTo("90"));
+    }
+
+    @Test
     void unknownClassificationWithLinkedStudentRecordIsNotReportedAsMissingRecord() throws Exception {
         var files = fixture(1);
         files.replaceAll((name, content) -> name.endsWith("-applicants.csv")
@@ -111,6 +159,24 @@ class MjcSourceArchiveExtractorTest {
         assertThat(bundle.applicants()).singleElement().satisfies(applicant ->
             assertThat(applicant.issue()).isEqualTo("STUDENT_RECORD_MISSING"));
         assertThat(new MjcSourceCsvReader().readApplicants(bundle.applicantsFile())).hasSize(1);
+    }
+
+    @Test
+    void identifiesPreviousCollegeTrackEvenWhenNoSchoolRecordsAreProvided() throws Exception {
+        var files = fixture(1);
+        files.replaceAll((name, content) -> content.replace("0105", "0301")
+            .replace("특별[일반고]", "전문대학이상[전문학사이상]"));
+        files.put(part(1, "applicants"), files.get(part(1, "applicants"))
+            .replace("DOMESTIC_HIGH_SCHOOL,1,1,0,0", "STUDENT_RECORD,0,0,0,0"));
+        files.put(part(1, "raw_student_records"), COMMON + ",graduateYear,graduateGrade,specializedSchoolYN,applicantScCode\r\n");
+        files.put(part(1, "raw_student_subjects"), subjectHeader() + "\r\n");
+        files.put("file-index.csv", files.get("file-index.csv")
+            .replace("raw_student_records.csv,1", "raw_student_records.csv,0")
+            .replace("raw_student_subjects.csv,1", "raw_student_subjects.csv,0"));
+        var source = extractor.extract(zip(files, ""), output(), 2027).applicants().getFirst();
+        assertThat(source.issue()).isEqualTo("PREVIOUS_COLLEGE_RECORD_REQUIRED");
+        assertThat(MjcArchiveInputIssues.summary(List.of(source)))
+            .contains("전적대학 성적 입력 필요 1건").doesNotContain("학생부 원본 미연결");
     }
 
     @Test

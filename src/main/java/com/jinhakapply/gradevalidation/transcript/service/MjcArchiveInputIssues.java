@@ -8,7 +8,8 @@ import java.util.stream.Collectors;
 /** Keep source classification problems separate from missing or ambiguous record linkage. */
 final class MjcArchiveInputIssues {
     private static final List<String> CODES = List.of("ACADEMIC_TYPE_UNRESOLVED", "STUDENT_RECORD_MISSING",
-        "STUDENT_RECORD_MULTIPLE", "VALID_GED_RECORD_MISSING", "VALID_GED_RECORD_MULTIPLE");
+        "STUDENT_RECORD_MULTIPLE", "VALID_GED_RECORD_MISSING", "VALID_GED_RECORD_MULTIPLE",
+        "PREVIOUS_COLLEGE_RECORD_REQUIRED");
 
     private MjcArchiveInputIssues() {}
 
@@ -38,6 +39,7 @@ final class MjcArchiveInputIssues {
             case "STUDENT_RECORD_MULTIPLE" -> "학생부 원본 복수 연결";
             case "VALID_GED_RECORD_MISSING" -> "유효 검정고시 원본 없음";
             case "VALID_GED_RECORD_MULTIPLE" -> "유효 검정고시 원본 복수 연결";
+            case "PREVIOUS_COLLEGE_RECORD_REQUIRED" -> "전적대학 성적 입력 필요";
             default -> "원자료 상태 확인 필요";
         };
     }
@@ -49,6 +51,7 @@ final class MjcArchiveInputIssues {
             case "STUDENT_RECORD_MULTIPLE" -> "지원자에 연결된 학생부 원본이 여러 건입니다. 임의로 선택하거나 합산하지 않았습니다.";
             case "VALID_GED_RECORD_MISSING" -> "계산에 사용할 유효한 검정고시 원본이 없습니다. 무효 원본은 계산하지 않았습니다.";
             case "VALID_GED_RECORD_MULTIPLE" -> "유효한 검정고시 원본이 여러 건입니다. 임의로 선택하거나 합산하지 않았습니다.";
+            case "PREVIOUS_COLLEGE_RECORD_REQUIRED" -> "전문대학이상 전형은 전적대학 성적이 필요합니다. 고교 학생부 미연결과 구분하며 학생부·검정고시 점수로 대체하지 않습니다.";
             default -> "원자료 상태를 확인해야 합니다. 원본을 임의로 선택하거나 합산하지 않았습니다.";
         };
     }

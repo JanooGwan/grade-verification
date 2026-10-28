@@ -31,6 +31,14 @@ class MjcArchiveInputIssuesTest {
         assertThat(MjcArchiveInputIssues.reason("STUDENT_RECORD_MULTIPLE")).contains("학생부 원본이 여러 건");
     }
 
+    @Test
+    void distinguishesPreviousCollegeInputsFromMissingHighSchoolRecords() {
+        assertThat(MjcArchiveInputIssues.summary(List.of(source("PREVIOUS_COLLEGE_RECORD_REQUIRED"))))
+            .contains("전적대학 성적 입력 필요 1건").doesNotContain("학생부 원본 미연결", "기타 원자료");
+        assertThat(MjcArchiveInputIssues.reason("PREVIOUS_COLLEGE_RECORD_REQUIRED"))
+            .contains("전적대학 성적", "학생부·검정고시 점수로 대체하지 않습니다");
+    }
+
     private static MjcArchiveApplicant source(String issue) {
         return new MjcArchiveApplicant("SYNTHETIC-PRIVATE-ID", "SYNTHETIC-PRIVATE-EXAM", 1,
             "DOMESTIC_HIGH_SCHOOL", "SYNTHETIC-RECORD", null, issue, null, List.of());

@@ -26,10 +26,18 @@ public class EvaluationRuleMatcher {
                 ? ruleType.contains("일반전형면접위주")
                 : isPractical(unitName) && ruleType.contains("일반전형실기위주");
         }
+        if (sourceType.equals("일반실기위주")) {
+            return isPractical(unitName) && ruleType.contains("일반전형실기위주");
+        }
+        if (sourceType.equals("일반면접위주")) {
+            return isAviation(unitName) && ruleType.contains("일반전형면접위주");
+        }
         if (sourceType.equals("특별일반고")) return ruleType.contains("특별전형일반고");
         if (sourceType.equals("특별특성화고")) return ruleType.contains("특별전형특성화고");
         if (sourceType.equals("특별연계교육")) return ruleType.contains("특별전형협약을통한연계교육");
-        if (sourceType.equals("특별대학자체기준")) return ruleType.contains("특별전형대학자체기준");
+        if (sourceType.equals("특별대학자체기준") || sourceType.equals("특별대학자체기준어학우수자")) {
+            return ruleType.contains("특별전형대학자체기준");
+        }
         if (sourceType.equals("농어촌")) return ruleType.contains("특별전형농어촌학생");
         if (sourceType.equals("기회균형")) return ruleType.contains("특별전형기회균형");
         return false;
@@ -47,8 +55,9 @@ public class EvaluationRuleMatcher {
             return ruleUnit.equals(TukRecruitmentUnits.group(rule.getAdmissionYear(), unitName));
         }
         if (!"MJC".equalsIgnoreCase(rule.getUniversity().getCode())) return false;
-        if (ruleUnit.equals("실기학과")) return isPractical(unitName);
-        if (ruleUnit.equals("일반학과")) return !isAviation(unitName) && !isPractical(unitName);
+        boolean practical = isPracticalForTrack(rule.getAdmissionType(), unitName);
+        if (ruleUnit.equals("실기학과")) return practical;
+        if (ruleUnit.equals("일반학과")) return !isAviation(unitName) && !practical;
         return false;
     }
 
@@ -64,5 +73,14 @@ public class EvaluationRuleMatcher {
         String unit = normalizePolicyText(unitName);
         return unit.contains("실용음악") || unit.contains("연극영상") || unit.contains("문예창작")
             || unit.contains("산업디자인") || unit.contains("사회체육");
+    }
+
+    private boolean isPracticalForTrack(String admissionType, String unitName) {
+        String track = normalizePolicyText(admissionType);
+        if (track.contains("농어촌") || track.contains("기회균형")) {
+            String unit = normalizePolicyText(unitName);
+            return unit.contains("실용음악") || unit.contains("연극영상");
+        }
+        return isPractical(unitName);
     }
 }
