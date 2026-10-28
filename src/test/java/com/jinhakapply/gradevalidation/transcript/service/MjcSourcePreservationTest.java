@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
 import com.jinhakapply.gradevalidation.admission.service.EvaluationRuleMatcher;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementConversion;
@@ -21,6 +22,7 @@ import com.jinhakapply.gradevalidation.evaluation.domain.EvaluationRuleStatus;
 import com.jinhakapply.gradevalidation.evaluation.domain.ScoreAggregation;
 import com.jinhakapply.gradevalidation.evaluation.domain.SelectionStrategy;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
+import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 import com.jinhakapply.gradevalidation.evaluation.repository.EvaluationRuleRepository;
 import com.jinhakapply.gradevalidation.evaluation.service.EvaluationService;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
@@ -206,6 +208,82 @@ class MjcSourcePreservationTest {
         return new StringBuilder("examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n");
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {2026, 2027})
+    void recognizedSourceLabelsReachZScoreConversionWithoutNumericGradeOrAchievement(int admissionYear) throws Exception {
+        for (String sourceGrade : List.of("A", "B", "C", "D", "E", ".", "·", " a ")) {
+            for (String rawScore : List.of("90", "70")) {
+                var courses = readWithSourceLabel(admissionYear, sourceGrade, rawScore, "80", "10");
+                List<GradeVerificationResponse> savedResults = new ArrayList<>();
+                var result = verify(admissionYear, courses, Map.of(), (application, value) -> savedResults.add(value));
+                assertThat(result.failures()).as("source=%s, raw=%s", sourceGrade, rawScore).isEmpty();
+                var verification = savedResults.getFirst();
+                var calculation = verification.calculations().getLast();
+                assertThat(calculation.grade()).isNull();
+                assertThat(calculation.achievement()).isNull();
+                assertThat(calculation.sourceGradeText()).isEqualTo(sourceGrade);
+                assertThat(calculation.effectiveGrade()).isEqualByComparingTo(rawScore.equals("90") ? "3" : "7");
+                assertThat(calculation.included()).isTrue();
+                assertThat(verification.includedCourseCount()).isEqualTo(4);
+                assertThat(verification.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("11");
+                assertThat(verification.finalScore()).isEqualByComparingTo(rawScore.equals("90") ? "806.00000" : "742.00000");
+
+                try (var workbook = export(courses, result)) {
+                    var details = workbook.getSheet("학생별 과목 비교");
+                    assertThat(new DataFormatter().formatCellValue(details.getRow(6).getCell(12))).isEqualTo(sourceGrade);
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2026, 2027})
+    void recognizedLabelsWithoutValidZInputsExcludeOnlyTheCourseAndKeepNumericScores(int admissionYear) throws Exception {
+        for (String sourceGrade : List.of("A", "B", "C", "D", "E", ".", "·", "P", "이수", "우수", "보통", "미흡")) {
+            for (String[] inputs : List.of(
+                new String[]{"\\N", "\\N", "\\N"},
+                new String[]{"\\N", "80", "10"},
+                new String[]{"90", "\\N", "10"},
+                new String[]{"90", "80", "\\N"},
+                new String[]{"90", "80", "0"},
+                new String[]{"90", "80", "-1"}
+            )) {
+                var courses = readWithSourceLabel(admissionYear, sourceGrade, inputs[0], inputs[1], inputs[2]);
+                List<GradeVerificationResponse> savedResults = new ArrayList<>();
+                var result = verify(admissionYear, courses, Map.of(), (application, value) -> savedResults.add(value));
+                assertThat(result.failures()).as("source=%s, inputs=%s", sourceGrade, Arrays.toString(inputs)).isEmpty();
+                var verification = savedResults.getFirst();
+                var calculation = verification.calculations().getLast();
+                assertThat(calculation.sourceGradeText()).isEqualTo(sourceGrade);
+                assertThat(calculation.included()).isFalse();
+                assertThat(calculation.effectiveGrade()).isNull();
+                assertThat(calculation.exclusionReason()).isNotBlank();
+                assertThat(verification.includedCourseCount()).isEqualTo(3);
+                assertThat(verification.excludedCourseCount()).isEqualTo(1);
+                assertThat(verification.calculationSummary().totalIncludedCredits()).isEqualByComparingTo("9");
+                assertThat(verification.finalScore()).isEqualByComparingTo("790.00000");
+            }
+        }
+    }
+
+    private List<TranscriptExcelRow> readWithSourceLabel(int admissionYear, String sourceGrade,
+        String rawScore, String mean, String standardDeviation) throws Exception {
+        var csv = syntheticGradeCsv();
+        append(csv, 1, 1, "합성 숫자과목1", "3", "2");
+        append(csv, 2, 1, "합성 숫자과목2", "3", "3");
+        append(csv, 3, 1, "합성 숫자과목3", "3", "4");
+        csv.append(APPLICANT).append(",3,1,과학,합성 성취과목,2,").append(sourceGrade)
+            .append(",\\N,").append(rawScore).append(',').append(mean).append(',').append(standardDeviation)
+            .append(",100,\\N,\\N,01\n");
+        Path path = directory.resolve("recognized-source-label.csv");
+        Files.writeString(path, csv);
+        List<MjcSourceCsvReader.CourseRow> imported = new ArrayList<>();
+        var count = new MjcSourceCsvReader().streamCourses(path, 2, imported::addAll);
+        assertThat(count.importedRows()).isEqualTo(4);
+        assertThat(count.unresolvedGrades()).isZero();
+        return imported.stream().map(row -> toCourse(row, admissionYear)).toList();
+    }
+
     private TranscriptExcelRow toCourse(MjcSourceCsvReader.CourseRow row, int admissionYear) {
         return new TranscriptExcelRow(row.rowNumber(), row.examNumber(), "합성 지원자", null, null, admissionYear,
             row.schoolYear(), row.semester(), row.subjectCategory(), row.courseName(), row.grade(), GradeScale.NINE_LEVEL,
@@ -226,6 +304,12 @@ class MjcSourcePreservationTest {
 
     private TranscriptBatchVerificationResult verify(int admissionYear, List<TranscriptExcelRow> courses,
         Map<String, ApplicantSchoolInfoRow> schoolInfo) {
+        return verify(admissionYear, courses, schoolInfo, (application, verification) -> { });
+    }
+
+    private TranscriptBatchVerificationResult verify(int admissionYear, List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfo,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
         var repository = mock(EvaluationRuleRepository.class);
         when(repository.findAllByUniversityIdAndAdmissionYearAndStatus(1L, admissionYear, EvaluationRuleStatus.PUBLISHED))
             .thenReturn(List.of(rule(admissionYear)));
@@ -233,7 +317,7 @@ class MjcSourcePreservationTest {
             new EvaluationRuleMatcher());
         var application = new TransferApplicationRow(2, admissionYear, APPLICANT, "TEST", TRACK,
             "TEST", "컴퓨터공학과", admissionYear);
-        return service.verify(1L, admissionYear, List.of(application), courses, schoolInfo);
+        return service.verify(1L, admissionYear, List.of(application), courses, schoolInfo, verifiedResultConsumer);
     }
 
     private XSSFWorkbook export(List<TranscriptExcelRow> courses, TranscriptBatchVerificationResult result) throws Exception {

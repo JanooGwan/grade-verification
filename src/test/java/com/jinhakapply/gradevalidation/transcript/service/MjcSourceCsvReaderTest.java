@@ -83,13 +83,14 @@ class MjcSourceCsvReaderTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"P", "·", "이수", "우수", "보통", "미흡"})
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"P", "·", ".", "A", "B", "C", "D", "E", " a ", "이수", "우수", "보통", "미흡"})
     void preservesNonNumericRankingGradeText(String text) throws Exception {
         Path source = write("non-numeric.csv",
             "examNumber,grade,term,organizationName,subjectName,unit,rankingGrade,achievement,originalScore,avgScore,standardDeviation,studentCount,rank,sameRank,subjectSeparationCode\n"
                 + "SYNTHETIC,1,1,교양,이수과목,0," + text + ",\\N,\\N,\\N,\\N,100,\\N,\\N,01\n");
         List<MjcSourceCsvReader.CourseRow> rows = new ArrayList<>();
-        reader.streamCourses(source, 10, rows::addAll);
+        var result = reader.streamCourses(source, 10, rows::addAll);
+        assertThat(result.unresolvedGrades()).isZero();
         assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.sourceGradeText()).isEqualTo(text);
             assertThat(row.grade()).isNull();

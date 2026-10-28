@@ -20,7 +20,8 @@ class MjcSourceCsvReader {
 
     static final String SOURCE_FORMAT = "MJC_SOURCE_CSV_BUNDLE_V1";
     private static final Set<String> NON_NUMERIC_RANKING_GRADES = Set.of(
-        "P", "·", "이수", "우수", "보통", "미흡"
+        // Recognition only: keep the source text and let the evaluation rule convert Z scores or exclude the course.
+        "P", "·", ".", "A", "B", "C", "D", "E", "이수", "우수", "보통", "미흡"
     );
 
     List<ApplicantRow> readApplicants(Path path) {
