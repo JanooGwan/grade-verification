@@ -162,6 +162,71 @@ class SavedVerificationQueryServiceTest {
         verifyNoInteractions(objectMapper, ruleRepository, batchVerificationService, validationExcelWriter);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void mjcRestoresAllApplicantsAndStoredFailureReasonsOnlyForTheSameImport(boolean sameImport) throws Exception {
+        when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(new SavedVerificationBatchResponse(
+            80L, 5L, "명지전문대학교", 2027, "synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, 1, LocalDateTime.now())));
+        when(repository.findExportResultsAfter(80L, 0L, 200)).thenReturn(List.of(
+            new SavedVerificationQueryRepository.ExportProjection(91L, 31L, sameImport ? 4L : 99L,
+                "SYN-MJC-4", "합성", "합성 전형", "SYN", "합성 학과", "{stored-result}")));
+        when(objectMapper.readValue("{stored-result}", GradeVerificationResponse.class)).thenReturn(verification);
+        when(verification.calculations()).thenReturn(List.of());
+        when(ruleRepository.findOneById(31L)).thenReturn(java.util.Optional.of(rule));
+        when(batchVerificationService.buildIntermediateCalculations(rule, verification)).thenReturn(List.of());
+        when(repository.findExportApplications(80L)).thenReturn(syntheticMjcApplications());
+        if (sameImport) when(repository.findMjcFailureReasons(80L)).thenReturn(java.util.Map.of(
+            "SYN-MJC-2", new String[]{"VALID_GED_RECORD_MISSING", "합성 검정고시 원본 없음"}));
+        doAnswer(invocation -> {
+            TranscriptBatchVerificationResult result = invocation.getArgument(9);
+            assertThat(result.successes()).hasSize(1);
+            assertThat(result.applicationScopeComplete()).isEqualTo(sameImport);
+            assertThat(result.failures()).hasSize(sameImport ? 11 : 0);
+            if (sameImport) {
+                assertThat(result.successes().getFirst().application().rowNumber()).isEqualTo(4);
+                var failure = result.failures().stream()
+                    .filter(row -> row.application().applicantNumber().equals("SYN-MJC-2")).findFirst().orElseThrow();
+                assertThat(failure.code()).isEqualTo("VALID_GED_RECORD_MISSING");
+                assertThat(failure.reason()).isEqualTo("합성 검정고시 원본 없음");
+                assertThat(result.failures()).anySatisfy(row ->
+                    assertThat(row.code()).isEqualTo("UNSCORED_REASON_UNAVAILABLE"));
+            }
+            assertThat((Integer) invocation.getArgument(3)).isEqualTo(sameImport ? 12 : 1);
+            return null;
+        }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
+            anyList(), anyList(), anyList(), anyList(), any(), any());
+        service.export(80L);
+        verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
+        org.mockito.Mockito.verifyNoMoreInteractions(batchVerificationService);
+    }
+
+    @Test
+    void mjcExportsAllFailedApplicantsEvenWithoutAnySavedSuccessfulResult() throws Exception {
+        when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(new SavedVerificationBatchResponse(
+            80L, 5L, "명지전문대학교", 2027, "synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, 0, LocalDateTime.now())));
+        when(repository.findExportApplications(80L)).thenReturn(syntheticMjcApplications());
+        when(repository.findMjcFailureReasons(80L)).thenReturn(java.util.Map.of(
+            "SYN-MJC-2", new String[]{"VALID_GED_RECORD_MISSING", "합성 검정고시 원본 없음"}));
+        doAnswer(invocation -> {
+            TranscriptBatchVerificationResult result = invocation.getArgument(9);
+            assertThat(result.successes()).isEmpty();
+            assertThat(result.failures()).hasSize(12);
+            assertThat(result.applicationScopeComplete()).isTrue();
+            assertThat((Integer) invocation.getArgument(3)).isEqualTo(12);
+            return null;
+        }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
+            anyList(), anyList(), anyList(), anyList(), any(), any());
+        service.export(80L);
+        verifyNoInteractions(objectMapper, ruleRepository, batchVerificationService);
+    }
+
+    private List<SavedVerificationQueryRepository.ApplicationExportProjection> syntheticMjcApplications() {
+        return java.util.stream.IntStream.rangeClosed(1, 12).mapToObj(part ->
+            new SavedVerificationQueryRepository.ApplicationExportProjection((long) part, part,
+                "SYN-MJC-" + part, "합성", "합성 전형", "SYN", "합성 학과", 2027,
+                null, null, "GED", "GENERAL", 0)).toList();
+    }
+
     @Test
     void includesUnscoredApplicantsFromTheSameImportWithoutRecalculatingScores() throws Exception {
         when(repository.findBatch(80L)).thenReturn(java.util.Optional.of(new SavedVerificationBatchResponse(

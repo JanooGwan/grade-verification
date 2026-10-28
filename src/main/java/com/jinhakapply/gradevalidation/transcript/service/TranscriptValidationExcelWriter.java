@@ -137,7 +137,8 @@ class TranscriptValidationExcelWriter {
                 createSummarySheet(
                     workbook, styles, originalFileName, sourceFormat, applicationRows,
                     totalRows, courses.size(), errors.size(), skipped.size(), warnings,
-                    verification, skipped, errors, universityName != null && universityName.contains("한국공학")
+                    verification, skipped, errors, universityName != null && universityName.contains("한국공학"),
+                    isMjc(universityName)
                 );
             }
             if (verification.successes().stream().anyMatch(success -> success.verification().sourceValues() != null
@@ -175,7 +176,8 @@ class TranscriptValidationExcelWriter {
         TranscriptBatchVerificationResult verification,
         List<TranscriptImportRowError> skipped,
         List<TranscriptImportRowError> errors,
-        boolean tuk
+        boolean tuk,
+        boolean mjc
     ) {
         Sheet sheet = workbook.createSheet("검증 요약");
         sheet.setDisplayGridlines(false);
@@ -207,6 +209,10 @@ class TranscriptValidationExcelWriter {
             }
         }
 
+        if (mjc && verification.applicationScopeComplete()) {
+            rowIndex = appendMjcUnscoredSummary(sheet, styles, rowIndex, verification.failures());
+        }
+
         if (warnings != null && !warnings.isEmpty()) {
             rowIndex++;
             rowIndex = section(sheet, styles, rowIndex, "안내 사항");
@@ -221,6 +227,7 @@ class TranscriptValidationExcelWriter {
         if (!verification.failures().isEmpty()) {
             rowIndex++;
             rowIndex = section(sheet, styles, rowIndex, tuk ? "미산출 지원자 상세" : "성적 검증 실패 상세");
+            int failureHeaderRow = rowIndex;
             rowIndex = tableHeader(sheet, styles, rowIndex, new String[] {
                 "지원정보 행", "수험번호", "전형명", "모집단위명", "대상 과목 수",
                 tuk ? "미산출 코드" : "실패 코드", tuk ? "미산출 사유" : "실패 사유"
@@ -233,7 +240,26 @@ class TranscriptValidationExcelWriter {
                 }, styles, 5);
                 if (tuk) {
                     sheet.getRow(rowIndex - 1).getCell(6).setCellStyle(styles.warning);
-                    sheet.getRow(rowIndex - 1).setHeightInPoints(48);
+                }
+                if (tuk || mjc) sheet.getRow(rowIndex - 1).setHeightInPoints(48);
+            }
+            if (mjc) sheet.setAutoFilter(new CellRangeAddress(failureHeaderRow, rowIndex - 1, 0, 6));
+        }
+        if (mjc) {
+            var calculatedZeros = verification.successes().stream()
+                .filter(success -> success.verification().finalScore() != null
+                    && success.verification().finalScore().signum() == 0)
+                .sorted(Comparator.comparingInt(success -> success.application().rowNumber())).toList();
+            if (!calculatedZeros.isEmpty()) {
+                rowIndex++;
+                rowIndex = section(sheet, styles, rowIndex, "산출 완료 0점 학생 (미검증 집계와 별도)");
+                rowIndex = tableHeader(sheet, styles, rowIndex,
+                    new String[]{"지원정보 행", "수험번호", "전형명", "모집단위명", "교과 반영점수"});
+                for (var success : calculatedZeros) {
+                    var application = success.application();
+                    writeRow(sheet.createRow(rowIndex++), new Object[]{application.rowNumber(),
+                        application.applicantNumber(), application.admissionTrackName(),
+                        application.recruitmentUnitName(), success.verification().finalScore()}, styles, -1);
                 }
             }
         }
@@ -245,6 +271,36 @@ class TranscriptValidationExcelWriter {
             sheet.setColumnWidth(column, widths[column] * 256);
         }
         sheet.createFreezePane(0, 2);
+    }
+
+    private int appendMjcUnscoredSummary(Sheet sheet, Styles styles, int rowIndex,
+        List<TranscriptBatchVerificationResult.Failure> failures) {
+        record FailureCount(String reason, int count) {}
+        Map<String, FailureCount> counts = new LinkedHashMap<>();
+        failures.forEach(failure -> counts.merge(failure.code(), new FailureCount(failure.reason(), 1),
+            (previous, next) -> new FailureCount(previous.reason(), previous.count() + next.count())));
+        rowIndex++;
+        rowIndex = section(sheet, styles, rowIndex, "미검증 학생 목록");
+        rowIndex = tableHeader(sheet, styles, rowIndex,
+            new String[]{"실패 코드", "", "", "미산출 사유", "", "", "", "인원"});
+        mergeMjcSummaryLabels(sheet, rowIndex - 1);
+        for (var entry : counts.entrySet()) {
+            Row row = sheet.createRow(rowIndex++);
+            writeRow(row, new Object[]{entry.getKey(), null, null, entry.getValue().reason(),
+                null, null, null, entry.getValue().count()}, styles, -1);
+            row.getCell(3).setCellStyle(styles.warning);
+            row.setHeightInPoints(32);
+            mergeMjcSummaryLabels(sheet, row.getRowNum());
+        }
+        Row total = sheet.createRow(rowIndex++);
+        writeRow(total, new Object[]{"합계", null, null, null, null, null, null, failures.size()}, styles, -1);
+        mergeMjcSummaryLabels(sheet, total.getRowNum());
+        return rowIndex;
+    }
+
+    private void mergeMjcSummaryLabels(Sheet sheet, int rowIndex) {
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 0, 2));
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 3, 6));
     }
 
     private int appendTukUnscoredSummary(Sheet sheet, Styles styles, int rowIndex,
@@ -322,13 +378,29 @@ class TranscriptValidationExcelWriter {
         sheet.setDisplayGridlines(false);
         title(sheet, styles, shortUniversityName(universityName)
             + " 교과성적 검증 결과 - 비교과·고사·학교폭력 미포함", headers.length - 1);
+        if (mjc) titleAtRowOne(sheet, styles,
+            "미검증 학생은 마지막 교과 반영점수에 0을 표시합니다. 사유와 인원은 검증 요약에서 확인하세요.", headers.length - 1);
         header(sheet, styles, headers);
-        List<TranscriptBatchVerificationResult.Success> results = new ArrayList<>(verification.successes());
-        results.sort(Comparator.comparingInt(success -> success.application().rowNumber()));
+        List<ApplicantResultRow> results = new ArrayList<>();
+        verification.successes().forEach(success -> results.add(new ApplicantResultRow(success.application(), success, null)));
+        if (mjc) verification.failures().forEach(failure -> results.add(new ApplicantResultRow(failure.application(), null, failure)));
+        results.sort(Comparator.comparingInt(result -> result.application().rowNumber()));
 
         int rowIndex = 3;
-        for (TranscriptBatchVerificationResult.Success success : results) {
+        for (ApplicantResultRow entry : results) {
             Row row = sheet.createRow(rowIndex++);
+            if (entry.success() == null) {
+                Object[] values = new Object[headers.length];
+                var application = entry.application();
+                values[0] = application.rowNumber();
+                values[1] = application.applicantNumber();
+                values[2] = application.admissionTrackName();
+                values[3] = application.recruitmentUnitName();
+                values[headers.length - 1] = BigDecimal.ZERO;
+                writeRow(row, values, styles, -1);
+                continue;
+            }
+            var success = entry.success();
             TransferApplicationRow application = success.application();
             GradeVerificationResponse result = success.verification();
             GradeVerificationResponse.CalculationSummary summary = result.calculationSummary();
@@ -345,6 +417,7 @@ class TranscriptValidationExcelWriter {
         finishTable(sheet, results.size(), headers.length);
         if (mjc) sheet.createFreezePane(4, 3);
         setWidths(sheet, headers, mjc ? Set.of(2, 3, 6, 9, 11) : Set.of(2, 3));
+        if (mjc) sheet.setColumnWidth(1, 24 * 256);
     }
 
     private Object[] mjcResultValues(TranscriptBatchVerificationResult.Success success) {
@@ -560,20 +633,20 @@ class TranscriptValidationExcelWriter {
             + " 학생별 검증 결과 - 학기·교과별 성적과 선택 결과", KBU_RESULT_HEADERS.length - 1);
         header(sheet, styles, KBU_RESULT_HEADERS);
 
-        List<KbuResultRow> results = new ArrayList<>();
+        List<ApplicantResultRow> results = new ArrayList<>();
         verification.successes().forEach(success ->
-            results.add(new KbuResultRow(success.application(), success, null)));
+            results.add(new ApplicantResultRow(success.application(), success, null)));
         verification.failures().forEach(failure ->
-            results.add(new KbuResultRow(failure.application(), null, failure)));
+            results.add(new ApplicantResultRow(failure.application(), null, failure)));
         results.sort(Comparator.comparingInt(result -> result.application().rowNumber()));
-        Map<String, KbuResultRow> resultByApplicant = new LinkedHashMap<>();
+        Map<String, ApplicantResultRow> resultByApplicant = new LinkedHashMap<>();
         results.forEach(result -> resultByApplicant.putIfAbsent(
             result.application().applicantNumber(), result
         ));
-        List<KbuResultRow> deduplicatedResults = List.copyOf(resultByApplicant.values());
+        List<ApplicantResultRow> deduplicatedResults = List.copyOf(resultByApplicant.values());
 
         int rowIndex = 3;
-        for (KbuResultRow result : deduplicatedResults) {
+        for (ApplicantResultRow result : deduplicatedResults) {
             TransferApplicationRow application = result.application();
             if (result.success() != null) {
                 List<TranscriptBatchVerificationResult.IntermediateCalculation> calculations =
@@ -1042,7 +1115,7 @@ class TranscriptValidationExcelWriter {
         return shortUniversityName(universityName).startsWith("명지전문");
     }
 
-    private record KbuResultRow(
+    private record ApplicantResultRow(
         TransferApplicationRow application,
         TranscriptBatchVerificationResult.Success success,
         TranscriptBatchVerificationResult.Failure failure

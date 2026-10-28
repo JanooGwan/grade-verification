@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +27,123 @@ import org.junit.jupiter.api.Test;
 
 class TranscriptValidationExcelWriterTest {
     private final TranscriptValidationExcelWriter writer = new TranscriptValidationExcelWriter();
+
+    @Test
+    void mixesAllTwelveMjcPartsInApplicationOrderAndSummarizesZeroPlaceholders() throws Exception {
+        List<TranscriptBatchVerificationResult.Success> successes = new ArrayList<>();
+        List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>();
+        String[] codes = {"VALID_GED_RECORD_MISSING", "PREVIOUS_COLLEGE_RECORD_REQUIRED", "STUDENT_RECORD_MISSING"};
+        for (int part = 1; part <= 12; part++) {
+            var application = syntheticPartApplication(part);
+            if (part % 2 == 1) successes.add(new TranscriptBatchVerificationResult.Success(
+                application, "합성", mjcVerification(), List.of(), List.of(), null));
+            else failures.add(new TranscriptBatchVerificationResult.Failure(application, "합성", 0,
+                codes[(part / 2 - 1) % codes.length], "합성 원자료 확인 필요"));
+        }
+        Collections.reverse(successes);
+        Collections.reverse(failures);
+        var batch = new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
+        byte[] file = writer.write("synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, "명지전문대학교",
+            12, 0, List.of(), List.of(), List.of(), List.of(), batch);
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            assertThat(book.getNumberOfSheets()).isEqualTo(3);
+            var result = book.getSheet("학생별 검증 결과");
+            assertThat(result.getLastRowNum()).isEqualTo(14);
+            assertThat(result.getRow(1).getCell(0).getStringCellValue()).contains("0", "검증 요약");
+            for (int part = 1; part <= 12; part++) {
+                Row row = result.getRow(part + 2);
+                assertThat(row.getCell(0).getNumericCellValue()).isEqualTo(part);
+                assertThat(row.getCell(1).getStringCellValue()).isEqualTo(syntheticPartApplication(part).applicantNumber());
+                assertThat(row.getLastCellNum()).isEqualTo((short) 19);
+                assertThat(row.getCell(18).getCellType()).isEqualTo(org.apache.poi.ss.usermodel.CellType.NUMERIC);
+                assertThat(row.getCell(18).getNumericCellValue()).isEqualTo(part % 2 == 0 ? 0 : 530.36);
+                if (part % 2 == 0) {
+                    assertThat(row.getCell(18).getCellStyle().getDataFormatString()).isEqualTo("0");
+                    for (int column = 4; column < 18; column++) {
+                        assertThat(new org.apache.poi.ss.usermodel.DataFormatter().formatCellValue(row.getCell(column))).isEmpty();
+                    }
+                } else assertThat(row.getCell(12).getNumericCellValue()).isEqualTo(117);
+            }
+            assertThat(result.getCTWorksheet().getAutoFilter().getRef()).isEqualTo("A3:S15");
+            var summary = book.getSheet("검증 요약");
+            int groupHeader = findRow(summary, "미검증 학생 목록") + 1;
+            for (int rowIndex = groupHeader + 1; rowIndex <= groupHeader + 3; rowIndex++) {
+                Row row = summary.getRow(rowIndex);
+                assertThat(row.getCell(0).getStringCellValue()).isIn((Object[]) codes);
+                assertThat(row.getCell(7).getNumericCellValue()).isEqualTo(2);
+            }
+            assertThat(summary.getRow(groupHeader + 4).getCell(0).getStringCellValue()).isEqualTo("합계");
+            assertThat(summary.getRow(groupHeader + 4).getCell(7).getNumericCellValue()).isEqualTo(6);
+            int detailHeader = findRow(summary, "성적 검증 실패 상세") + 1;
+            assertThat(summary.getCTWorksheet().getAutoFilter().getRef())
+                .isEqualTo("A" + (detailHeader + 1) + ":G" + (detailHeader + 7));
+            for (int index = 0; index < failures.size(); index++) {
+                Row row = summary.getRow(detailHeader + 1 + index);
+                assertThat(row.getCell(1).getStringCellValue()).isEqualTo(failures.get(index).application().applicantNumber());
+                assertThat(row.getCell(5).getStringCellValue()).isEqualTo(failures.get(index).code());
+                assertThat(row.getCell(6).getStringCellValue()).isEqualTo(failures.get(index).reason());
+            }
+            assertThat(batch.failures()).hasSize(6);
+            assertThat(batch.successes()).allSatisfy(success ->
+                assertThat(success.verification().finalScore()).isEqualByComparingTo("530.36"));
+        }
+    }
+
+    @Test
+    void keepsAllMjcApplicantsWhenEveryResultFailsAndNoCoursesExist() throws Exception {
+        var failures = java.util.stream.IntStream.rangeClosed(1, 12).mapToObj(part ->
+            new TranscriptBatchVerificationResult.Failure(syntheticPartApplication(part), "합성", 0,
+                "VALID_GED_RECORD_MISSING", "합성 검정고시 원본 없음")).toList();
+        byte[] file = writer.write("synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, "명지전문대학교",
+            12, 0, List.of(), List.of(), List.of(), List.of(), new TranscriptBatchVerificationResult(List.of(), failures));
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            Sheet result = book.getSheet("학생별 검증 결과");
+            assertThat(result.getLastRowNum()).isEqualTo(14);
+            for (int part = 1; part <= 12; part++) assertThat(result.getRow(part + 2).getCell(18).getNumericCellValue()).isZero();
+            Sheet summary = book.getSheet("검증 요약");
+            int groupHeader = findRow(summary, "미검증 학생 목록") + 1;
+            assertThat(summary.getRow(groupHeader + 1).getCell(7).getNumericCellValue()).isEqualTo(12);
+            assertThat(summary.getRow(groupHeader + 2).getCell(7).getNumericCellValue()).isEqualTo(12);
+        }
+    }
+
+    @Test
+    void keepsCalculatedZeroScoresSeparateFromFailedZeroPlaceholders() throws Exception {
+        var base = mjcVerification();
+        var calculatedZero = new GradeVerificationResponse(base.ruleId(), base.ruleName(), base.ruleVersion(),
+            base.universityName(), base.admissionType(), base.recruitmentUnit(), BigDecimal.ZERO,
+            base.baseScore(), base.averageGrade(), base.selectionStrategy(), base.scoreAggregation(),
+            base.sourceDocument(), base.sourcePages(), base.includedCourseCount(), base.excludedCourseCount(),
+            base.calculationSummary(), base.calculations(), base.warnings());
+        var batch = new TranscriptBatchVerificationResult(List.of(new TranscriptBatchVerificationResult.Success(
+            syntheticPartApplication(1), "합성", calculatedZero, List.of(), List.of(), null)), List.of());
+        byte[] file = writer.write("synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, "명지전문대학교",
+            1, 0, List.of(), List.of(), List.of(), List.of(), batch);
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(file))) {
+            assertThat(book.getSheet("학생별 검증 결과").getRow(3).getCell(18).getNumericCellValue()).isZero();
+            Sheet summary = book.getSheet("검증 요약");
+            int groupHeader = findRow(summary, "미검증 학생 목록") + 1;
+            assertThat(summary.getRow(groupHeader + 1).getCell(7).getNumericCellValue()).isZero();
+            int zeroSection = findRow(summary, "산출 완료 0점 학생 (미검증 집계와 별도)");
+            assertThat(summary.getRow(zeroSection + 2).getCell(1).getStringCellValue())
+                .isEqualTo(syntheticPartApplication(1).applicantNumber());
+            assertThat(findRow(summary, "성적 검증 실패 상세")).isEqualTo(-1);
+        }
+    }
+
+    private TransferApplicationRow syntheticPartApplication(int part) {
+        return new TransferApplicationRow(part, 2027, "000-SYN-PART-%02d".formatted(part), "TEST",
+            "합성 전형", "TEST", "합성 모집단위", 2027);
+    }
+
+    private int findRow(Sheet sheet, String label) {
+        for (Row row : sheet) {
+            Cell first = row.getCell(0);
+            if (first != null && first.getCellType() == org.apache.poi.ss.usermodel.CellType.STRING
+                && label.equals(first.getStringCellValue())) return row.getRowNum();
+        }
+        return -1;
+    }
 
     @Test
     void retainsNonNumericSourceGradeAndZeroCreditRowInMjcExport() throws Exception {
