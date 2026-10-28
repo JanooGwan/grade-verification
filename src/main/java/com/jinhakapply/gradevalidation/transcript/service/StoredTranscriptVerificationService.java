@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRunRepository;
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
@@ -24,6 +25,7 @@ import com.jinhakapply.gradevalidation.transcript.domain.StudentTranscriptImport
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptPreviewResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationProgress;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -107,8 +109,16 @@ public class StoredTranscriptVerificationService {
 
     @Transactional
     public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear) {
+        return persist(universityId, admissionYear, ignored -> { });
+    }
+
+    @Transactional
+    public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear,
+        Consumer<StoredVerificationProgress> progress) {
+        progress.accept(new StoredVerificationProgress("LOADING_INPUTS", 0, 0, 0));
         StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
         if (isSyuSource(latestImport)) {
+            progress.accept(new StoredVerificationProgress("VERIFYING_SCENARIOS", 0, 0, 0));
             return syuPersistenceService.persist(
                 latestImport,
                 syuImportScoreExcelWriter.loadScenarioRules(universityId, admissionYear)
@@ -116,8 +126,12 @@ public class StoredTranscriptVerificationService {
         }
         StoredInput stored = loadStoredInput(universityId, admissionYear);
         Long sourceImportId = stored.transcriptImport().getId();
+        int totalApplications = stored.applications().size();
+        progress.accept(new StoredVerificationProgress("PREPARING_SAVE", totalApplications, 0, 0));
         int replacedResults = batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId);
-        int[] savedResults = {0};
+        var buffer = new StoredVerificationResultBuffer(batchVerificationRunRepository, sourceImportId,
+            saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)));
+        progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, 0, 0));
         TranscriptBatchVerificationResult verification = batchVerificationService.verify(
             universityId,
             admissionYear,
@@ -126,38 +140,32 @@ public class StoredTranscriptVerificationService {
             stored.schoolInfoByApplicant(),
             loadArchiveInputs(stored.transcriptImport()),
             (application, result) -> {
-                if (application.applicationId() == null) {
-                    throw new IllegalStateException("DB 지원정보 식별자가 없어 검증 결과를 저장할 수 없습니다.");
-                }
-                int inserted = batchVerificationRunRepository.insert(
-                    sourceImportId,
-                    application.applicationId(),
-                    result,
-                    objectMapper.writeValueAsString(result)
-                );
-                if (inserted != 1) {
-                    throw new IllegalStateException(
-                        "지원정보 #%d에 대한 검증 결과를 저장하지 못했습니다.".formatted(application.applicationId())
-                    );
-                }
-                savedResults[0] += inserted;
+                buffer.add(application.applicationId(), result, objectMapper.writeValueAsString(result));
             }
         );
         requireMatchedVerificationRule(verification);
+        buffer.flush();
+        progress.accept(new StoredVerificationProgress("FINALIZING", totalApplications,
+            buffer.savedResults(), verification.failures().size()));
         if (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(stored.transcriptImport().getSourceFormat())) {
             jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
                 sourceImportId);
-            for (var failure : verification.failures()) {
-                jdbcTemplate.update("""
+            jdbcTemplate.batchUpdate("""
                     UPDATE student_mjc_archive_applicant SET verification_code=?, verification_reason=?
                     WHERE import_id=? AND applicant_number=?
-                    """, failure.code(), failure.reason(), sourceImportId, failure.application().applicantNumber());
-            }
+                    """, verification.failures(), 200, (statement, failure) -> {
+                        statement.setString(1, failure.code());
+                        statement.setString(2, failure.reason());
+                        statement.setLong(3, sourceImportId);
+                        statement.setString(4, failure.application().applicantNumber());
+                    });
         }
+        progress.accept(new StoredVerificationProgress("COMMITTING", totalApplications,
+            buffer.savedResults(), verification.failures().size()));
         return new StoredVerificationPersistenceResponse(
             sourceImportId,
             stored.applications().size(),
-            savedResults[0],
+            buffer.savedResults(),
             verification.failures().size(),
             replacedResults,
             LocalDateTime.now()

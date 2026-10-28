@@ -13,6 +13,7 @@ import java.util.concurrent.Executor;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationJobResponse;
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersistenceResponse;
+import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationProgress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -71,7 +72,10 @@ public class StoredVerificationJobService {
 
     private void run(VerificationJob job) {
         try {
-            job.result = verificationService.persist(job.scope.universityId, job.scope.admissionYear);
+            job.result = verificationService.persist(job.scope.universityId, job.scope.admissionYear,
+                progress -> job.progress = progress);
+            job.progress = new StoredVerificationProgress(COMPLETED, job.result.totalApplications(),
+                job.result.savedResults(), job.result.failedResults());
             job.status = COMPLETED;
             log.info("Stored transcript verification completed: jobId={}, universityId={}, admissionYear={}, savedResults={}",
                 job.id, job.scope.universityId, job.scope.admissionYear, job.result.savedResults());
@@ -111,7 +115,8 @@ public class StoredVerificationJobService {
             job.message,
             job.startedAt,
             job.completedAt,
-            job.result
+            job.result,
+            job.progress
         );
     }
 
@@ -126,6 +131,7 @@ public class StoredVerificationJobService {
         private volatile String message;
         private volatile Instant completedAt;
         private volatile StoredVerificationPersistenceResponse result;
+        private volatile StoredVerificationProgress progress = StoredVerificationProgress.queued();
 
         private VerificationJob(UUID id, VerificationScope scope, Instant startedAt) {
             this.id = id;

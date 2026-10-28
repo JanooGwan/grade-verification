@@ -11,6 +11,11 @@ public record StoredVerificationJobResponse(
     String message,
     Instant startedAt,
     Instant completedAt,
-    StoredVerificationPersistenceResponse result
+    StoredVerificationPersistenceResponse result,
+    StoredVerificationProgress progress
 ) {
+    public StoredVerificationJobResponse(UUID jobId, Long universityId, int admissionYear, String status,
+        String message, Instant startedAt, Instant completedAt, StoredVerificationPersistenceResponse result) {
+        this(jobId, universityId, admissionYear, status, message, startedAt, completedAt, result, null);
+    }
 }
