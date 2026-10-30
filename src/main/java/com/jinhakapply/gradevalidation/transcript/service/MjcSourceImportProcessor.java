@@ -46,33 +46,67 @@ class MjcSourceImportProcessor {
     @Async("sourceImportExecutor")
     public void processArchive(Long importId, Long universityId, int admissionYear, Path directory, Path archive) {
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.ARCHIVE_VALIDATION);
+        var timing = new SourceStageTimings(stage);
+        boolean success = false;
         try {
             updateStatus(importId, "PROCESSING", null);
             var bundle = archiveExtractor.extract(archive, directory, admissionYear);
             transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
-                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), stage::set));
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition));
+            success = true;
         } catch (Exception exception) {
             String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
             // Log only our allowlisted diagnostic, never the original exception/message/SQL.
             log.warn("MJC archive import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
-        } finally { MjcSourceImportService.deleteDirectory(directory); }
+        } finally {
+            timing.finish();
+            log.info("mjc_import_timings importId={} format=ZIP status={} timingsMs={}",
+                importId, success ? "COMPLETED" : "FAILED", timing.snapshot());
+            MjcSourceImportService.deleteDirectory(directory);
+        }
     }
 
     @Async("sourceImportExecutor")
     public void processSingleCsv(Long importId, Long universityId, int admissionYear, Path directory, Path csv) {
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.SINGLE_CSV_VALIDATION);
+        var timing = new SourceStageTimings(stage);
+        boolean success = false;
         try {
             updateStatus(importId, "PROCESSING", null);
             var files = singleCsvExtractor.extract(csv, directory);
             var bundle = archiveExtractor.extractCombined(files, directory);
             transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
-                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), stage::set));
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition));
+            success = true;
         } catch (Exception exception) {
             String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
             log.warn("MJC single CSV import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
-        } finally { MjcSourceImportService.deleteDirectory(directory); }
+        } finally {
+            timing.finish();
+            log.info("mjc_import_timings importId={} format=SINGLE_CSV status={} timingsMs={}",
+                importId, success ? "COMPLETED" : "FAILED", timing.snapshot());
+            MjcSourceImportService.deleteDirectory(directory);
+        }
+    }
+
+    private static final class SourceStageTimings {
+        private final AtomicReference<MjcSourceImportDiagnostics.Stage> stage;
+        private final OperationTimings timings = new OperationTimings();
+        private final OperationTimings.Scope total = timings.start("total");
+        private OperationTimings.Scope current;
+        private SourceStageTimings(AtomicReference<MjcSourceImportDiagnostics.Stage> stage) {
+            this.stage = stage;
+            current = timings.start(stage.get().name());
+        }
+        private void transition(MjcSourceImportDiagnostics.Stage next) {
+            current.close();
+            stage.set(next);
+            current = timings.start(next.name());
+        }
+        private void finish() { current.close(); total.close(); }
+        private Map<String, Long> snapshot() { return timings.snapshotMillis(); }
     }
 
     @Async("sourceImportExecutor")

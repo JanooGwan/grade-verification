@@ -27,7 +27,7 @@ class StoredVerificationJobServiceTest {
         var result = new StoredVerificationPersistenceResponse(
             27L, 15_503, 15_500, 3, 0, LocalDateTime.of(2026, 9, 8, 12, 0)
         );
-        when(verificationService.persist(eq(4L), eq(2026), any())).thenReturn(result);
+        when(verificationService.persist(eq(4L), eq(2026), any(), any())).thenReturn(result);
         Executor sameThreadExecutor = Runnable::run;
         var service = new StoredVerificationJobService(verificationService, sameThreadExecutor);
 
@@ -43,7 +43,7 @@ class StoredVerificationJobServiceTest {
 
     @Test
     void exposesFailureWithoutBreakingThePollingRequest() {
-        when(verificationService.persist(eq(4L), eq(2026), any())).thenThrow(new IllegalStateException("database failed"));
+        when(verificationService.persist(eq(4L), eq(2026), any(), any())).thenThrow(new IllegalStateException("database failed"));
         Executor sameThreadExecutor = Runnable::run;
         var service = new StoredVerificationJobService(verificationService, sameThreadExecutor);
 
@@ -69,7 +69,7 @@ class StoredVerificationJobServiceTest {
             assertThat(beforeCommitReturns.result()).isNull();
             assertThat(beforeCommitReturns.progress().savedResults()).isEqualTo(9);
             return new StoredVerificationPersistenceResponse(27L, 10, 9, 1, 0, LocalDateTime.now());
-        }).when(verificationService).persist(eq(4L), eq(2027), any());
+        }).when(verificationService).persist(eq(4L), eq(2027), any(), any());
         pending.get().run();
         assertThat(service.status(started.jobId()).status()).isEqualTo("COMPLETED");
     }

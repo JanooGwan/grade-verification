@@ -20,6 +20,8 @@ import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationPageRespo
 import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationResultRow;
 import com.jinhakapply.gradevalidation.transcript.repository.SavedVerificationQueryRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -27,6 +29,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 @RequiredArgsConstructor
 public class SavedVerificationQueryService {
+    private static final Logger log = LoggerFactory.getLogger(SavedVerificationQueryService.class);
     private static final int EXPORT_PAGE_SIZE = 200;
     private final SavedVerificationQueryRepository repository;
     private final ObjectMapper objectMapper;
@@ -89,10 +92,26 @@ public class SavedVerificationQueryService {
 
     @Transactional(readOnly = true)
     public void writeExport(Long sourceImportId, OutputStream output) throws IOException {
-        SavedVerificationBatchResponse batch = repository.findBatch(sourceImportId)
+        OperationTimings timings = new OperationTimings();
+        boolean success = false;
+        try {
+            try (var ignored = timings.start("export_total")) {
+                writeMeasuredExport(sourceImportId, output, timings);
+            }
+            success = true;
+        } finally {
+            log.info("verification_export_timings sourceImportId={} status={} timingsMs={}",
+                sourceImportId, success ? "COMPLETED" : "FAILED", timings.snapshotMillis());
+        }
+    }
+
+    private void writeMeasuredExport(Long sourceImportId, OutputStream output, OperationTimings timings) throws IOException {
+        SavedVerificationBatchResponse batch = timings.measure("batch_db", () -> repository.findBatch(sourceImportId))
             .orElseThrow(() -> CustomException.of(VERIFICATION_RUN_NOT_FOUND));
         if (SyuSourceExcelStreamer.SOURCE_FORMAT.equals(batch.sourceFormat())) {
-            output.write(syuSavedVerificationExcelWriter.write(batch));
+            try (var ignored = timings.start("syu_export_inclusive")) {
+                output.write(syuSavedVerificationExcelWriter.write(batch));
+            }
             return;
         }
 
@@ -102,44 +121,52 @@ public class SavedVerificationQueryService {
         int courseRowNumber = 1;
         long afterVerificationRunId = 0L;
         int resultIndex = 0;
+        int pagesRead = 0;
         while (true) {
+            long cursor = afterVerificationRunId;
+            if (pagesRead % 50 == 0) {
+                log.info("verification_export_stage sourceImportId={} stage=RESULT_DB pagesCompleted={}", sourceImportId, pagesRead);
+            }
             List<SavedVerificationQueryRepository.ExportProjection> storedResults =
-                repository.findExportResultsAfter(sourceImportId, afterVerificationRunId, EXPORT_PAGE_SIZE);
+                timings.measure("result_db", () -> repository.findExportResultsAfter(sourceImportId, cursor, EXPORT_PAGE_SIZE));
             if (storedResults.isEmpty()) break;
-            for (SavedVerificationQueryRepository.ExportProjection stored : storedResults) {
-                GradeVerificationResponse verification = objectMapper.readValue(
-                    stored.resultJson(), GradeVerificationResponse.class
-                );
-                EvaluationRule rule = rules.computeIfAbsent(stored.ruleId(), ruleId ->
-                    ruleRepository.findOneById(ruleId)
-                        .orElseThrow(() -> CustomException.of(VERIFICATION_RUN_NOT_FOUND))
-                );
-                TransferApplicationRow application = new TransferApplicationRow(
-                    stored.applicationId(), ++resultIndex, batch.admissionYear(), stored.applicantNumber(),
-                    null, stored.admissionTrackName(), stored.recruitmentUnitCode(),
-                    stored.recruitmentUnitName(), null, null
-                );
-                List<TranscriptBatchVerificationResult.SelectedCourse> selectedCourses = new ArrayList<>();
-                List<GradeVerificationResponse.CourseCalculation> calculations = verification.calculations() == null
-                    ? List.of() : verification.calculations();
-                for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
-                    TranscriptExcelRow course = storedCourse(
-                        courseRowNumber++, stored.applicantNumber(), stored.studentName(), calculation
+            pagesRead++;
+            try (var ignored = timings.start("detail_assembly_including_rule_db")) {
+                for (SavedVerificationQueryRepository.ExportProjection stored : storedResults) {
+                    GradeVerificationResponse verification = objectMapper.readValue(
+                        stored.resultJson(), GradeVerificationResponse.class
                     );
-                    courses.add(course);
-                    if (calculation.included()) {
-                        selectedCourses.add(new TranscriptBatchVerificationResult.SelectedCourse(course, calculation));
+                    EvaluationRule rule = rules.computeIfAbsent(stored.ruleId(), ruleId ->
+                        timings.measure("rule_db", () -> ruleRepository.findOneById(ruleId))
+                            .orElseThrow(() -> CustomException.of(VERIFICATION_RUN_NOT_FOUND))
+                    );
+                    TransferApplicationRow application = new TransferApplicationRow(
+                        stored.applicationId(), ++resultIndex, batch.admissionYear(), stored.applicantNumber(),
+                        null, stored.admissionTrackName(), stored.recruitmentUnitCode(),
+                        stored.recruitmentUnitName(), null, null
+                    );
+                    List<TranscriptBatchVerificationResult.SelectedCourse> selectedCourses = new ArrayList<>();
+                    List<GradeVerificationResponse.CourseCalculation> calculations = verification.calculations() == null
+                        ? List.of() : verification.calculations();
+                    for (GradeVerificationResponse.CourseCalculation calculation : calculations) {
+                        TranscriptExcelRow course = storedCourse(
+                            courseRowNumber++, stored.applicantNumber(), stored.studentName(), calculation
+                        );
+                        courses.add(course);
+                        if (calculation.included()) {
+                            selectedCourses.add(new TranscriptBatchVerificationResult.SelectedCourse(course, calculation));
+                        }
                     }
+                    successes.add(new TranscriptBatchVerificationResult.Success(
+                        application,
+                        stored.studentName(),
+                        withoutCalculations(verification),
+                        List.copyOf(selectedCourses),
+                        batchVerificationService.buildIntermediateCalculations(rule, verification),
+                        null
+                    ));
+                    afterVerificationRunId = stored.verificationRunId();
                 }
-                successes.add(new TranscriptBatchVerificationResult.Success(
-                    application,
-                    stored.studentName(),
-                    withoutCalculations(verification),
-                    List.copyOf(selectedCourses),
-                    batchVerificationService.buildIntermediateCalculations(rule, verification),
-                    null
-                ));
-                afterVerificationRunId = stored.verificationRunId();
             }
             if (storedResults.size() < EXPORT_PAGE_SIZE) break;
         }
@@ -155,7 +182,7 @@ public class SavedVerificationQueryService {
         boolean kbu = batch.universityName().contains("경복")
             && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
         if (tuk || kbu || mjcArchive) {
-            var applications = repository.findExportApplications(sourceImportId);
+            var applications = timings.measure("applications_db", () -> repository.findExportApplications(sourceImportId));
             var savedIds = successes.stream().map(s -> s.application().applicationId())
                 .collect(java.util.stream.Collectors.toSet());
             var currentIds = applications.stream().map(a -> a.applicationId())
@@ -172,7 +199,7 @@ public class SavedVerificationQueryService {
                     return new TranscriptBatchVerificationResult.Success(application, success.studentName(),
                         success.verification(), success.selectedCourses(), success.intermediateCalculations(), success.schoolInfo());
                 });
-                var mjcReasons = mjcArchive ? repository.findMjcFailureReasons(sourceImportId) : Map.<String, String[]>of();
+                var mjcReasons = mjcArchive ? timings.measure("failure_reasons_db", () -> repository.findMjcFailureReasons(sourceImportId)) : Map.<String, String[]>of();
                 applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
                     .map(a -> {
                         var generic = tuk ? TukUnscoredExport.failure(batch.admissionYear(), a)
@@ -195,12 +222,15 @@ public class SavedVerificationQueryService {
         TranscriptBatchVerificationResult result = new TranscriptBatchVerificationResult(
             List.copyOf(successes), List.copyOf(failures), applicationScopeComplete
         );
-        validationExcelWriter.write(
-            batch.originalFileName(), batch.sourceFormat(), batch.universityName(),
-            successes.size() + failures.size(), courses.size(), List.of(), List.copyOf(courses), List.of(),
-            List.copyOf(warnings),
-            result, output
-        );
+        log.info("verification_export_stage sourceImportId={} stage=XLSX_GENERATION", sourceImportId);
+        try (var ignored = timings.start("xlsx_generation_and_write")) {
+            validationExcelWriter.write(
+                batch.originalFileName(), batch.sourceFormat(), batch.universityName(),
+                successes.size() + failures.size(), courses.size(), List.of(), List.copyOf(courses), List.of(),
+                List.copyOf(warnings),
+                result, output
+            );
+        }
     }
 
     private TranscriptBatchVerificationResult.Failure unscoredFailure(int year,

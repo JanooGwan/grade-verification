@@ -21,12 +21,14 @@ import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptIm
 import com.jinhakapply.gradevalidation.university.domain.University;
 import com.jinhakapply.gradevalidation.university.repository.UniversityRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MjcSourceImportService {
     private static final long MAX_FILE_SIZE = 200L * 1024 * 1024;
     private static final long MAX_SINGLE_CSV_SIZE = 1024L * 1024 * 1024;
@@ -47,12 +49,15 @@ public class MjcSourceImportService {
         try {
             directory = Files.createTempDirectory("mjc-source-archive-");
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long copyStart = System.nanoTime();
             Path archive = copy(file, directory.resolve("source.zip"), digest, "archive");
+            long copyMs = (System.nanoTime() - copyStart) / 1_000_000L;
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
                 university, admissionYear, "MJC-" + admissionYear + "-current-source.zip",
                 HexFormat.of().formatHex(digest.digest()), MjcSourceArchiveExtractor.SOURCE_FORMAT,
                 directory.toAbsolutePath().toString()
             ));
+            log.info("mjc_upload_copy importId={} format=ZIP serverCopyMs={} bytes={}", queued.getId(), copyMs, file.getSize());
             try {
                 processor.processArchive(queued.getId(), universityId, admissionYear, directory, archive);
             } catch (TaskRejectedException exception) {
@@ -80,10 +85,13 @@ public class MjcSourceImportService {
         try {
             directory = Files.createTempDirectory("mjc-single-csv-");
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long copyStart = System.nanoTime();
             Path csv = copy(file, directory.resolve("source.csv"), digest, "single-csv");
+            long copyMs = (System.nanoTime() - copyStart) / 1_000_000L;
             StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
                 university, admissionYear, file.getOriginalFilename(), HexFormat.of().formatHex(digest.digest()),
                 MjcSourceArchiveExtractor.SINGLE_CSV_FORMAT, directory.toAbsolutePath().toString()));
+            log.info("mjc_upload_copy importId={} format=SINGLE_CSV serverCopyMs={} bytes={}", queued.getId(), copyMs, file.getSize());
             try {
                 processor.processSingleCsv(queued.getId(), universityId, admissionYear, directory, csv);
             } catch (TaskRejectedException exception) {

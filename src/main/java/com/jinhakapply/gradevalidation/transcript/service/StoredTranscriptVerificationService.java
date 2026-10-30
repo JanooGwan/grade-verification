@@ -115,50 +115,69 @@ public class StoredTranscriptVerificationService {
     @Transactional
     public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear,
         Consumer<StoredVerificationProgress> progress) {
+        return persist(universityId, admissionYear, progress, new OperationTimings());
+    }
+
+    @Transactional
+    public StoredVerificationPersistenceResponse persist(Long universityId, int admissionYear,
+        Consumer<StoredVerificationProgress> progress, OperationTimings timings) {
+        try (var ignored = timings.start("service_body")) {
+            return persistMeasured(universityId, admissionYear, progress, timings);
+        }
+    }
+
+    private StoredVerificationPersistenceResponse persistMeasured(Long universityId, int admissionYear,
+        Consumer<StoredVerificationProgress> progress, OperationTimings timings) {
         progress.accept(new StoredVerificationProgress("LOADING_INPUTS", 0, 0, 0));
-        StudentTranscriptImport latestImport = loadLatestCompletedImport(universityId, admissionYear);
+        StudentTranscriptImport latestImport = timings.measure("input_load", () -> loadLatestCompletedImport(universityId, admissionYear));
         if (isSyuSource(latestImport)) {
             progress.accept(new StoredVerificationProgress("VERIFYING_SCENARIOS", 0, 0, 0));
-            return syuPersistenceService.persist(
+            return timings.measure("syu_scenario_inclusive", () -> syuPersistenceService.persist(
                 latestImport,
                 syuImportScoreExcelWriter.loadScenarioRules(universityId, admissionYear)
-            );
+            ));
         }
-        StoredInput stored = loadStoredInput(universityId, admissionYear);
+        StoredInput stored = timings.measure("input_load", () -> loadStoredInput(universityId, admissionYear));
+        Map<String, MjcArchiveApplicant> archiveInputs = timings.measure("input_load", () -> loadArchiveInputs(stored.transcriptImport()));
         Long sourceImportId = stored.transcriptImport().getId();
         int totalApplications = stored.applications().size();
         progress.accept(new StoredVerificationProgress("PREPARING_SAVE", totalApplications, 0, 0));
-        int replacedResults = batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId);
+        int replacedResults = timings.measure("previous_result_delete", () -> batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId));
         var buffer = new StoredVerificationResultBuffer(batchVerificationRunRepository, sourceImportId,
             saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)));
         progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, 0, 0));
-        TranscriptBatchVerificationResult verification = batchVerificationService.verifyForPersistence(
+        TranscriptBatchVerificationResult verification = timings.measure("evaluation_loop_inclusive", () -> batchVerificationService.verifyForPersistence(
             universityId,
             admissionYear,
             stored.applications(),
             stored.courses(),
             stored.schoolInfoByApplicant(),
-            loadArchiveInputs(stored.transcriptImport()),
+            archiveInputs,
             (application, result) -> {
-                buffer.add(application.applicationId(), result, objectMapper.writeValueAsString(result));
+                String json = timings.measure("result_json", () -> objectMapper.writeValueAsString(result));
+                try (var ignored = timings.start("result_buffer_and_db_write")) {
+                    buffer.add(application.applicationId(), result, json);
+                }
             }
-        );
+        ));
         requireMatchedVerificationRule(verification);
-        buffer.flush();
+        try (var ignored = timings.start("final_db_flush")) { buffer.flush(); }
         progress.accept(new StoredVerificationProgress("FINALIZING", totalApplications,
             buffer.savedResults(), verification.failures().size()));
-        if (MjcSourceArchiveExtractor.isCurrentSource(stored.transcriptImport().getSourceFormat())) {
-            jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
-                sourceImportId);
-            jdbcTemplate.batchUpdate("""
-                    UPDATE student_mjc_archive_applicant SET verification_code=?, verification_reason=?
-                    WHERE import_id=? AND applicant_number=?
-                    """, verification.failures(), 200, (statement, failure) -> {
-                        statement.setString(1, failure.code());
-                        statement.setString(2, failure.reason());
-                        statement.setLong(3, sourceImportId);
-                        statement.setString(4, failure.application().applicantNumber());
-                    });
+        try (var ignored = timings.start("finalize")) {
+            if (MjcSourceArchiveExtractor.isCurrentSource(stored.transcriptImport().getSourceFormat())) {
+                jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
+                    sourceImportId);
+                jdbcTemplate.batchUpdate("""
+                        UPDATE student_mjc_archive_applicant SET verification_code=?, verification_reason=?
+                        WHERE import_id=? AND applicant_number=?
+                        """, verification.failures(), 200, (statement, failure) -> {
+                            statement.setString(1, failure.code());
+                            statement.setString(2, failure.reason());
+                            statement.setLong(3, sourceImportId);
+                            statement.setString(4, failure.application().applicantNumber());
+                        });
+            }
         }
         progress.accept(new StoredVerificationProgress("COMMITTING", totalApplications,
             buffer.savedResults(), verification.failures().size()));

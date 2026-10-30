@@ -71,9 +71,17 @@ public class StoredVerificationJobService {
     }
 
     private void run(VerificationJob job) {
+        OperationTimings timings = new OperationTimings();
         try {
-            job.result = verificationService.persist(job.scope.universityId, job.scope.admissionYear,
-                progress -> job.progress = progress);
+            try (var ignored = timings.start("persist_call_including_transaction")) {
+                job.result = verificationService.persist(job.scope.universityId, job.scope.admissionYear,
+                    progress -> {
+                        if (!job.progress.stage().equals(progress.stage())) {
+                            log.info("verification_stage jobId={} stage={}", job.id, progress.stage());
+                        }
+                        job.progress = progress;
+                    }, timings);
+            }
             job.progress = new StoredVerificationProgress(COMPLETED, job.result.totalApplications(),
                 job.result.savedResults(), job.result.failedResults());
             job.status = COMPLETED;
@@ -92,6 +100,16 @@ public class StoredVerificationJobService {
         } finally {
             job.completedAt = Instant.now();
             activeJobs.remove(job.scope, job.id);
+            var snapshot = timings.snapshotMillis();
+            Long loopOther = snapshot.containsKey("evaluation_loop_inclusive")
+                ? Math.max(0, timings.millis("evaluation_loop_inclusive")
+                    - timings.millis("result_json") - timings.millis("result_buffer_and_db_write")) : null;
+            Long transactionTail = snapshot.containsKey("service_body")
+                ? Math.max(0, timings.millis("persist_call_including_transaction") - timings.millis("service_body")) : null;
+            log.info("verification_timings jobId={} universityId={} admissionYear={} status={} timingsMs={} "
+                    + "evaluationOtherMs={} transactionAndProxyOverheadMs={}",
+                job.id, job.scope.universityId, job.scope.admissionYear, job.status,
+                snapshot, loopOther, transactionTail);
         }
     }
 
