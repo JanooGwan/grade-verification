@@ -111,7 +111,7 @@ public class SavedVerificationQueryRepository {
             JOIN university ON university.id = transcript_import.university_id
             WHERE transcript_import.id = ?
               AND (verification.id IS NOT NULL OR
-                   (transcript_import.source_format = 'MJC_CURRENT_SOURCE_ZIP_V1'
+                   (transcript_import.source_format IN ('MJC_CURRENT_SOURCE_ZIP_V1', 'MJC_CURRENT_SINGLE_CSV_V1')
                     AND transcript_import.status IN ('COMPLETED', 'COMPLETED_WITH_ERRORS')))
             GROUP BY transcript_import.id, university.id, university.name,
                      transcript_import.admission_year, transcript_import.original_file_name,

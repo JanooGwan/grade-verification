@@ -48,6 +48,14 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @Validated
 public interface TranscriptApi {
 
+    @Operation(summary = "명지전문대 단일 통합 CSV 가져오기", description = "변환 프로그램의 단일 CSV를 검사해 저장합니다.")
+    @PostMapping(value = "/imports/source/mjc/single-csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<SourceImportStartResponse> importMjcSingleCsv(
+        @RequestParam @Min(2000) @Max(2100) int admissionYear,
+        @RequestParam @NotNull @Positive Long universityId,
+        @RequestPart("file") MultipartFile file
+    );
+
     @Operation(summary = "명지전문대 현재 수신 원자료 ZIP 가져오기",
         description = "execution.csv, file-index.csv 및 모든 part를 검사한 뒤 한 번에 저장합니다. 암호화 ZIP은 지원하지 않습니다.")
     @PostMapping(value = "/imports/source/mjc/zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

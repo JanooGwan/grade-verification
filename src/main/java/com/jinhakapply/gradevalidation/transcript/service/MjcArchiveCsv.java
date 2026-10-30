@@ -22,14 +22,18 @@ final class MjcArchiveCsv {
     }
 
     static void read(Path path, List<String> requiredHeaders, Consumer<Map<String, String>> consumer) {
+        read(path, requiredHeaders, consumer, 100_000);
+    }
+
+    static void read(Path path, List<String> requiredHeaders, Consumer<Map<String, String>> consumer, int maxCellLength) {
         try (var reader = new PushbackReader(Files.newBufferedReader(path, StandardCharsets.UTF_8), 1)) {
-            List<String> headers = record(reader);
+            List<String> headers = record(reader, maxCellLength);
             if (headers == null || headers.isEmpty()) throw invalid();
             headers.set(0, headers.getFirst().replaceFirst("^\uFEFF", ""));
             if (new HashSet<>(headers).size() != headers.size() || headers.contains("")) throw invalid();
             if (!headers.containsAll(requiredHeaders)) throw invalid();
             List<String> cells;
-            while ((cells = record(reader)) != null) {
+            while ((cells = record(reader, maxCellLength)) != null) {
                 if (cells.size() != headers.size()) throw invalid();
                 Map<String, String> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) row.put(headers.get(i), cells.get(i));
@@ -40,7 +44,7 @@ final class MjcArchiveCsv {
         }
     }
 
-    private static List<String> record(PushbackReader reader) throws IOException {
+    private static List<String> record(PushbackReader reader, int maxCellLength) throws IOException {
         List<String> cells = new ArrayList<>();
         StringBuilder cell = new StringBuilder();
         boolean quoted = false;
@@ -75,7 +79,7 @@ final class MjcArchiveCsv {
             } else if (c == '"' && cell.isEmpty() && !closed) quoted = true;
             else if (closed || c == '"') throw invalid();
             else cell.append(c);
-            if (cell.length() > 100_000 || cells.size() > 256) throw invalid();
+            if (cell.length() > maxCellLength || cells.size() > 256) throw invalid();
         }
         if (quoted) throw invalid();
         if (!started) return null;

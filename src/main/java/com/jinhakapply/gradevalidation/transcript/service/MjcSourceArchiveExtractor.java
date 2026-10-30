@@ -21,6 +21,10 @@ import org.springframework.stereotype.Component;
 @Component
 class MjcSourceArchiveExtractor {
     static final String SOURCE_FORMAT = "MJC_CURRENT_SOURCE_ZIP_V1";
+    static final String SINGLE_CSV_FORMAT = "MJC_CURRENT_SINGLE_CSV_V1";
+    static boolean isCurrentSource(String format) {
+        return SOURCE_FORMAT.equals(format) || SINGLE_CSV_FORMAT.equals(format);
+    }
     private static final long MAX_EXPANDED_BYTES = 1024L * 1024 * 1024;
     private static final Set<String> TYPES = Set.of("applicants", "raw_student_records", "raw_student_subjects",
         "raw_ged_records", "raw_ged_subjects", "raw_attendance", "current_subject_overrides", "raw_evaluation_scores");
@@ -81,6 +85,30 @@ class MjcSourceArchiveExtractor {
             }
         } catch (IOException exception) { throw MjcArchiveCsv.invalid(); }
         if (metadata.size() != integer(execution.getFirst(), "applicant_count")) throw MjcArchiveCsv.invalid();
+        return new Bundle(applicants, bases, courses, List.copyOf(metadata));
+    }
+
+    /** The merged format has no original part or execution/index manifest. */
+    Bundle extractCombined(Map<String, Path> combinedFiles, Path directory) {
+        Map<String, Path> files = new LinkedHashMap<>();
+        for (String type : TYPES) {
+            Path path = combinedFiles.get(type);
+            if (path == null) throw MjcArchiveCsv.invalid();
+            files.put(partName(0, type), path);
+        }
+        Path applicants = directory.resolve("canonical-applicants.csv");
+        Path bases = directory.resolve("canonical-bases.csv");
+        Path courses = directory.resolve("canonical-courses.csv");
+        List<MjcArchiveApplicant> metadata = new ArrayList<>();
+        try (var applicantWriter = Files.newBufferedWriter(applicants);
+             var baseWriter = Files.newBufferedWriter(bases);
+             var courseWriter = Files.newBufferedWriter(courses)) {
+            MjcArchiveCsv.write(applicantWriter, APPLICANT_HEADERS);
+            MjcArchiveCsv.write(baseWriter, BASE_HEADERS);
+            MjcArchiveCsv.write(courseWriter, COURSE_HEADERS);
+            readPart(files, null, 0, applicantWriter, baseWriter, courseWriter, metadata, new HashSet<>(), new HashSet<>());
+        } catch (IOException exception) { throw MjcArchiveCsv.invalid(); }
+        if (metadata.isEmpty()) throw MjcArchiveCsv.invalid();
         return new Bundle(applicants, bases, courses, List.copyOf(metadata));
     }
 
@@ -166,7 +194,7 @@ class MjcSourceArchiveExtractor {
             normalized.put("sourceApplicantId", id);
             normalized.put("sourceStudentRecordId", recordId);
             normalized.put("sourceSubjectId", row.get("id"));
-            normalized.put("sourcePart", Integer.toString(part));
+            normalized.put("sourcePart", part == 0 ? null : Integer.toString(part));
             try { MjcArchiveCsv.write(courseWriter, COURSE_HEADERS.stream().map(normalized::get).toList()); }
             catch (IOException exception) { throw MjcArchiveCsv.invalid(); }
         });
@@ -233,16 +261,16 @@ class MjcSourceArchiveExtractor {
                 activeRow[0] = ++count[0];
                 Map<String, String> row = new LinkedHashMap<>();
                 raw.forEach((key, value) -> row.put(key, MjcArchiveCsv.decode(value)));
-                if (count[0] > 200_000) throw MjcArchiveCsv.invalid();
+                if (index != null && count[0] > 200_000) throw MjcArchiveCsv.invalid();
                 String code = type.equals("applicants") ? required(row, "admissionTypeCode") : required(row, "admission_type_code");
-                if (!code.equals(index.get(name).admissionCode())) throw MjcArchiveCsv.invalid();
+                if (index != null && !code.equals(index.get(name).admissionCode())) throw MjcArchiveCsv.invalid();
                 consumer.accept(row);
                 activeRow[0] = count[0] + 1;
             });
         } catch (IllegalArgumentException exception) {
             throw MjcSourceImportDiagnostics.source(part, type, activeRow[0], false, exception);
         }
-        if (count[0] != index.get(name).rows()) {
+        if (index != null && count[0] != index.get(name).rows()) {
             throw MjcSourceImportDiagnostics.source(part, type, count[0], true, null);
         }
     }

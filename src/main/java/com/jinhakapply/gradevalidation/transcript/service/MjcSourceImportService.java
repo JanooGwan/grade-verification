@@ -29,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class MjcSourceImportService {
     private static final long MAX_FILE_SIZE = 200L * 1024 * 1024;
+    private static final long MAX_SINGLE_CSV_SIZE = 1024L * 1024 * 1024;
     private static final long MAX_BUNDLE_SIZE = 205L * 1024 * 1024;
 
     private final StudentTranscriptImportRepository importRepository;
@@ -65,6 +66,38 @@ public class MjcSourceImportService {
         } catch (CustomException exception) { throw exception; }
         catch (Exception exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "원자료 ZIP을 임시 저장하지 못했습니다.");
+        } finally { if (directory != null) deleteDirectory(directory); }
+    }
+
+    public SourceImportStartResponse queueSingleCsv(int admissionYear, Long universityId, MultipartFile file) {
+        if ((admissionYear != 2026 && admissionYear != 2027) || file == null || file.isEmpty()
+            || file.getSize() > MAX_SINGLE_CSV_SIZE || file.getOriginalFilename() == null
+            || !file.getOriginalFilename().toLowerCase(Locale.ROOT).endsWith(".csv")) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "2026·2027학년도 통합 CSV(최대 1GB)를 선택해 주세요.");
+        }
+        University university = requireMjcUniversity(universityId);
+        Path directory = null;
+        try {
+            directory = Files.createTempDirectory("mjc-single-csv-");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            Path csv = copy(file, directory.resolve("source.csv"), digest, "single-csv");
+            StudentTranscriptImport queued = importRepository.saveAndFlush(StudentTranscriptImport.queue(
+                university, admissionYear, file.getOriginalFilename(), HexFormat.of().formatHex(digest.digest()),
+                MjcSourceArchiveExtractor.SINGLE_CSV_FORMAT, directory.toAbsolutePath().toString()));
+            try {
+                processor.processSingleCsv(queued.getId(), universityId, admissionYear, directory, csv);
+            } catch (TaskRejectedException exception) {
+                queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                importRepository.saveAndFlush(queued);
+                throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            }
+            directory = null;
+            return new SourceImportStartResponse(queued.getId(), queued.getStatus(),
+                MjcSourceArchiveExtractor.SINGLE_CSV_FORMAT,
+                "통합 CSV 저장을 시작했습니다. 원본 학년도는 파일에서 확인할 수 없으므로 선택한 기준연도를 확인해 주세요.");
+        } catch (CustomException exception) { throw exception; }
+        catch (Exception exception) {
+            throw CustomException.of(INVALID_TRANSCRIPT_FILE, "통합 CSV를 임시 저장하지 못했습니다.");
         } finally { if (directory != null) deleteDirectory(directory); }
     }
 

@@ -40,6 +40,7 @@ class MjcSourceImportProcessor {
     private final TransactionTemplate transactionTemplate;
     private final TranscriptSnapshotReplacementService snapshotReplacementService;
     private final MjcSourceArchiveExtractor archiveExtractor;
+    private final MjcSingleCsvExtractor singleCsvExtractor;
     private final tools.jackson.databind.ObjectMapper objectMapper;
 
     @Async("sourceImportExecutor")
@@ -54,6 +55,22 @@ class MjcSourceImportProcessor {
             String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
             // Log only our allowlisted diagnostic, never the original exception/message/SQL.
             log.warn("MJC archive import failed: importId={}, diagnostic={}", importId, diagnostic);
+            fail(importId, diagnostic);
+        } finally { MjcSourceImportService.deleteDirectory(directory); }
+    }
+
+    @Async("sourceImportExecutor")
+    public void processSingleCsv(Long importId, Long universityId, int admissionYear, Path directory, Path csv) {
+        var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.SINGLE_CSV_VALIDATION);
+        try {
+            updateStatus(importId, "PROCESSING", null);
+            var files = singleCsvExtractor.extract(csv, directory);
+            var bundle = archiveExtractor.extractCombined(files, directory);
+            transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
+                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), stage::set));
+        } catch (Exception exception) {
+            String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
+            log.warn("MJC single CSV import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
         } finally { MjcSourceImportService.deleteDirectory(directory); }
     }
@@ -192,6 +209,10 @@ class MjcSourceImportProcessor {
             : "이수단위가 없거나 0 이하인 과목 " + result.skippedRows() + "건을 성적 반영에서 제외했습니다.";
         String sourceWarning = MjcArchiveInputIssues.summary(archiveApplicants);
         if (sourceWarning != null) warning = warning == null ? sourceWarning : warning + " " + sourceWarning;
+        if (!archiveApplicants.isEmpty() && archiveApplicants.getFirst().part() == 0) {
+            String singleCsvWarning = "통합 CSV에는 원본 학년도·part·파일별 전체 건수 명세가 없어 검증할 수 없습니다. 선택한 학년도와 원본 전체 포함 여부를 확인해 주세요.";
+            warning = warning == null ? singleCsvWarning : warning + " " + singleCsvWarning;
+        }
         if (result.unresolvedGrades() > 0) {
             String gradeWarning = "숫자 석차등급으로 해석하지 않은 원본 표기 " + result.unresolvedGrades()
                 + "건을 원문으로 저장했습니다. 반영 범위에 해당하면 성적검증에서 등급 확인 필요로 표시합니다.";

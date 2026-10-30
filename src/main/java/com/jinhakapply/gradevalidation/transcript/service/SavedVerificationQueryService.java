@@ -143,7 +143,7 @@ public class SavedVerificationQueryService {
             }
             if (storedResults.size() < EXPORT_PAGE_SIZE) break;
         }
-        boolean mjcArchive = MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(batch.sourceFormat());
+        boolean mjcArchive = MjcSourceArchiveExtractor.isCurrentSource(batch.sourceFormat());
         if (successes.isEmpty() && !mjcArchive) throw CustomException.of(VERIFICATION_RUN_NOT_FOUND);
 
         List<TranscriptBatchVerificationResult.Failure> failures = new ArrayList<>();

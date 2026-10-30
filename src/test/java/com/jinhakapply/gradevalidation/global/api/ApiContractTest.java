@@ -183,6 +183,18 @@ class ApiContractTest {
     }
 
     @Test
+    void queuesMjcSingleCsvAndReturnsAccepted() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "synthetic.csv", "text/csv", new byte[]{1, 2, 3});
+        when(mjcSourceImportService.queueSingleCsv(anyInt(), anyLong(), any(MultipartFile.class)))
+            .thenReturn(new SourceImportStartResponse(11L, TranscriptImportStatus.QUEUED, "MJC_CURRENT_SINGLE_CSV_V1", "queued"));
+        mockMvc.perform(multipart("/api/transcripts/imports/source/mjc/single-csv").file(file)
+                .param("admissionYear", "2027").param("universityId", "1"))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.importId").value(11))
+            .andExpect(jsonPath("$.sourceFormat").value("MJC_CURRENT_SINGLE_CSV_V1"));
+    }
+
+    @Test
     void queuesMjcCurrentSourceZipAndReturnsAccepted() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "synthetic-source.zip", "application/zip", new byte[]{1, 2, 3});
         when(mjcSourceImportService.queueArchive(anyInt(), anyLong(), any(MultipartFile.class)))

@@ -9,6 +9,7 @@ import java.util.regex.Pattern;
 final class MjcSourceImportDiagnostics {
     enum Stage {
         ARCHIVE_VALIDATION("ZIP 구성·원자료 연결 검사"),
+        SINGLE_CSV_VALIDATION("통합 CSV 구성·원자료 연결 검사"),
         LOCK_SCOPE("저장 범위 잠금"),
         VALIDATE_CSV("계산 입력 변환 검사"),
         REPLACE_SNAPSHOT("이전 저장본 교체 준비"),

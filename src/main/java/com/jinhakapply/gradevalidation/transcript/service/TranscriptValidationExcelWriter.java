@@ -1095,6 +1095,7 @@ class TranscriptValidationExcelWriter {
 
     private String formatLabel(String sourceFormat) {
         if (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(sourceFormat)) return "명지전문대 현재 수신 원자료 ZIP";
+        if (MjcSourceArchiveExtractor.SINGLE_CSV_FORMAT.equals(sourceFormat)) return "명지전문대 통합 CSV";
         if ("HANSHIN_MULTI_SHEET_V1".equals(sourceFormat)) return "한신대 전달양식";
         if ("KOREAN_MULTI_SHEET_V1".equals(sourceFormat)) return "대학 전달양식";
         return "표준 성적양식";

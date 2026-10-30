@@ -19,7 +19,7 @@ final class MjcArchiveScores {
     static Map<String, String> sourceValues(MjcArchiveApplicant source) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put("원본 지원자 ID", source.sourceApplicantId());
-        values.put("part", Integer.toString(source.part()));
+        if (source.part() > 0) values.put("part", Integer.toString(source.part()));
         values.put("학력 분류", source.academicType());
         if (source.studentRecordId() != null) values.put("학생부 원본 ID", source.studentRecordId());
         if (source.gedRecordId() != null) values.put("검정고시 원본 ID", source.gedRecordId());

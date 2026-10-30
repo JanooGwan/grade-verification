@@ -147,7 +147,7 @@ public class StoredTranscriptVerificationService {
         buffer.flush();
         progress.accept(new StoredVerificationProgress("FINALIZING", totalApplications,
             buffer.savedResults(), verification.failures().size()));
-        if (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(stored.transcriptImport().getSourceFormat())) {
+        if (MjcSourceArchiveExtractor.isCurrentSource(stored.transcriptImport().getSourceFormat())) {
             jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
                 sourceImportId);
             jdbcTemplate.batchUpdate("""
@@ -194,7 +194,7 @@ public class StoredTranscriptVerificationService {
         List<TransferApplicationRow> applications = loadApplications(universityId, admissionYear);
         List<TranscriptExcelRow> courses = loadCourses(universityId, admissionYear);
         if (applications.isEmpty() || (courses.isEmpty()
-            && !MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat()))) {
+            && !MjcSourceArchiveExtractor.isCurrentSource(transcriptImport.getSourceFormat()))) {
             throw CustomException.of(
                 STORED_TRANSCRIPT_DATA_NOT_FOUND,
                 "최신 DB 저장본에 지원정보 또는 과목 성적이 없습니다. 완전한 파일을 다시 업로드해 주세요."
@@ -234,12 +234,12 @@ public class StoredTranscriptVerificationService {
     }
 
     private Map<String, MjcArchiveApplicant> loadArchiveInputs(StudentTranscriptImport transcriptImport) {
-        if (!MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat())) return Map.of();
+        if (!MjcSourceArchiveExtractor.isCurrentSource(transcriptImport.getSourceFormat())) return Map.of();
         Map<String, MjcArchiveApplicant> result = new LinkedHashMap<>();
         jdbcTemplate.query("SELECT applicant_number, source_metadata FROM student_mjc_archive_applicant WHERE import_id=?",
             (org.springframework.jdbc.core.RowCallbackHandler) row -> result.put(row.getString("applicant_number"),
                 objectMapper.readValue(row.getString("source_metadata"), MjcArchiveApplicant.class)), transcriptImport.getId());
-        if (result.isEmpty()) throw CustomException.of(INVALID_TRANSCRIPT_FILE, "ZIP 원자료 연결 정보가 없습니다. ZIP을 다시 업로드해 주세요.");
+        if (result.isEmpty()) throw CustomException.of(INVALID_TRANSCRIPT_FILE, "원자료 연결 정보가 없습니다. 원자료를 다시 업로드해 주세요.");
         return result;
     }
 

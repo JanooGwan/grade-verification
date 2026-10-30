@@ -51,6 +51,11 @@ public class TranscriptController implements TranscriptApi {
     private final SavedVerificationExportService savedVerificationExportService;
 
     @Override
+    public ResponseEntity<SourceImportStartResponse> importMjcSingleCsv(int admissionYear, Long universityId, MultipartFile file) {
+        return ResponseEntity.accepted().body(mjcSourceImportService.queueSingleCsv(admissionYear, universityId, file));
+    }
+
+    @Override
     public ResponseEntity<SourceImportStartResponse> importMjcSourceZip(int admissionYear, Long universityId, MultipartFile file) {
         return ResponseEntity.accepted().body(mjcSourceImportService.queueArchive(admissionYear, universityId, file));
     }

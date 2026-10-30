@@ -22,6 +22,28 @@ class MjcSourceArchiveProcessorTest {
     @TempDir Path directory;
 
     @Test
+    void invalidSingleCsvNeverEntersReplacementTransaction() throws Exception {
+        var extractor = mock(MjcSourceArchiveExtractor.class);
+        var single = mock(MjcSingleCsvExtractor.class);
+        var jdbc = mock(JdbcTemplate.class);
+        var transactions = mock(TransactionTemplate.class);
+        var snapshots = mock(TranscriptSnapshotReplacementService.class);
+        Path work = Files.createDirectory(directory.resolve("synthetic-csv-work"));
+        Path csv = work.resolve("synthetic.csv");
+        Files.writeString(csv, "invalid");
+        when(single.extract(csv, work)).thenThrow(new IllegalArgumentException("SYNTHETIC-PRIVATE-VALUE"));
+        var processor = new MjcSourceImportProcessor(new MjcSourceCsvReader(), new MjcSourceWorkbookExtractor(),
+            jdbc, transactions, snapshots, extractor, single, new ObjectMapper());
+        processor.processSingleCsv(123L, 1L, 2027, work, csv);
+        verifyNoInteractions(transactions, snapshots, extractor);
+        var message = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(anyString(), message.capture(), eq(123L));
+        assertThat(message.getValue()).contains("단계=SINGLE_CSV_VALIDATION")
+            .doesNotContain("SYNTHETIC-PRIVATE-VALUE");
+        assertThat(Files.exists(work)).isFalse();
+    }
+
+    @Test
     void invalidArchiveNeverEntersReplacementTransactionAndDoesNotExposeExceptionValues() throws Exception {
         var extractor = mock(MjcSourceArchiveExtractor.class);
         var jdbc = mock(JdbcTemplate.class);
@@ -32,7 +54,7 @@ class MjcSourceArchiveProcessorTest {
         Files.writeString(zip, "not an archive");
         when(extractor.extract(zip, work, 2027)).thenThrow(new IllegalArgumentException("SYNTHETIC-PRIVATE-VALUE"));
         var processor = new MjcSourceImportProcessor(new MjcSourceCsvReader(), new MjcSourceWorkbookExtractor(),
-            jdbc, transactions, snapshots, extractor, new ObjectMapper());
+            jdbc, transactions, snapshots, extractor, new MjcSingleCsvExtractor(new ObjectMapper()), new ObjectMapper());
         processor.processArchive(123L, 1L, 2027, work, zip);
         verifyNoInteractions(transactions, snapshots);
         var message = ArgumentCaptor.forClass(String.class);

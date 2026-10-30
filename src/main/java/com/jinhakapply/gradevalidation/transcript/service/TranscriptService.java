@@ -329,7 +329,7 @@ public class TranscriptService {
             .map(transcriptImport -> TranscriptImportSummaryResponse.from(
                 transcriptImport,
                 verificationRunRepository.existsBySourceImport_Id(transcriptImport.getId())
-                    || (MjcSourceArchiveExtractor.SOURCE_FORMAT.equals(transcriptImport.getSourceFormat())
+                    || (MjcSourceArchiveExtractor.isCurrentSource(transcriptImport.getSourceFormat())
                         && importRepository.hasMjcArchiveFailureResults(transcriptImport.getId()))
             ))
             .orElseThrow(() -> CustomException.of(TRANSCRIPT_IMPORT_NOT_FOUND));
