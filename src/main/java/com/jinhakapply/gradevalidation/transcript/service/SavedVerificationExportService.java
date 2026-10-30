@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,15 +36,22 @@ public class SavedVerificationExportService {
 
     private final SavedVerificationQueryService queryService;
     private final Executor executor;
+    private final Clock clock;
     private final Map<UUID, ExportJob> jobs = new ConcurrentHashMap<>();
     private final Map<Long, UUID> activeJobsBySourceImport = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SavedVerificationExportService(
         SavedVerificationQueryService queryService,
         @Qualifier("savedVerificationExportExecutor") Executor executor
     ) {
+        this(queryService, executor, Clock.systemUTC());
+    }
+
+    SavedVerificationExportService(SavedVerificationQueryService queryService, Executor executor, Clock clock) {
         this.queryService = queryService;
         this.executor = executor;
+        this.clock = clock;
     }
 
     public synchronized SavedVerificationExportStartResponse start(Long sourceImportId) {
@@ -54,7 +62,7 @@ public class SavedVerificationExportService {
             return new SavedVerificationExportStartResponse(active.id, active.sourceImportId, active.status);
         }
 
-        ExportJob job = new ExportJob(UUID.randomUUID(), sourceImportId, Instant.now());
+        ExportJob job = new ExportJob(UUID.randomUUID(), sourceImportId, Instant.now(clock));
         jobs.put(job.id, job);
         activeJobsBySourceImport.put(sourceImportId, job.id);
         try {
@@ -89,21 +97,31 @@ public class SavedVerificationExportService {
         return requireJob(exportId).sourceImportId;
     }
 
+    public record ActiveExport(UUID exportId, Long sourceImportId, Instant startedAt) {}
+
+    public java.util.List<ActiveExport> activeJobs() {
+        return jobs.values().stream().filter(job -> PROCESSING.equals(job.status))
+            .map(job -> new ActiveExport(job.id, job.sourceImportId, job.createdAt))
+            .sorted(java.util.Comparator.comparing(ActiveExport::startedAt)).toList();
+    }
+
     private void generate(ExportJob job) {
         Path file = null;
-        Instant startedAt = Instant.now();
+        Instant startedAt = Instant.now(clock);
         try {
             file = Files.createTempFile("saved-verification-export-", ".xlsx");
             try (OutputStream output = Files.newOutputStream(file)) {
                 queryService.writeExport(job.sourceImportId, output);
             }
             job.file = file;
+            job.finishedAt = Instant.now(clock);
             job.status = READY;
             job.message = null;
             log.info("Saved verification export completed: exportId={}, sourceImportId={}, elapsedSeconds={}, bytes={}",
-                job.id, job.sourceImportId, Duration.between(startedAt, Instant.now()).toSeconds(), Files.size(file));
+                job.id, job.sourceImportId, Duration.between(startedAt, Instant.now(clock)).toSeconds(), Files.size(file));
         } catch (Exception exception) {
             deleteQuietly(file);
+            job.finishedAt = Instant.now(clock);
             job.status = FAILED;
             job.message = "Excel 파일을 생성하지 못했습니다. 다시 시도해 주세요.";
             activeJobsBySourceImport.remove(job.sourceImportId, job.id);
@@ -119,9 +137,9 @@ public class SavedVerificationExportService {
     }
 
     private synchronized void cleanupExpired() {
-        Instant threshold = Instant.now().minus(JOB_TTL);
+        Instant threshold = Instant.now(clock).minus(JOB_TTL);
         jobs.values().removeIf(job -> {
-            if (job.createdAt.isAfter(threshold)) return false;
+            if (PROCESSING.equals(job.status) || job.finishedAt == null || job.finishedAt.isAfter(threshold)) return false;
             deleteQuietly(job.file);
             activeJobsBySourceImport.remove(job.sourceImportId, job.id);
             return true;
@@ -151,6 +169,7 @@ public class SavedVerificationExportService {
         private volatile String status = PROCESSING;
         private volatile String message;
         private volatile Path file;
+        private volatile Instant finishedAt;
 
         private ExportJob(UUID id, Long sourceImportId, Instant createdAt) {
             this.id = id;

@@ -1,0 +1,11 @@
+[
+  {"commit":"e13ff9b","changedAt":"2026-10-28T15:59:11+09:00","university":"명지전문대","summary":"명지 성취도와 점 표기의 정상 환산 경로 복구","reason":null},
+  {"commit":"01255c9","changedAt":"2026-10-28T09:28:46+09:00","university":"명지전문대","summary":"명지 원자료 코드 목록에 맞춘 전형 매핑과 입력 상태 보완","reason":null},
+  {"commit":"3db1a8c","changedAt":"2026-09-28T15:25:45+09:00","university":"경복대","summary":"직업과정 및 구교육과정 학기 처리 보정","reason":null},
+  {"commit":"8316871","changedAt":"2026-09-21T14:30:29+09:00","university":"한국공학대","summary":"교과 분류와 탐구 선택 산출 오류 수정","reason":null},
+  {"commit":"2d68633","changedAt":"2026-09-01T11:28:58+09:00","university":"명지전문대","summary":"2026 성적검증 규칙 구현","reason":null},
+  {"commit":"1208362","changedAt":"2026-08-28T16:40:05+09:00","university":"경복대","summary":"성적검증 규칙 보정","reason":null},
+  {"commit":"81dcbf1","changedAt":"2026-08-13T18:05:23+09:00","university":"삼육대","summary":"2027 전형별 환산 결과 반영","reason":null},
+  {"commit":"1bc252d","changedAt":"2026-07-29T14:25:10+09:00","university":"한신대","summary":"2026·2027 산출 규칙 분리","reason":null},
+  {"commit":"c735503","changedAt":"2026-07-29T11:09:36+09:00","university":"한신대","summary":"최소 과목 조건 제거","reason":null}
+]

@@ -37,6 +37,7 @@ public class MjcSourceImportService {
     private final StudentTranscriptImportRepository importRepository;
     private final MjcSourceImportProcessor processor;
     private final UniversityRepository universityRepository;
+    private final SourceImportJobTracker importJobs;
 
     public SourceImportStartResponse queueArchive(int admissionYear, Long universityId, MultipartFile file) {
         if ((admissionYear != 2026 && admissionYear != 2027) || file == null || file.isEmpty()
@@ -58,12 +59,17 @@ public class MjcSourceImportService {
                 directory.toAbsolutePath().toString()
             ));
             log.info("mjc_upload_copy importId={} format=ZIP serverCopyMs={} bytes={}", queued.getId(), copyMs, file.getSize());
+            importJobs.register(queued.getId(), universityId, admissionYear);
             try {
                 processor.processArchive(queued.getId(), universityId, admissionYear, directory, archive);
             } catch (TaskRejectedException exception) {
+                importJobs.finished(queued.getId());
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
                 importRepository.saveAndFlush(queued);
                 throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            } catch (RuntimeException exception) {
+                importJobs.finished(queued.getId());
+                throw exception;
             }
             directory = null;
             return new SourceImportStartResponse(queued.getId(), queued.getStatus(),
@@ -92,12 +98,17 @@ public class MjcSourceImportService {
                 university, admissionYear, file.getOriginalFilename(), HexFormat.of().formatHex(digest.digest()),
                 MjcSourceArchiveExtractor.SINGLE_CSV_FORMAT, directory.toAbsolutePath().toString()));
             log.info("mjc_upload_copy importId={} format=SINGLE_CSV serverCopyMs={} bytes={}", queued.getId(), copyMs, file.getSize());
+            importJobs.register(queued.getId(), universityId, admissionYear);
             try {
                 processor.processSingleCsv(queued.getId(), universityId, admissionYear, directory, csv);
             } catch (TaskRejectedException exception) {
+                importJobs.finished(queued.getId());
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
                 importRepository.saveAndFlush(queued);
                 throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            } catch (RuntimeException exception) {
+                importJobs.finished(queued.getId());
+                throw exception;
             }
             directory = null;
             return new SourceImportStartResponse(queued.getId(), queued.getStatus(),
@@ -137,13 +148,18 @@ public class MjcSourceImportService {
                 HexFormat.of().formatHex(digest.digest()), MjcSourceCsvReader.SOURCE_FORMAT,
                 directory.toAbsolutePath().toString()
             ));
+            importJobs.register(queued.getId(), universityId, admissionYear);
             try {
                 processor.process(queued.getId(), university.getId(), admissionYear, directory,
                     applicants, baseInfo, subjects);
             } catch (TaskRejectedException exception) {
+                importJobs.finished(queued.getId());
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
                 importRepository.saveAndFlush(queued);
                 throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            } catch (RuntimeException exception) {
+                importJobs.finished(queued.getId());
+                throw exception;
             }
             directory = null;
             return new SourceImportStartResponse(
@@ -178,12 +194,17 @@ public class MjcSourceImportService {
                 HexFormat.of().formatHex(digest.digest()), MjcSourceWorkbookExtractor.SOURCE_FORMAT,
                 directory.toAbsolutePath().toString()
             ));
+            importJobs.register(queued.getId(), universityId, admissionYear);
             try {
                 processor.processWorkbook(queued.getId(), university.getId(), admissionYear, directory, workbook);
             } catch (TaskRejectedException exception) {
+                importJobs.finished(queued.getId());
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
                 importRepository.saveAndFlush(queued);
                 throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            } catch (RuntimeException exception) {
+                importJobs.finished(queued.getId());
+                throw exception;
             }
             directory = null;
             return new SourceImportStartResponse(

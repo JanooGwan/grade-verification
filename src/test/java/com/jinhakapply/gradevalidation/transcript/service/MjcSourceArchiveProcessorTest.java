@@ -33,7 +33,7 @@ class MjcSourceArchiveProcessorTest {
         Files.writeString(csv, "invalid");
         when(single.extract(csv, work)).thenThrow(new IllegalArgumentException("SYNTHETIC-PRIVATE-VALUE"));
         var processor = new MjcSourceImportProcessor(new MjcSourceCsvReader(), new MjcSourceWorkbookExtractor(),
-            jdbc, transactions, snapshots, extractor, single, new ObjectMapper());
+            jdbc, transactions, snapshots, extractor, single, new ObjectMapper(), new SourceImportJobTracker());
         processor.processSingleCsv(123L, 1L, 2027, work, csv);
         verifyNoInteractions(transactions, snapshots, extractor);
         var message = ArgumentCaptor.forClass(String.class);
@@ -54,7 +54,7 @@ class MjcSourceArchiveProcessorTest {
         Files.writeString(zip, "not an archive");
         when(extractor.extract(zip, work, 2027)).thenThrow(new IllegalArgumentException("SYNTHETIC-PRIVATE-VALUE"));
         var processor = new MjcSourceImportProcessor(new MjcSourceCsvReader(), new MjcSourceWorkbookExtractor(),
-            jdbc, transactions, snapshots, extractor, new MjcSingleCsvExtractor(new ObjectMapper()), new ObjectMapper());
+            jdbc, transactions, snapshots, extractor, new MjcSingleCsvExtractor(new ObjectMapper()), new ObjectMapper(), new SourceImportJobTracker());
         processor.processArchive(123L, 1L, 2027, work, zip);
         verifyNoInteractions(transactions, snapshots);
         var message = ArgumentCaptor.forClass(String.class);

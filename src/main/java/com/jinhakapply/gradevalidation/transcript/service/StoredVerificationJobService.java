@@ -70,6 +70,12 @@ public class StoredVerificationJobService {
         return response(job);
     }
 
+    public java.util.List<StoredVerificationJobResponse> activeJobs() {
+        return jobs.values().stream().filter(job -> PROCESSING.equals(job.status))
+            .map(this::response).sorted(java.util.Comparator.comparing(StoredVerificationJobResponse::startedAt))
+            .toList();
+    }
+
     private void run(VerificationJob job) {
         OperationTimings timings = new OperationTimings();
         try {

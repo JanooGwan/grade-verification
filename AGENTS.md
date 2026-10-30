@@ -22,6 +22,7 @@
 - Within a feature, use packages such as `controller`, `service`, `repository`, `domain`, and `dto` only when they are needed.
 - Controllers must depend on services, and services may depend on repositories. Repositories must not depend on controllers or services.
 - Keep score-calculation rules out of controllers and persistence entities.
+- When changing a university's scoring logic or scoring-rule migration, add a factual entry to `src/main/resources/rule-change-history.json` with university, date, summary, reason when known, and commit identifier when available. Do not invent missing reasons. This curated file is not an automatic audit log.
 
 ## DTO and API rules
 

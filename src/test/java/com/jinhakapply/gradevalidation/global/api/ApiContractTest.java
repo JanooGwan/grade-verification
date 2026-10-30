@@ -50,6 +50,9 @@ import com.jinhakapply.gradevalidation.operation.controller.OperationsController
 import com.jinhakapply.gradevalidation.operation.dto.OperationsDashboardResponse;
 import com.jinhakapply.gradevalidation.operation.service.OperationalMetrics;
 import com.jinhakapply.gradevalidation.operation.service.OperationsDashboardService;
+import com.jinhakapply.gradevalidation.operation.service.ActiveJobsService;
+import com.jinhakapply.gradevalidation.operation.service.RuleChangeHistoryService;
+import com.jinhakapply.gradevalidation.operation.repository.LightDataStatusRepository;
 import com.jinhakapply.gradevalidation.transcript.controller.TranscriptController;
 import com.jinhakapply.gradevalidation.transcript.domain.TranscriptImportStatus;
 import com.jinhakapply.gradevalidation.transcript.dto.TranscriptImportResponse;
@@ -112,6 +115,9 @@ class ApiContractTest {
     @MockitoBean SavedVerificationExportService savedVerificationExportService;
     @MockitoBean AssistantService assistantService;
     @MockitoBean OperationsDashboardService operationsDashboardService;
+    @MockitoBean ActiveJobsService activeJobsService;
+    @MockitoBean RuleChangeHistoryService ruleChangeHistoryService;
+    @MockitoBean LightDataStatusRepository lightDataStatusRepository;
     @MockitoBean OperationalMetrics operationalMetrics;
 
     @Test

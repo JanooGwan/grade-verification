@@ -42,9 +42,11 @@ class MjcSourceImportProcessor {
     private final MjcSourceArchiveExtractor archiveExtractor;
     private final MjcSingleCsvExtractor singleCsvExtractor;
     private final tools.jackson.databind.ObjectMapper objectMapper;
+    private final SourceImportJobTracker importJobs;
 
     @Async("sourceImportExecutor")
     public void processArchive(Long importId, Long universityId, int admissionYear, Path directory, Path archive) {
+        importJobs.started(importId);
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.ARCHIVE_VALIDATION);
         var timing = new SourceStageTimings(stage);
         boolean success = false;
@@ -60,6 +62,7 @@ class MjcSourceImportProcessor {
             log.warn("MJC archive import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
         } finally {
+            importJobs.finished(importId);
             timing.finish();
             log.info("mjc_import_timings importId={} format=ZIP status={} timingsMs={}",
                 importId, success ? "COMPLETED" : "FAILED", timing.snapshot());
@@ -69,6 +72,7 @@ class MjcSourceImportProcessor {
 
     @Async("sourceImportExecutor")
     public void processSingleCsv(Long importId, Long universityId, int admissionYear, Path directory, Path csv) {
+        importJobs.started(importId);
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.SINGLE_CSV_VALIDATION);
         var timing = new SourceStageTimings(stage);
         boolean success = false;
@@ -84,6 +88,7 @@ class MjcSourceImportProcessor {
             log.warn("MJC single CSV import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
         } finally {
+            importJobs.finished(importId);
             timing.finish();
             log.info("mjc_import_timings importId={} format=SINGLE_CSV status={} timingsMs={}",
                 importId, success ? "COMPLETED" : "FAILED", timing.snapshot());
@@ -119,6 +124,7 @@ class MjcSourceImportProcessor {
         Path baseInfoFile,
         Path subjectScoreFile
     ) {
+        importJobs.started(importId);
         try {
             transactionTemplate.executeWithoutResult(status -> importCsvBundle(
                 importId, universityId, admissionYear, applicantsFile, baseInfoFile, subjectScoreFile
@@ -128,6 +134,7 @@ class MjcSourceImportProcessor {
             deleteSnapshotsSafely(importId);
             fail(importId, safeMessage(exception));
         } finally {
+            importJobs.finished(importId);
             MjcSourceImportService.deleteDirectory(directory);
         }
     }
@@ -140,6 +147,7 @@ class MjcSourceImportProcessor {
         Path directory,
         Path workbookFile
     ) {
+        importJobs.started(importId);
         try {
             MjcSourceWorkbookExtractor.ExtractedBundle bundle = workbookExtractor.extract(workbookFile, directory);
             transactionTemplate.executeWithoutResult(status -> importCsvBundle(
@@ -151,6 +159,7 @@ class MjcSourceImportProcessor {
             deleteSnapshotsSafely(importId);
             fail(importId, safeMessage(exception));
         } finally {
+            importJobs.finished(importId);
             MjcSourceImportService.deleteDirectory(directory);
         }
     }

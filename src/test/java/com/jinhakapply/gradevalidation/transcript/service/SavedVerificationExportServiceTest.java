@@ -6,6 +6,12 @@ import static org.mockito.Mockito.doAnswer;
 
 import java.io.ByteArrayOutputStream;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +25,29 @@ class SavedVerificationExportServiceTest {
     private SavedVerificationQueryService queryService;
 
     private SavedVerificationExportService service;
+
+    @Test
+    void longRunningJobsStayVisibleAndExpireOnlyAfterCompletion() {
+        var now = new AtomicReference<>(Instant.parse("2026-01-01T00:00:00Z"));
+        Clock clock = new Clock() {
+            @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+            @Override public Clock withZone(ZoneId zone) { return this; }
+            @Override public Instant instant() { return now.get(); }
+        };
+        var pending = new AtomicReference<Runnable>();
+        service = new SavedVerificationExportService(queryService, pending::set, clock);
+        var started = service.start(24L);
+        now.set(now.get().plus(Duration.ofHours(2)));
+        assertThat(service.status(started.exportId()).status()).isEqualTo("PROCESSING");
+        assertThat(service.activeJobs()).extracting(job -> job.exportId()).containsExactly(started.exportId());
+        assertThat(service.start(24L).exportId()).isEqualTo(started.exportId());
+        pending.get().run();
+        assertThat(service.status(started.exportId()).status()).isEqualTo("READY");
+        assertThat(service.activeJobs()).isEmpty();
+        now.set(now.get().plus(Duration.ofMinutes(61)));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.status(started.exportId()))
+            .isInstanceOf(com.jinhakapply.gradevalidation.global.exception.CustomException.class);
+    }
 
     @AfterEach
     void tearDown() {

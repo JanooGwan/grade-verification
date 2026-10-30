@@ -31,6 +31,7 @@ public class SyuSourceImportService {
     private final StudentTranscriptImportRepository importRepository;
     private final SyuSourceImportProcessor processor;
     private final UniversityRepository universityRepository;
+    private final SourceImportJobTracker importJobs;
 
     public SourceImportStartResponse queue(int admissionYear, Long universityId, MultipartFile file) {
         validate(admissionYear, file);
@@ -51,14 +52,19 @@ public class SyuSourceImportService {
                 university, admissionYear, fileName, HexFormat.of().formatHex(digest.digest()),
                 SyuSourceExcelStreamer.SOURCE_FORMAT, temporaryFile.toAbsolutePath().toString()
             ));
+            importJobs.register(queued.getId(), universityId, admissionYear);
             try {
                 processor.process(
                     queued.getId(), university.getId(), admissionYear, temporaryFile, fileName
                 );
             } catch (TaskRejectedException exception) {
+                importJobs.finished(queued.getId());
                 queued.fail("처리 대기열이 가득 차 작업을 시작하지 못했습니다. 잠시 후 다시 업로드해 주세요.");
                 importRepository.saveAndFlush(queued);
                 throw CustomException.of(SOURCE_IMPORT_QUEUE_FULL);
+            } catch (RuntimeException exception) {
+                importJobs.finished(queued.getId());
+                throw exception;
             }
             temporaryFile = null;
             return new SourceImportStartResponse(

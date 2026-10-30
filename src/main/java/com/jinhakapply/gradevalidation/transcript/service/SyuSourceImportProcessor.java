@@ -36,11 +36,13 @@ class SyuSourceImportProcessor {
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
     private final TranscriptSnapshotReplacementService snapshotReplacementService;
+    private final SourceImportJobTracker importJobs;
 
     @Async("sourceImportExecutor")
     public void process(
         Long importId, Long universityId, int admissionYear, Path path, String sourceFileName
     ) {
+        importJobs.started(importId);
         try {
             transactionTemplate.executeWithoutResult(status -> importWorkbook(
                 importId, universityId, admissionYear, path, sourceFileName
@@ -50,6 +52,7 @@ class SyuSourceImportProcessor {
             deleteSnapshotsSafely(importId);
             fail(importId, safeMessage(exception));
         } finally {
+            importJobs.finished(importId);
             try {
                 Files.deleteIfExists(path);
             } catch (Exception exception) {

@@ -35,10 +35,15 @@ class SyuSourceImportServiceTest {
         University university = University.create("SY", "삼육대학교");
         ReflectionTestUtils.setField(university, "id", 1L);
         when(universityRepository.findById(1L)).thenReturn(java.util.Optional.of(university));
-        when(repository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.saveAndFlush(any())).thenAnswer(invocation -> {
+            StudentTranscriptImport saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", 10L);
+            return saved;
+        });
         doThrow(new TaskRejectedException("full"))
             .when(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), any(Path.class), any(String.class));
-        SyuSourceImportService service = new SyuSourceImportService(repository, processor, universityRepository);
+        SourceImportJobTracker tracker = new SourceImportJobTracker();
+        SyuSourceImportService service = new SyuSourceImportService(repository, processor, universityRepository, tracker);
         MockMultipartFile file = new MockMultipartFile(
             "file", "source.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             new byte[] {1, 2, 3}
@@ -53,6 +58,7 @@ class SyuSourceImportServiceTest {
         StudentTranscriptImport failed = captor.getValue();
         assertThat(failed.getStatus()).isEqualTo(TranscriptImportStatus.FAILED);
         assertThat(failed.getTemporaryFilePath()).isNull();
+        assertThat(tracker.activeJobs()).isEmpty();
         ArgumentCaptor<Path> pathCaptor = ArgumentCaptor.forClass(Path.class);
         verify(processor).process(any(), org.mockito.ArgumentMatchers.anyLong(), any(Integer.class), pathCaptor.capture(), any(String.class));
         assertThat(pathCaptor.getValue()).doesNotExist();

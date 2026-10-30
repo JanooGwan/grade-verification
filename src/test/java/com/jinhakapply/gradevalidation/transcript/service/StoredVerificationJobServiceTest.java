@@ -61,6 +61,7 @@ class StoredVerificationJobServiceTest {
         var started = service.start(4L, 2027);
         assertThat(started.progress().stage()).isEqualTo("QUEUED");
         assertThat(service.start(4L, 2027).jobId()).isEqualTo(started.jobId());
+        assertThat(service.activeJobs()).extracting(job -> job.jobId()).containsExactly(started.jobId());
         doAnswer(call -> {
             Consumer<StoredVerificationProgress> progress = call.getArgument(2);
             progress.accept(new StoredVerificationProgress("COMMITTING", 10, 9, 1));
@@ -72,5 +73,6 @@ class StoredVerificationJobServiceTest {
         }).when(verificationService).persist(eq(4L), eq(2027), any(), any());
         pending.get().run();
         assertThat(service.status(started.jobId()).status()).isEqualTo("COMPLETED");
+        assertThat(service.activeJobs()).isEmpty();
     }
 }
