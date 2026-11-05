@@ -18,33 +18,37 @@ class TranscriptSnapshotReplacementService {
     private final JdbcTemplate jdbcTemplate;
 
     SnapshotScope clear(Long universityId, int admissionYear, boolean replaceAttendance) {
-        List<Student> existingStudents = studentRepository.findAllByUniversity_IdAndAdmissionYear(
+        return clear(universityId, admissionYear, replaceAttendance, null);
+    }
+
+    SnapshotScope clear(Long universityId, int admissionYear, boolean replaceAttendance, Long importId) {
+        List<Student> existingStudents = measured(importId, "load_existing_students", () -> studentRepository.findAllByUniversity_IdAndAdmissionYear(
             universityId, admissionYear
-        );
-        int deletedVerifications = jdbcTemplate.update("""
+        ), List::size);
+        int deletedVerifications = measured(importId, "delete_verifications", () -> jdbcTemplate.update("""
             DELETE verification
             FROM verification_run verification
             JOIN student ON student.id = verification.student_id
             WHERE student.university_id = ? AND student.admission_year = ?
-            """, universityId, admissionYear);
-        int deletedApplications = jdbcTemplate.update("""
+            """, universityId, admissionYear), Integer::intValue);
+        int deletedApplications = measured(importId, "delete_applications", () -> jdbcTemplate.update("""
             DELETE application
             FROM student_application application
             JOIN student ON student.id = application.student_id
             WHERE student.university_id = ? AND student.admission_year = ?
-            """, universityId, admissionYear);
-        int deletedCourses = jdbcTemplate.update("""
+            """, universityId, admissionYear), Integer::intValue);
+        int deletedCourses = measured(importId, "delete_courses", () -> jdbcTemplate.update("""
             DELETE course
             FROM student_transcript_course course
             JOIN student ON student.id = course.student_id
             WHERE student.university_id = ? AND student.admission_year = ?
-            """, universityId, admissionYear);
-        int deletedAttendance = replaceAttendance ? jdbcTemplate.update("""
+            """, universityId, admissionYear), Integer::intValue);
+        int deletedAttendance = replaceAttendance ? measured(importId, "delete_attendance", () -> jdbcTemplate.update("""
             DELETE attendance
             FROM student_attendance attendance
             JOIN student ON student.id = attendance.student_id
             WHERE student.university_id = ? AND student.admission_year = ?
-            """, universityId, admissionYear) : 0;
+            """, universityId, admissionYear), Integer::intValue) : 0;
         return new SnapshotScope(
             existingStudents,
             deletedApplications,
@@ -52,6 +56,11 @@ class TranscriptSnapshotReplacementService {
             deletedAttendance,
             deletedVerifications
         );
+    }
+
+    private <T> T measured(Long importId, String operation, java.util.function.Supplier<T> action,
+                           java.util.function.ToIntFunction<T> count) {
+        return importId == null ? action.get() : ImportTimingLog.measure(importId, operation, action, count);
     }
 
     int deleteMissingStudents(Collection<Student> previousStudents, Set<String> currentApplicantNumbers) {

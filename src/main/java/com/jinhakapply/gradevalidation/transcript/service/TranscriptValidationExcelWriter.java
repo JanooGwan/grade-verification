@@ -122,27 +122,37 @@ class TranscriptValidationExcelWriter {
         TranscriptBatchVerificationResult verification,
         OutputStream output
     ) throws IOException {
+        write(originalFileName, sourceFormat, universityName, applicationRows, totalRows, skipped, courses,
+            errors, warnings, verification, output, null);
+    }
+
+    void write(
+        String originalFileName, String sourceFormat, String universityName, int applicationRows, int totalRows,
+        List<TranscriptImportRowError> skipped, List<TranscriptExcelRow> courses, List<TranscriptImportRowError> errors,
+        List<String> warnings, TranscriptBatchVerificationResult verification, OutputStream output, Long sourceImportId
+    ) throws IOException {
         SXSSFWorkbook workbook = new SXSSFWorkbook(200);
         workbook.setCompressTempFiles(true);
         try (workbook) {
             Styles styles = new Styles(workbook);
             boolean kbu = isKbu(universityName);
             if (kbu) {
-                createKbuVerificationResultSheet(workbook, styles, universityName, verification);
-                createCourseComparisonSheet(workbook, styles, courses, verification, true);
+                traceSheet(sourceImportId, "result_sheet", () -> createKbuVerificationResultSheet(workbook, styles, universityName, verification));
+                traceSheet(sourceImportId, "course_comparison_sheet", () -> createCourseComparisonSheet(workbook, styles, courses, verification, true));
             } else {
-                createVerificationResultSheet(workbook, styles, universityName, verification);
-                createIntermediateCalculationSheet(workbook, styles, universityName, verification);
-                createCourseComparisonSheet(workbook, styles, courses, verification, false);
-                createSummarySheet(
+                traceSheet(sourceImportId, "result_sheet", () -> createVerificationResultSheet(workbook, styles, universityName, verification));
+                traceSheet(sourceImportId, "intermediate_sheet", () -> createIntermediateCalculationSheet(workbook, styles, universityName, verification));
+                traceSheet(sourceImportId, "course_comparison_sheet", () -> createCourseComparisonSheet(workbook, styles, courses, verification, false));
+                traceSheet(sourceImportId, "summary_sheet", () -> createSummarySheet(
                     workbook, styles, originalFileName, sourceFormat, applicationRows,
                     totalRows, courses.size(), errors.size(), skipped.size(), warnings,
                     verification, skipped, errors, universityName != null && universityName.contains("한국공학"),
                     isMjc(universityName)
-                );
+                ));
             }
             if (verification.successes().stream().anyMatch(success -> success.verification().sourceValues() != null
                 && !success.verification().sourceValues().isEmpty())) {
+                traceSheet(sourceImportId, "source_values_sheet", () -> {
                 Sheet source = workbook.createSheet("원자료 연결 및 보조값");
                 source.setDisplayGridlines(false);
                 int rowIndex = tableHeader(source, styles, 0, new String[]{"수험번호", "전형명", "모집단위명", "항목", "값"});
@@ -157,9 +167,19 @@ class TranscriptValidationExcelWriter {
                 }
                 source.createFreezePane(0, 1);
                 for (int column = 0; column < 5; column++) source.setColumnWidth(column, (column == 4 ? 80 : 28) * 256);
+                });
             }
-            workbook.write(output);
+            if (sourceImportId == null) workbook.write(output);
+            else try (var trace = WorkflowTrace.start("export", sourceImportId, "workbook_write")) {
+                workbook.write(output);
+                trace.success();
+            }
         }
+    }
+
+    private void traceSheet(Long sourceImportId, String operation, Runnable action) {
+        if (sourceImportId == null) { action.run(); return; }
+        WorkflowTrace.measure("export", sourceImportId, operation, () -> { action.run(); return null; });
     }
 
     private void createSummarySheet(

@@ -34,6 +34,7 @@ class SavedVerificationQueryServiceTest {
     @Mock TranscriptBatchVerificationService batchVerificationService;
     @Mock TranscriptValidationExcelWriter validationExcelWriter;
     @Mock SyuSavedVerificationExcelWriter syuSavedVerificationExcelWriter;
+    @Mock WorkflowResourceMonitor resourceMonitor;
     @Mock EvaluationRule rule;
 
     private SavedVerificationQueryService service;
@@ -42,7 +43,7 @@ class SavedVerificationQueryServiceTest {
     void setUp() {
         service = new SavedVerificationQueryService(
             repository, objectMapper, ruleRepository, batchVerificationService, validationExcelWriter,
-            syuSavedVerificationExcelWriter
+            syuSavedVerificationExcelWriter, resourceMonitor
         );
     }
 
@@ -101,7 +102,7 @@ class SavedVerificationQueryServiceTest {
             return null;
         }).when(validationExcelWriter).write(
             anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any(), any()
+            anyList(), anyList(), anyList(), anyList(), any(), any(), any()
         );
 
         byte[] result = service.export(80L);
@@ -140,7 +141,7 @@ class SavedVerificationQueryServiceTest {
             assertThat((Integer) invocation.getArgument(3)).isEqualTo(sameImport ? 2 : 1);
             return null;
         }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any(), any());
+            anyList(), anyList(), anyList(), anyList(), any(), any(), any());
         service.export(80L);
         verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
         org.mockito.Mockito.verifyNoMoreInteractions(batchVerificationService);
@@ -194,7 +195,7 @@ class SavedVerificationQueryServiceTest {
             assertThat((Integer) invocation.getArgument(3)).isEqualTo(sameImport ? 12 : 1);
             return null;
         }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any(), any());
+            anyList(), anyList(), anyList(), anyList(), any(), any(), any());
         service.export(80L);
         verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
         org.mockito.Mockito.verifyNoMoreInteractions(batchVerificationService);
@@ -215,7 +216,7 @@ class SavedVerificationQueryServiceTest {
             assertThat((Integer) invocation.getArgument(3)).isEqualTo(12);
             return null;
         }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any(), any());
+            anyList(), anyList(), anyList(), anyList(), any(), any(), any());
         service.export(80L);
         verifyNoInteractions(objectMapper, ruleRepository, batchVerificationService);
     }
@@ -253,7 +254,7 @@ class SavedVerificationQueryServiceTest {
                 .containsExactly("ESSAY_SCORE_REQUIRED", "ESSAY_SCORE_REQUIRED", "ALTERNATIVE_ACADEMIC_INPUT_REQUIRED");
             return null;
         }).when(validationExcelWriter).write(anyString(), anyString(), anyString(), anyInt(), anyInt(),
-            anyList(), anyList(), anyList(), anyList(), any(), any());
+            anyList(), anyList(), anyList(), anyList(), any(), any(), any());
         service.export(80L);
         verify(batchVerificationService).buildIntermediateCalculations(rule, verification);
         org.mockito.Mockito.verifyNoMoreInteractions(batchVerificationService);

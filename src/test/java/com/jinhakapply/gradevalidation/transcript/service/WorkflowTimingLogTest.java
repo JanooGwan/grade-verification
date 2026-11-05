@@ -22,7 +22,7 @@ class WorkflowTimingLogTest {
         when(repository.findBatch(80L)).thenThrow(new IllegalStateException("SYNTHETIC-PRIVATE-VALUE"));
         var service = new SavedVerificationQueryService(repository, mock(ObjectMapper.class),
             mock(EvaluationRuleRepository.class), mock(TranscriptBatchVerificationService.class),
-            mock(TranscriptValidationExcelWriter.class), mock(SyuSavedVerificationExcelWriter.class));
+            mock(TranscriptValidationExcelWriter.class), mock(SyuSavedVerificationExcelWriter.class), mock(WorkflowResourceMonitor.class));
         Logger logger = (Logger) LoggerFactory.getLogger(SavedVerificationQueryService.class);
         var appender = new ListAppender<ILoggingEvent>();
         appender.start();

@@ -30,7 +30,7 @@ class TranscriptSnapshotReplacementServiceTest {
             studentRepository, jdbcTemplate
         );
 
-        TranscriptSnapshotReplacementService.SnapshotScope scope = service.clear(4L, 2027, false);
+        TranscriptSnapshotReplacementService.SnapshotScope scope = service.clear(4L, 2027, false, 45L);
         int deletedStudents = service.deleteMissingStudents(scope.existingStudents(), Set.of("A-001"));
 
         assertThat(scope.deletedVerifications()).isEqualTo(3);

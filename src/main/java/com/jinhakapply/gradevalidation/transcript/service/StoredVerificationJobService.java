@@ -30,15 +30,18 @@ public class StoredVerificationJobService {
 
     private final StoredTranscriptVerificationService verificationService;
     private final Executor executor;
+    private final WorkflowResourceMonitor resourceMonitor;
     private final Map<UUID, VerificationJob> jobs = new ConcurrentHashMap<>();
     private final Map<VerificationScope, UUID> activeJobs = new ConcurrentHashMap<>();
 
     public StoredVerificationJobService(
         StoredTranscriptVerificationService verificationService,
-        @Qualifier("storedVerificationExecutor") Executor executor
+        @Qualifier("storedVerificationExecutor") Executor executor,
+        WorkflowResourceMonitor resourceMonitor
     ) {
         this.verificationService = verificationService;
         this.executor = executor;
+        this.resourceMonitor = resourceMonitor;
     }
 
     public synchronized StoredVerificationJobResponse start(Long universityId, int admissionYear) {
@@ -78,6 +81,7 @@ public class StoredVerificationJobService {
 
     private void run(VerificationJob job) {
         OperationTimings timings = new OperationTimings();
+        var resources = resourceMonitor.start("verification", job.id.toString());
         try {
             try (var ignored = timings.start("persist_call_including_transaction")) {
                 job.result = verificationService.persist(job.scope.universityId, job.scope.admissionYear,
@@ -104,6 +108,7 @@ public class StoredVerificationJobService {
             log.error("Stored transcript verification failed: jobId={}, universityId={}, admissionYear={}",
                 job.id, job.scope.universityId, job.scope.admissionYear, exception);
         } finally {
+            if (resources != null) resources.close();
             job.completedAt = Instant.now();
             activeJobs.remove(job.scope, job.id);
             var snapshot = timings.snapshotMillis();

@@ -29,11 +29,13 @@ class SyuScenarioVerificationPersistenceService {
         List<EvaluationRule> rules
     ) {
         Long sourceImportId = transcriptImport.getId();
-        int replacedResults = batchWriter.deleteAll(sourceImportId);
+        int replacedResults = WorkflowTrace.measure("verification", sourceImportId, "syu_delete_previous_results",
+            () -> batchWriter.deleteAll(sourceImportId));
         List<ScenarioVerificationRow> insertBuffer = new ArrayList<>(INSERT_BATCH_SIZE);
         int[] savedResults = {0};
 
-        SyuImportScoreExcelWriter.ScenarioVerificationSummary summary = scoreExcelWriter.verifyScenarios(
+        SyuImportScoreExcelWriter.ScenarioVerificationSummary summary = WorkflowTrace.measure("verification", sourceImportId,
+            "syu_evaluation_and_save", () -> scoreExcelWriter.verifyScenarios(
             transcriptImport,
             rules,
             (studentId, result) -> {
@@ -47,7 +49,7 @@ class SyuScenarioVerificationPersistenceService {
                     savedResults[0] += flush(sourceImportId, insertBuffer);
                 }
             }
-        );
+        ));
         savedResults[0] += flush(sourceImportId, insertBuffer);
         return new StoredVerificationPersistenceResponse(
             sourceImportId,
@@ -61,7 +63,8 @@ class SyuScenarioVerificationPersistenceService {
 
     private int flush(Long sourceImportId, List<ScenarioVerificationRow> buffer) {
         if (buffer.isEmpty()) return 0;
-        int inserted = batchWriter.insert(sourceImportId, List.copyOf(buffer));
+        int inserted = WorkflowTrace.measure("verification", sourceImportId, "syu_save_batch",
+            () -> batchWriter.insert(sourceImportId, List.copyOf(buffer)));
         buffer.clear();
         return inserted;
     }

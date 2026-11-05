@@ -43,8 +43,10 @@ class TranscriptValidationExcelWriterTest {
         Collections.reverse(successes);
         Collections.reverse(failures);
         var batch = new TranscriptBatchVerificationResult(List.copyOf(successes), List.copyOf(failures));
-        byte[] file = writer.write("synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, "명지전문대학교",
-            12, 0, List.of(), List.of(), List.of(), List.of(), batch);
+        var tracedOutput = new java.io.ByteArrayOutputStream();
+        writer.write("synthetic.zip", MjcSourceArchiveExtractor.SOURCE_FORMAT, "명지전문대학교",
+            12, 0, List.of(), List.of(), List.of(), List.of(), batch, tracedOutput, 45L);
+        byte[] file = tracedOutput.toByteArray();
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(file))) {
             assertThat(book.getNumberOfSheets()).isEqualTo(3);
             var result = book.getSheet("학생별 검증 결과");

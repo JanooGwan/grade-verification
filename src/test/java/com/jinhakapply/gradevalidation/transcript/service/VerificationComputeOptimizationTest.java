@@ -20,6 +20,19 @@ import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
 
 class VerificationComputeOptimizationTest {
+    @Test
+    void persistenceTimingsMeasureCalculationWithoutChangingResults() {
+        var input = VerificationComputeFixtures.create(2027, 5, true);
+        var service = service(input, new EvaluationRuleMatcher());
+        var timings = new OperationTimings();
+        var expected = service.verifyForPersistence(1L, 2027, input.applications(), input.courses(),
+            input.schoolInfo(), input.metadata(), (application, result) -> { });
+        var actual = service.verifyForPersistence(1L, 2027, input.applications(), input.courses(),
+            input.schoolInfo(), input.metadata(), (application, result) -> { }, timings);
+        assertThat(actual).isEqualTo(expected);
+        assertThat(timings.snapshotMillis()).containsKeys("rules_load", "course_grouping", "grade_calculation", "intermediate_calculation");
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {2026, 2027})
     void persistenceAndExportPathsKeepIdenticalFullResultsWarningsAndFailures(int year) {

@@ -133,26 +133,29 @@ public class StoredTranscriptVerificationService {
         Consumer<StoredVerificationProgress> progress, OperationTimings timings) {
         progress.accept(new StoredVerificationProgress("LOADING_INPUTS", 0, 0, 0));
         StudentTranscriptImport latestImport = timings.measure("input_load", () -> loadLatestCompletedImport(universityId, admissionYear));
+        TransactionObservation.register("verification", String.valueOf(latestImport.getId()));
         if (isSyuSource(latestImport)) {
             progress.accept(new StoredVerificationProgress("VERIFYING_SCENARIOS", 0, 0, 0));
-            return timings.measure("syu_scenario_inclusive", () -> syuPersistenceService.persist(
+            return timings.measure("syu_scenario_inclusive", () -> WorkflowTrace.measure("verification", latestImport.getId(), "syu_scenario_inclusive", () -> syuPersistenceService.persist(
                 latestImport,
                 syuImportScoreExcelWriter.loadScenarioRules(universityId, admissionYear)
-            ));
+            )));
         }
-        StoredInput stored = timings.measure("input_load", () -> loadStoredInput(universityId, admissionYear));
-        Map<String, MjcArchiveApplicant> archiveInputs = timings.measure("input_load", () -> loadArchiveInputs(stored.transcriptImport()));
+        StoredInput stored = timings.measure("input_load", () -> loadStoredInput(universityId, admissionYear, latestImport.getId()));
+        Map<String, MjcArchiveApplicant> archiveInputs = timings.measure("input_load", () -> WorkflowTrace.measure(
+            "verification", stored.transcriptImport().getId(), "load_archive_inputs", () -> loadArchiveInputs(stored.transcriptImport())));
         Long sourceImportId = stored.transcriptImport().getId();
         int totalApplications = stored.applications().size();
         progress.accept(new StoredVerificationProgress("PREPARING_SAVE", totalApplications, 0, 0));
-        int replacedResults = timings.measure("previous_result_delete", () -> batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId));
+        int replacedResults = timings.measure("previous_result_delete", () -> WorkflowTrace.measure("verification", sourceImportId,
+            "delete_previous_results", () -> batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId)));
         long maximumBytes = timings.measure("batch_budget_lookup", this::verificationBatchBudget);
         log.info("verification_batch_budget sourceImportId={} maximumBytes={}", sourceImportId, maximumBytes);
         var buffer = new StoredVerificationResultBuffer(batchVerificationRunRepository, sourceImportId,
             saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)),
             200, maximumBytes);
         progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, 0, 0));
-        TranscriptBatchVerificationResult verification = timings.measure("evaluation_loop_inclusive", () -> batchVerificationService.verifyForPersistence(
+        TranscriptBatchVerificationResult verification = timings.measure("evaluation_loop_inclusive", () -> WorkflowTrace.measure("verification", sourceImportId, "evaluation_and_save", () -> batchVerificationService.verifyForPersistence(
             universityId,
             admissionYear,
             stored.applications(),
@@ -164,14 +167,18 @@ public class StoredTranscriptVerificationService {
                 try (var ignored = timings.start("result_buffer_and_db_write")) {
                     buffer.add(application.applicationId(), result, json);
                 }
-            }
-        ));
+            }, timings
+        )));
         requireMatchedVerificationRule(verification);
-        try (var ignored = timings.start("final_db_flush")) { buffer.flush(); }
+        try (var ignored = timings.start("final_db_flush"); var trace = WorkflowTrace.start("verification", sourceImportId, "final_buffer_flush")) {
+            buffer.flush();
+            trace.success();
+        }
         progress.accept(new StoredVerificationProgress("FINALIZING", totalApplications,
             buffer.savedResults(), verification.failures().size()));
         try (var ignored = timings.start("finalize")) {
             if (MjcSourceArchiveExtractor.isCurrentSource(stored.transcriptImport().getSourceFormat())) {
+                try (var trace = WorkflowTrace.start("verification", sourceImportId, "save_failure_reasons")) {
                 jdbcTemplate.update("UPDATE student_mjc_archive_applicant SET verification_code=NULL, verification_reason=NULL WHERE import_id=?",
                     sourceImportId);
                 jdbcTemplate.batchUpdate("""
@@ -183,6 +190,8 @@ public class StoredTranscriptVerificationService {
                             statement.setLong(3, sourceImportId);
                             statement.setString(4, failure.application().applicantNumber());
                         });
+                trace.success();
+                }
             }
         }
         progress.accept(new StoredVerificationProgress("COMMITTING", totalApplications,
@@ -225,9 +234,15 @@ public class StoredTranscriptVerificationService {
     }
 
     private StoredInput loadStoredInput(Long universityId, int admissionYear) {
+        return loadStoredInput(universityId, admissionYear, null);
+    }
+
+    private StoredInput loadStoredInput(Long universityId, int admissionYear, Long traceImportId) {
         StudentTranscriptImport transcriptImport = loadLatestCompletedImport(universityId, admissionYear);
-        List<TransferApplicationRow> applications = loadApplications(universityId, admissionYear);
-        List<TranscriptExcelRow> courses = loadCourses(universityId, admissionYear);
+        List<TransferApplicationRow> applications = traceImportId == null ? loadApplications(universityId, admissionYear)
+            : WorkflowTrace.measure("verification", traceImportId, "load_applications", () -> loadApplications(universityId, admissionYear));
+        List<TranscriptExcelRow> courses = traceImportId == null ? loadCourses(universityId, admissionYear)
+            : WorkflowTrace.measure("verification", traceImportId, "load_courses", () -> loadCourses(universityId, admissionYear));
         if (applications.isEmpty() || (courses.isEmpty()
             && !MjcSourceArchiveExtractor.isCurrentSource(transcriptImport.getSourceFormat()))) {
             throw CustomException.of(
@@ -239,7 +254,8 @@ public class StoredTranscriptVerificationService {
             transcriptImport,
             applications,
             courses,
-            loadSchoolInfo(universityId, admissionYear)
+            traceImportId == null ? loadSchoolInfo(universityId, admissionYear)
+                : WorkflowTrace.measure("verification", traceImportId, "load_school_info", () -> loadSchoolInfo(universityId, admissionYear))
         );
     }
 

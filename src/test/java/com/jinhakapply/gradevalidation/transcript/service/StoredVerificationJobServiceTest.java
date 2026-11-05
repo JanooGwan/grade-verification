@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class StoredVerificationJobServiceTest {
     @Mock
     private StoredTranscriptVerificationService verificationService;
+    @Mock private WorkflowResourceMonitor resourceMonitor;
 
     @Test
     void completesVerificationOutsideTheRequestAndReturnsSavedResult() {
@@ -29,7 +30,7 @@ class StoredVerificationJobServiceTest {
         );
         when(verificationService.persist(eq(4L), eq(2026), any(), any())).thenReturn(result);
         Executor sameThreadExecutor = Runnable::run;
-        var service = new StoredVerificationJobService(verificationService, sameThreadExecutor);
+        var service = new StoredVerificationJobService(verificationService, sameThreadExecutor, resourceMonitor);
 
         var started = service.start(4L, 2026);
         var status = service.status(started.jobId());
@@ -45,7 +46,7 @@ class StoredVerificationJobServiceTest {
     void exposesFailureWithoutBreakingThePollingRequest() {
         when(verificationService.persist(eq(4L), eq(2026), any(), any())).thenThrow(new IllegalStateException("database failed"));
         Executor sameThreadExecutor = Runnable::run;
-        var service = new StoredVerificationJobService(verificationService, sameThreadExecutor);
+        var service = new StoredVerificationJobService(verificationService, sameThreadExecutor, resourceMonitor);
 
         var started = service.start(4L, 2026);
         var status = service.status(started.jobId());
@@ -57,7 +58,7 @@ class StoredVerificationJobServiceTest {
     @Test
     void exposesProvisionalCountsWithoutDeclaringCompletionBeforePersistReturns() {
         var pending = new AtomicReference<Runnable>();
-        var service = new StoredVerificationJobService(verificationService, pending::set);
+        var service = new StoredVerificationJobService(verificationService, pending::set, resourceMonitor);
         var started = service.start(4L, 2027);
         assertThat(started.progress().stage()).isEqualTo("QUEUED");
         assertThat(service.start(4L, 2027).jobId()).isEqualTo(started.jobId());

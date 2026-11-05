@@ -43,6 +43,7 @@ class MjcSourceImportProcessor {
     private final MjcSingleCsvExtractor singleCsvExtractor;
     private final tools.jackson.databind.ObjectMapper objectMapper;
     private final SourceImportJobTracker importJobs;
+    private final WorkflowResourceMonitor resourceMonitor;
 
     @Async("sourceImportExecutor")
     public void processArchive(Long importId, Long universityId, int admissionYear, Path directory, Path archive) {
@@ -50,11 +51,15 @@ class MjcSourceImportProcessor {
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.ARCHIVE_VALIDATION);
         var timing = new SourceStageTimings(stage);
         boolean success = false;
+        var resources = resourceMonitor.start("import", String.valueOf(importId));
         try {
             updateStatus(importId, "PROCESSING", null);
             var bundle = archiveExtractor.extract(archive, directory, admissionYear);
-            transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
-                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition));
+            transactionTemplate.executeWithoutResult(status -> {
+                TransactionObservation.register("import", String.valueOf(importId));
+                importCsvBundle(importId, universityId, admissionYear,
+                    bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition);
+            });
             success = true;
         } catch (Exception exception) {
             String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
@@ -62,6 +67,7 @@ class MjcSourceImportProcessor {
             log.warn("MJC archive import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
         } finally {
+            if (resources != null) resources.close();
             importJobs.finished(importId);
             timing.finish();
             log.info("mjc_import_timings importId={} format=ZIP status={} timingsMs={}",
@@ -76,18 +82,23 @@ class MjcSourceImportProcessor {
         var stage = new AtomicReference<>(MjcSourceImportDiagnostics.Stage.SINGLE_CSV_VALIDATION);
         var timing = new SourceStageTimings(stage);
         boolean success = false;
+        var resources = resourceMonitor.start("import", String.valueOf(importId));
         try {
             updateStatus(importId, "PROCESSING", null);
             var files = singleCsvExtractor.extract(csv, directory);
             var bundle = archiveExtractor.extractCombined(files, directory);
-            transactionTemplate.executeWithoutResult(status -> importCsvBundle(importId, universityId, admissionYear,
-                bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition));
+            transactionTemplate.executeWithoutResult(status -> {
+                TransactionObservation.register("import", String.valueOf(importId));
+                importCsvBundle(importId, universityId, admissionYear,
+                    bundle.applicantsFile(), bundle.baseInfoFile(), bundle.subjectScoreFile(), bundle.applicants(), timing::transition);
+            });
             success = true;
         } catch (Exception exception) {
             String diagnostic = MjcSourceImportDiagnostics.describe(exception, stage.get());
             log.warn("MJC single CSV import failed: importId={}, diagnostic={}", importId, diagnostic);
             fail(importId, diagnostic);
         } finally {
+            if (resources != null) resources.close();
             importJobs.finished(importId);
             timing.finish();
             log.info("mjc_import_timings importId={} format=SINGLE_CSV status={} timingsMs={}",
@@ -211,9 +222,10 @@ class MjcSourceImportProcessor {
         updateStatus(importId, "PROCESSING", null);
         jdbcTemplate.update(
             "UPDATE student_transcript_import SET source_admission_year=? WHERE id=?", admissionYear, importId);
-        deleteSnapshots(importId);
+        ImportTimingLog.measure(importId, "delete_import_snapshots", () ->
+            jdbcTemplate.update("DELETE FROM student_transcript_import_course WHERE import_id=?", importId), Integer::intValue);
         TranscriptSnapshotReplacementService.SnapshotScope snapshot = snapshotReplacementService.clear(
-            universityId, admissionYear, false
+            universityId, admissionYear, false, importId
         );
 
         stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_CATALOG);
@@ -233,21 +245,32 @@ class MjcSourceImportProcessor {
         }
 
         int[] processed = {0};
+        int[] batchNumber = {0};
+        long[] previousBatchEnd = {System.nanoTime()};
         stage.accept(MjcSourceImportDiagnostics.Stage.READ_COURSES);
         StreamResult result = reader.streamCourses(subjectScoreFile, BATCH_SIZE, batch -> {
+            int number = ++batchNumber[0];
+            long readMs = (System.nanoTime() - previousBatchEnd[0]) / 1_000_000;
+            log.info("mjc_import_batch_start importId={} batch={} rows={} readSincePreviousBatchMs={}",
+                importId, number, batch.size(), readMs);
             verifyCourseApplicants(batch, studentIds);
             stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_COURSES);
-            upsertCourses(batch, studentIds, importId);
+            measureCourseBatch(importId, number, "current_courses", batch.size(),
+                bindNanos -> upsertCourses(batch, studentIds, importId, bindNanos));
             stage.accept(MjcSourceImportDiagnostics.Stage.SAVE_COURSE_SNAPSHOTS);
-            insertCourseSnapshots(batch, importId);
+            measureCourseBatch(importId, number, "course_snapshots", batch.size(),
+                bindNanos -> insertCourseSnapshots(batch, importId, bindNanos));
             processed[0] += batch.size();
             if (processed[0] % 50_000 < batch.size()) {
                 updateProgress(importId, processed[0], 0);
             }
             stage.accept(MjcSourceImportDiagnostics.Stage.READ_COURSES);
+            previousBatchEnd[0] = System.nanoTime();
         });
         stage.accept(MjcSourceImportDiagnostics.Stage.FINALIZE);
-        snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantsByNumber.keySet());
+        ImportTimingLog.measure(importId, "delete_missing_students", () ->
+            snapshotReplacementService.deleteMissingStudents(snapshot.existingStudents(), applicantsByNumber.keySet()),
+            Integer::intValue);
         String warning = result.skippedRows() == 0 ? null
             : "이수단위가 없거나 0 이하인 과목 " + result.skippedRows() + "건을 성적 반영에서 제외했습니다.";
         String sourceWarning = MjcArchiveInputIssues.summary(archiveApplicants);
@@ -424,7 +447,7 @@ class MjcSourceImportProcessor {
         }
     }
 
-    private void upsertCourses(List<CourseRow> rows, Map<String, Long> studentIds, Long importId) {
+    private void upsertCourses(List<CourseRow> rows, Map<String, Long> studentIds, Long importId, long[] bindNanos) {
         String sql = """
             INSERT INTO student_transcript_course (
                 student_id, source_import_id, school_year, semester, subject_category, course_name,
@@ -444,12 +467,14 @@ class MjcSourceImportProcessor {
                 source_file_name=VALUES(source_file_name), source_row_number=VALUES(source_row_number),
                 updated_at=CURRENT_TIMESTAMP(6)
             """;
-        jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> bindCourse(
-            statement, row, studentIds.get(row.examNumber()), importId, true
-        ));
+        jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
+            long start = System.nanoTime();
+            try { bindCourse(statement, row, studentIds.get(row.examNumber()), importId, true); }
+            finally { bindNanos[0] += System.nanoTime() - start; }
+        });
     }
 
-    private void insertCourseSnapshots(List<CourseRow> rows, Long importId) {
+    private void insertCourseSnapshots(List<CourseRow> rows, Long importId, long[] bindNanos) {
         String sql = """
             INSERT INTO student_transcript_import_course (
                 import_id, source_row_number, applicant_number, school_year, semester, subject_category,
@@ -458,9 +483,28 @@ class MjcSourceImportProcessor {
                 professional_course, source_grade_text, source_applicant_id, source_student_record_id, source_subject_id, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NINE_LEVEL', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
             """;
-        jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> bindCourse(
-            statement, row, null, importId, false
-        ));
+        jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
+            long start = System.nanoTime();
+            try { bindCourse(statement, row, null, importId, false); }
+            finally { bindNanos[0] += System.nanoTime() - start; }
+        });
+    }
+
+    private void measureCourseBatch(Long importId, int batch, String operation, int rows,
+                                    Consumer<long[]> action) {
+        long start = System.nanoTime();
+        long[] bindNanos = {0};
+        boolean success = false;
+        log.info("mjc_import_batch_write_start importId={} batch={} operation={} rows={}",
+            importId, batch, operation, rows);
+        try {
+            action.accept(bindNanos);
+            success = true;
+        } finally {
+            log.info("mjc_import_batch_write_end importId={} batch={} operation={} rows={} elapsedMs={} bindMs={} status={}",
+                importId, batch, operation, rows, (System.nanoTime() - start) / 1_000_000,
+                bindNanos[0] / 1_000_000, success ? "OK" : "FAILED");
+        }
     }
 
     private void bindCourse(

@@ -37,6 +37,7 @@ public class SavedVerificationQueryService {
     private final TranscriptBatchVerificationService batchVerificationService;
     private final TranscriptValidationExcelWriter validationExcelWriter;
     private final SyuSavedVerificationExcelWriter syuSavedVerificationExcelWriter;
+    private final WorkflowResourceMonitor resourceMonitor;
 
     @Transactional(readOnly = true)
     public List<SavedVerificationBatchResponse> findBatches(Long universityId, int admissionYear) {
@@ -94,23 +95,28 @@ public class SavedVerificationQueryService {
     public void writeExport(Long sourceImportId, OutputStream output) throws IOException {
         OperationTimings timings = new OperationTimings();
         boolean success = false;
+        var resources = resourceMonitor.start("export", String.valueOf(sourceImportId));
+        TransactionObservation.register("export", String.valueOf(sourceImportId));
         try {
             try (var ignored = timings.start("export_total")) {
                 writeMeasuredExport(sourceImportId, output, timings);
             }
             success = true;
         } finally {
+            if (resources != null) resources.close();
             log.info("verification_export_timings sourceImportId={} status={} timingsMs={}",
                 sourceImportId, success ? "COMPLETED" : "FAILED", timings.snapshotMillis());
         }
     }
 
     private void writeMeasuredExport(Long sourceImportId, OutputStream output, OperationTimings timings) throws IOException {
-        SavedVerificationBatchResponse batch = timings.measure("batch_db", () -> repository.findBatch(sourceImportId))
+        SavedVerificationBatchResponse batch = timings.measure("batch_db", () -> WorkflowTrace.measure("export", sourceImportId,
+            "load_batch", () -> repository.findBatch(sourceImportId)))
             .orElseThrow(() -> CustomException.of(VERIFICATION_RUN_NOT_FOUND));
         if (SyuSourceExcelStreamer.SOURCE_FORMAT.equals(batch.sourceFormat())) {
-            try (var ignored = timings.start("syu_export_inclusive")) {
+            try (var ignored = timings.start("syu_export_inclusive"); var trace = WorkflowTrace.start("export", sourceImportId, "syu_export_inclusive")) {
                 output.write(syuSavedVerificationExcelWriter.write(batch));
+                trace.success();
             }
             return;
         }
@@ -127,9 +133,16 @@ public class SavedVerificationQueryService {
             if (pagesRead % 50 == 0) {
                 log.info("verification_export_stage sourceImportId={} stage=RESULT_DB pagesCompleted={}", sourceImportId, pagesRead);
             }
+            int page = pagesRead + 1;
+            log.info("verification_export_page_start sourceImportId={} page={}", sourceImportId, page);
+            long pageStarted = System.nanoTime();
             List<SavedVerificationQueryRepository.ExportProjection> storedResults =
                 timings.measure("result_db", () -> repository.findExportResultsAfter(sourceImportId, cursor, EXPORT_PAGE_SIZE));
-            if (storedResults.isEmpty()) break;
+            long queryMs = (System.nanoTime() - pageStarted) / 1_000_000;
+            if (storedResults.isEmpty()) {
+                log.info("verification_export_page_end sourceImportId={} page={} rows=0 queryMs={} assemblyMs=0", sourceImportId, page, queryMs);
+                break;
+            }
             pagesRead++;
             try (var ignored = timings.start("detail_assembly_including_rule_db")) {
                 for (SavedVerificationQueryRepository.ExportProjection stored : storedResults) {
@@ -168,6 +181,8 @@ public class SavedVerificationQueryService {
                     afterVerificationRunId = stored.verificationRunId();
                 }
             }
+            log.info("verification_export_page_end sourceImportId={} page={} rows={} queryMs={} assemblyMs={}",
+                sourceImportId, page, storedResults.size(), queryMs, (System.nanoTime() - pageStarted) / 1_000_000 - queryMs);
             if (storedResults.size() < EXPORT_PAGE_SIZE) break;
         }
         boolean mjcArchive = MjcSourceArchiveExtractor.isCurrentSource(batch.sourceFormat());
@@ -182,7 +197,8 @@ public class SavedVerificationQueryService {
         boolean kbu = batch.universityName().contains("경복")
             && (batch.admissionYear() == 2026 || batch.admissionYear() == 2027);
         if (tuk || kbu || mjcArchive) {
-            var applications = timings.measure("applications_db", () -> repository.findExportApplications(sourceImportId));
+            var applications = timings.measure("applications_db", () -> WorkflowTrace.measure("export", sourceImportId,
+                "load_applications", () -> repository.findExportApplications(sourceImportId)));
             var savedIds = successes.stream().map(s -> s.application().applicationId())
                 .collect(java.util.stream.Collectors.toSet());
             var currentIds = applications.stream().map(a -> a.applicationId())
@@ -199,7 +215,8 @@ public class SavedVerificationQueryService {
                     return new TranscriptBatchVerificationResult.Success(application, success.studentName(),
                         success.verification(), success.selectedCourses(), success.intermediateCalculations(), success.schoolInfo());
                 });
-                var mjcReasons = mjcArchive ? timings.measure("failure_reasons_db", () -> repository.findMjcFailureReasons(sourceImportId)) : Map.<String, String[]>of();
+                var mjcReasons = mjcArchive ? timings.measure("failure_reasons_db", () -> WorkflowTrace.measure("export", sourceImportId,
+                    "load_failure_reasons", () -> repository.findMjcFailureReasons(sourceImportId))) : Map.<String, String[]>of();
                 applications.stream().filter(a -> !savedIds.contains(a.applicationId()))
                     .map(a -> {
                         var generic = tuk ? TukUnscoredExport.failure(batch.admissionYear(), a)
@@ -228,7 +245,7 @@ public class SavedVerificationQueryService {
                 batch.originalFileName(), batch.sourceFormat(), batch.universityName(),
                 successes.size() + failures.size(), courses.size(), List.of(), List.copyOf(courses), List.of(),
                 List.copyOf(warnings),
-                result, output
+                result, output, sourceImportId
             );
         }
     }

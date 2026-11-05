@@ -92,7 +92,7 @@ class TranscriptBatchVerificationService {
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
         BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
         return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, archiveInputs,
-            verifiedResultConsumer, true);
+            verifiedResultConsumer, true, null);
     }
 
     TranscriptBatchVerificationResult verifyForPersistence(Long universityId, int admissionYear,
@@ -100,21 +100,34 @@ class TranscriptBatchVerificationService {
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
         BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer) {
         return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, archiveInputs,
-            verifiedResultConsumer, false);
+            verifiedResultConsumer, false, null);
+    }
+
+    TranscriptBatchVerificationResult verifyForPersistence(Long universityId, int admissionYear,
+        List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
+        Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer, OperationTimings timings) {
+        return verify(universityId, admissionYear, applications, courses, schoolInfoByApplicant, archiveInputs,
+            verifiedResultConsumer, false, timings);
+    }
+
+    private <T> T measure(OperationTimings timings, String name, java.util.function.Supplier<T> action) {
+        return timings == null ? action.get() : timings.measure(name, action);
     }
 
     private TranscriptBatchVerificationResult verify(Long universityId, int admissionYear,
         List<TransferApplicationRow> applications, List<TranscriptExcelRow> courses,
         Map<String, ApplicantSchoolInfoRow> schoolInfoByApplicant, Map<String, MjcArchiveApplicant> archiveInputs,
-        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer, boolean retainExportDetails) {
+        BiConsumer<TransferApplicationRow, GradeVerificationResponse> verifiedResultConsumer, boolean retainExportDetails,
+        OperationTimings timings) {
         if (universityId == null) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "성적 검증 대상 대학교를 선택해 주세요.");
         }
-        List<EvaluationRule> rules = ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
+        List<EvaluationRule> rules = measure(timings, "rules_load", () -> ruleRepository.findAllByUniversityIdAndAdmissionYearAndStatus(
             universityId, admissionYear, EvaluationRuleStatus.PUBLISHED
-        );
-        Map<String, List<TranscriptExcelRow>> coursesByApplicant = courses.stream()
-            .collect(Collectors.groupingBy(TranscriptExcelRow::applicantNumber));
+        ));
+        Map<String, List<TranscriptExcelRow>> coursesByApplicant = measure(timings, "course_grouping", () -> courses.stream()
+            .collect(Collectors.groupingBy(TranscriptExcelRow::applicantNumber)));
         // Scoped to this invocation: published rule changes must be observed on the next verification.
         Map<RuleMatchKey, List<EvaluationRule>> matchedRuleCache = new HashMap<>();
 
@@ -154,7 +167,7 @@ class TranscriptBatchVerificationService {
             EvaluationRule rule = matchedRules.getFirst();
             if (archive != null && "GED".equals(archive.academicType())) {
                 try {
-                    var result = MjcArchiveScores.ged(rule, application.admissionTrackName(), archive);
+                    var result = measure(timings, "ged_calculation", () -> MjcArchiveScores.ged(rule, application.admissionTrackName(), archive));
                     verifiedResultConsumer.accept(application, result);
                     successes.add(new TranscriptBatchVerificationResult.Success(application, studentName, result,
                         List.of(), List.of(), schoolInfo));
@@ -233,10 +246,10 @@ class TranscriptBatchVerificationService {
                 applicantCourses.stream().map(this::toCourseGrade).toList()
             );
             try {
-                GradeVerificationResponse verification = evaluationService.verify(rule, request);
+                GradeVerificationResponse verification = measure(timings, "grade_calculation", () -> evaluationService.verify(rule, request));
                 GradeVerificationResponse annotated = annotate(verification, application, admissionYear);
                 var intermediate = archive != null
-                    ? buildIntermediateCalculations(rule, verification)
+                    ? measure(timings, "intermediate_calculation", () -> buildIntermediateCalculations(rule, verification))
                     : List.<TranscriptBatchVerificationResult.IntermediateCalculation>of();
                 if (archive != null) {
                     var values = MjcArchiveScores.sourceValues(archive);

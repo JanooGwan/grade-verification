@@ -12,6 +12,7 @@ import com.jinhakapply.gradevalidation.transcript.dto.SavedVerificationBatchResp
 import com.jinhakapply.gradevalidation.transcript.repository.SavedVerificationQueryRepository;
 import com.jinhakapply.gradevalidation.transcript.repository.SavedVerificationQueryRepository.ScenarioExportProjection;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -30,6 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 class SyuSavedVerificationExcelWriter {
 
     private static final String SHEET_NAME = "전형별 검증 결과";
@@ -56,16 +58,24 @@ class SyuSavedVerificationExcelWriter {
             Styles styles = new Styles(workbook);
             configureSheet(sheet, styles, batch);
             int[] rowIndex = {DATA_ROW_INDEX};
-            repository.streamScenarioExportResults(batch.sourceImportId(), result ->
-                writeResultRow(sheet.createRow(rowIndex[0]++), styles, result)
-            );
+            try (var trace = WorkflowTrace.start("export", batch.sourceImportId(), "syu_query_and_sheet_rows")) {
+                repository.streamScenarioExportResults(batch.sourceImportId(), result -> {
+                    writeResultRow(sheet.createRow(rowIndex[0]++), styles, result);
+                    int count = rowIndex[0] - DATA_ROW_INDEX;
+                    if (count % 5000 == 0) log.info("syu_export_rows sourceImportId={} rows={}", batch.sourceImportId(), count);
+                });
+                trace.success();
+            }
             sheet.setAutoFilter(new CellRangeAddress(
                 HEADER_ROW_INDEX,
                 Math.max(HEADER_ROW_INDEX, rowIndex[0] - 1),
                 0,
                 HEADERS.length - 1
             ));
-            workbook.write(output);
+            try (var trace = WorkflowTrace.start("export", batch.sourceImportId(), "syu_workbook_write")) {
+                workbook.write(output);
+                trace.success();
+            }
             return output.toByteArray();
         } catch (IOException exception) {
             throw CustomException.of(INVALID_TRANSCRIPT_FILE, "삼육대 저장 검증 결과 Excel 파일을 생성하지 못했습니다.");
