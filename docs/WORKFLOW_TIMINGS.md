@@ -20,6 +20,9 @@
 - `verification_timings`: `input_load`, `previous_result_delete`, `evaluation_loop_inclusive`,
   `result_json`, `result_buffer_and_db_write`, `final_db_flush`, `finalize`, `service_body`,
   `persist_call_including_transaction` 등을 기록한다. 실패 시에도 도달한 시간만 남는다.
+- `verification_batch_budget`은 서버의 `max_allowed_packet`의 1/4과 4MiB 중 작은 값이다.
+  조회 실패 시 512KiB를 사용하며, UTF-8과 SQL 이스케이프를 고려한 추정치다.
+  한 행이 상한을 넘으면 단독 저장을 시도하며 DB 패킷 제한을 넘으면 실패한다.
 - `evaluationOtherMs`는 전체 검증 반복 시간에서 JSON 변환과 버퍼·DB 쓰기 시간을 뺀 추정치다.
   순수 산식뿐 아니라 규칙 조회·매칭·객체 생성 등도 포함한다. 마지막 별도 `final_db_flush`는
   반복 구간 밖이므로 빼지 않는다. 각 값은 ms 단위로 반올림 없이 절삭된다.

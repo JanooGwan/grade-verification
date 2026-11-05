@@ -28,6 +28,8 @@ import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationPersiste
 import com.jinhakapply.gradevalidation.transcript.dto.StoredVerificationProgress;
 import com.jinhakapply.gradevalidation.transcript.repository.StudentTranscriptImportRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 @RequiredArgsConstructor
 public class StoredTranscriptVerificationService {
+    private static final Logger log = LoggerFactory.getLogger(StoredTranscriptVerificationService.class);
 
     private static final List<TranscriptImportStatus> COMPLETED_STATUSES = List.of(
         TranscriptImportStatus.COMPLETED,
@@ -143,8 +146,11 @@ public class StoredTranscriptVerificationService {
         int totalApplications = stored.applications().size();
         progress.accept(new StoredVerificationProgress("PREPARING_SAVE", totalApplications, 0, 0));
         int replacedResults = timings.measure("previous_result_delete", () -> batchVerificationRunRepository.deleteAllBySourceImportId(sourceImportId));
+        long maximumBytes = timings.measure("batch_budget_lookup", this::verificationBatchBudget);
+        log.info("verification_batch_budget sourceImportId={} maximumBytes={}", sourceImportId, maximumBytes);
         var buffer = new StoredVerificationResultBuffer(batchVerificationRunRepository, sourceImportId,
-            saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)));
+            saved -> progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, saved, 0)),
+            200, maximumBytes);
         progress.accept(new StoredVerificationProgress("VERIFYING_AND_SAVING", totalApplications, 0, 0));
         TranscriptBatchVerificationResult verification = timings.measure("evaluation_loop_inclusive", () -> batchVerificationService.verifyForPersistence(
             universityId,
@@ -189,6 +195,16 @@ public class StoredTranscriptVerificationService {
             replacedResults,
             LocalDateTime.now()
         );
+    }
+
+    private long verificationBatchBudget() {
+        try {
+            Long packetLimit = jdbcTemplate.queryForObject("SELECT @@max_allowed_packet", Long.class);
+            return StoredVerificationResultBuffer.budgetForPacketLimit(packetLimit);
+        } catch (org.springframework.dao.DataAccessException exception) {
+            log.warn("verification_batch_budget_unavailable using fallback");
+            return StoredVerificationResultBuffer.budgetForPacketLimit(null);
+        }
     }
 
     private StoredVerification verifyStored(Long universityId, int admissionYear) {

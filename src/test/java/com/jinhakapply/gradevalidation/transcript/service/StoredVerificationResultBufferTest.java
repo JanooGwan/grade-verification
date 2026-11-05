@@ -16,6 +16,34 @@ import org.junit.jupiter.api.Test;
 
 class StoredVerificationResultBufferTest {
     @Test
+    void packetBudgetRespectsServerLimitAndFallsBackForUnknownValues() {
+        assertThat(StoredVerificationResultBuffer.budgetForPacketLimit(null)).isEqualTo(512L * 1024);
+        assertThat(StoredVerificationResultBuffer.budgetForPacketLimit(0L)).isEqualTo(512L * 1024);
+        assertThat(StoredVerificationResultBuffer.budgetForPacketLimit(2L * 1024 * 1024)).isEqualTo(512L * 1024);
+        assertThat(StoredVerificationResultBuffer.budgetForPacketLimit(64L * 1024 * 1024)).isEqualTo(4L * 1024 * 1024);
+    }
+
+    @Test
+    void largerSafeBudgetReducesWritesForDetailedResultsWithoutChangingTheirContents() {
+        var repository = mock(BatchVerificationRunRepository.class);
+        var result = mock(GradeVerificationResponse.class);
+        var batches = new ArrayList<List<ApplicationVerificationRow>>();
+        when(repository.insertBatch(eq(1L), anyList())).thenAnswer(call -> {
+            List<ApplicationVerificationRow> rows = call.getArgument(1);
+            batches.add(List.copyOf(rows));
+            return rows.size();
+        });
+        var buffer = new StoredVerificationResultBuffer(repository, 1L, ignored -> { }, 200,
+            StoredVerificationResultBuffer.budgetForPacketLimit(64L * 1024 * 1024));
+        String json = "{\"detail\":\"" + "가\\\"😀".repeat(8_000) + "\"}";
+        for (long id = 1; id <= 40; id++) buffer.add(id, result, json);
+        buffer.flush();
+        assertThat(batches.size()).isLessThan(5);
+        assertThat(buffer.savedResults()).isEqualTo(40);
+        assertThat(batches.stream().flatMap(List::stream)).allSatisfy(row -> assertThat(row.resultJson()).isEqualTo(json));
+    }
+
+    @Test
     void reducesTwentyThousandSmallResultWritesToOneHundredWithoutChangingOrderOrPayload() {
         var repository = mock(BatchVerificationRunRepository.class);
         var result = mock(GradeVerificationResponse.class);

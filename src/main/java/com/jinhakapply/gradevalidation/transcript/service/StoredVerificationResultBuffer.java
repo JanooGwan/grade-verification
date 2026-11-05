@@ -10,6 +10,8 @@ import com.jinhakapply.gradevalidation.evaluation.dto.GradeVerificationResponse;
 
 /** Bounded write buffer only. The calculator and its serialized result are unchanged. */
 final class StoredVerificationResultBuffer {
+    private static final long FALLBACK_BYTES = 512L * 1024;
+    private static final long MAXIMUM_BATCH_BYTES = 4L * 1024 * 1024;
     private final BatchVerificationRunRepository repository;
     private final Long sourceImportId;
     private final IntConsumer savedListener;
@@ -20,7 +22,12 @@ final class StoredVerificationResultBuffer {
     private int savedResults;
 
     StoredVerificationResultBuffer(BatchVerificationRunRepository repository, Long sourceImportId, IntConsumer savedListener) {
-        this(repository, sourceImportId, savedListener, 200, 512 * 1024);
+        this(repository, sourceImportId, savedListener, 200, FALLBACK_BYTES);
+    }
+
+    static long budgetForPacketLimit(Long packetLimit) {
+        if (packetLimit == null || packetLimit <= 0) return FALLBACK_BYTES;
+        return Math.max(1, Math.min(MAXIMUM_BATCH_BYTES, packetLimit / 4));
     }
 
     StoredVerificationResultBuffer(BatchVerificationRunRepository repository, Long sourceImportId, IntConsumer savedListener,
@@ -35,8 +42,8 @@ final class StoredVerificationResultBuffer {
 
     void add(Long applicationId, GradeVerificationResponse result, String json) {
         if (applicationId == null) throw new IllegalStateException("DB 지원정보 식별자가 없어 검증 결과를 저장할 수 없습니다.");
-        // Three bytes per UTF-16 character upper-bounds UTF-8 size, including surrogate pairs.
-        long bytes = (long) json.length() * 3 + 128;
+        // Budget for UTF-8 and worst-case SQL string escaping, plus the other row parameters.
+        long bytes = (long) json.length() * 6 + 128;
         if (!rows.isEmpty() && estimatedBytes + bytes > maximumBytes) flush();
         rows.add(new ApplicationVerificationRow(applicationId, result, json));
         estimatedBytes += bytes;
