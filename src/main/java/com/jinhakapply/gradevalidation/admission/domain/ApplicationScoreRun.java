@@ -17,11 +17,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Entity
@@ -53,7 +54,7 @@ public class ApplicationScoreRun {
     @Column(name = "score_after_deduction", nullable = false, precision = 14, scale = 6)
     private BigDecimal scoreAfterDeduction;
     @Column(name = "final_score", precision = 14, scale = 6) private BigDecimal finalScore;
-    @Lob @Column(name = "result_json", nullable = false, columnDefinition = "LONGTEXT") private String resultJson;
+    @JdbcTypeCode(SqlTypes.VARCHAR) @Column(name = "result_json", nullable = false, length = Integer.MAX_VALUE) private String resultJson;
     @Column(name = "created_at", nullable = false, updatable = false) private LocalDateTime createdAt;
 
     public static ApplicationScoreRun create(

@@ -17,6 +17,7 @@ import com.jinhakapply.gradevalidation.admission.repository.BatchVerificationRun
 import com.jinhakapply.gradevalidation.evaluation.domain.AchievementLevel;
 import com.jinhakapply.gradevalidation.evaluation.domain.SubjectCategory;
 import com.jinhakapply.gradevalidation.global.exception.CustomException;
+import com.jinhakapply.gradevalidation.global.config.DatabaseDialect;
 import com.jinhakapply.gradevalidation.transcript.domain.EducationBackground;
 import com.jinhakapply.gradevalidation.transcript.domain.GradeScale;
 import com.jinhakapply.gradevalidation.transcript.domain.HighSchoolType;
@@ -207,6 +208,9 @@ public class StoredTranscriptVerificationService {
     }
 
     private long verificationBatchBudget() {
+        if (DatabaseDialect.isPostgresql(jdbcTemplate)) {
+            return StoredVerificationResultBuffer.budgetForPacketLimit(null);
+        }
         try {
             Long packetLimit = jdbcTemplate.queryForObject("SELECT @@max_allowed_packet", Long.class);
             return StoredVerificationResultBuffer.budgetForPacketLimit(packetLimit);

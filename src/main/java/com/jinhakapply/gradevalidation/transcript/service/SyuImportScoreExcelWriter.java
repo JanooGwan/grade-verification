@@ -351,7 +351,8 @@ class SyuImportScoreExcelWriter {
                 WHERE course.import_id = ?
                 ORDER BY course.applicant_number, course.source_row_number
                 """, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-            statement.setFetchSize(Integer.MIN_VALUE);
+            statement.setFetchSize(connection.getMetaData().getDatabaseProductName().equalsIgnoreCase("PostgreSQL")
+                ? 1000 : Integer.MIN_VALUE);
             statement.setLong(1, transcriptImport.getUniversity().getId());
             statement.setInt(2, transcriptImport.getAdmissionYear());
             statement.setLong(3, transcriptImport.getId());

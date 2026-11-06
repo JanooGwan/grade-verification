@@ -17,6 +17,7 @@ import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.StreamResult;
 import com.jinhakapply.gradevalidation.transcript.service.SyuSourceExcelStreamer.WorkbookStreamResult;
 import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
+import com.jinhakapply.gradevalidation.global.config.DatabaseDialect;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -69,6 +70,9 @@ class SyuSourceImportProcessor {
             ) VALUES (?, ?, ?, '미등록', 'DOMESTIC_HIGH_SCHOOL', 'GENERAL', 'EXPECTED_GRADUATE',
                 CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             """;
+        if (DatabaseDialect.isPostgresql(jdbcTemplate)) {
+            sql = sql.replace("INSERT IGNORE INTO", "INSERT INTO") + " ON CONFLICT DO NOTHING";
+        }
         jdbcTemplate.batchUpdate(sql, applicantNumbers, BATCH_SIZE, (statement, applicantNumber) -> {
             statement.setLong(1, universityId);
             statement.setInt(2, admissionYear);

@@ -2,6 +2,10 @@ spring:
   application:
     name: grade-validation
 
+  profiles:
+    default: mysql
+    active: ${DB_PROFILE:mysql}
+
   config:
     import: optional:file:.env[.properties]
 
@@ -9,13 +13,6 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:
-      data-source-properties:
-        rewriteBatchedStatements: true
-        cachePrepStmts: true
-        prepStmtCacheSize: 250
-        prepStmtCacheSqlLimit: 2048
 
   jpa:
     open-in-view: false

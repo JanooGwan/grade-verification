@@ -172,7 +172,11 @@ public class SavedVerificationQueryRepository {
         Consumer<ScenarioExportProjection> consumer
     ) {
         jdbcTemplate.query(connection -> {
-            PreparedStatement statement = connection.prepareStatement("""
+            boolean postgres = connection.getMetaData().getDatabaseProductName().equalsIgnoreCase("PostgreSQL");
+            String subjectDomains = postgres
+                ? "CAST(verification.export_summary_json AS jsonb) -> 'subjectDomains'"
+                : "JSON_EXTRACT(verification.export_summary_json, '$.subjectDomains')";
+            PreparedStatement statement = connection.prepareStatement(("""
                 SELECT student.applicant_number,
                        COALESCE(track.name, rule.admission_type) AS admission_track_name,
                        COALESCE(unit.name, rule.recruitment_unit) AS recruitment_unit_name,
@@ -181,7 +185,7 @@ public class SavedVerificationQueryRepository {
                        verification.average_grade,
                        verification.final_score,
                        verification.export_summary_json,
-                       CASE WHEN JSON_EXTRACT(verification.export_summary_json, '$.subjectDomains') IS NULL
+                       CASE WHEN %s IS NULL
                             THEN verification.result_json
                             ELSE NULL
                        END AS result_json
@@ -194,8 +198,8 @@ public class SavedVerificationQueryRepository {
                 WHERE verification.source_import_id = ?
                 ORDER BY student.applicant_number, rule.admission_type, rule.recruitment_unit,
                          verification.id
-                """, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-            statement.setFetchSize(Integer.MIN_VALUE);
+                """).formatted(subjectDomains), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            statement.setFetchSize(postgres ? 1000 : Integer.MIN_VALUE);
             statement.setLong(1, sourceImportId);
             return statement;
         }, resultSet -> {

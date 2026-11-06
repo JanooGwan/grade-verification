@@ -145,7 +145,8 @@ public class EvaluationRule {
     private BigDecimal scoreMultiplier;
 
     @Convert(converter = SelectionPolicyConverter.class)
-    @Column(name = "selection_policy", columnDefinition = "LONGTEXT")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.VARCHAR)
+    @Column(name = "selection_policy", length = Integer.MAX_VALUE)
     private CourseSelectionPolicy selectionPolicy;
 
     @Column(name = "source_document", length = 255)

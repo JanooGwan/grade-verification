@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${POSTGRES_DB_URL:jdbc:postgresql://127.0.0.1:5432/grade_validation?stringtype=unspecified}
+    username: ${POSTGRES_DB_USERNAME}
+    password: ${POSTGRES_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    # The imported MySQL history cannot validate PostgreSQL-specific migrations.
+    table: flyway_postgresql_history
+    locations: classpath:db/postgresql
+    baseline-on-migrate: true
+    baseline-version: '59'
+
+# The assistant uses its own MySQL-specific, restricted account and metadata queries.
+# Keep it off until a PostgreSQL read-only account and query support are configured.
+assistant:
+  enabled: false

@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.jinhakapply.gradevalidation.global.util.TextNormalizer;
+import com.jinhakapply.gradevalidation.global.config.DatabaseDialect;
 import com.jinhakapply.gradevalidation.transcript.service.MjcSourceCsvReader.ApplicantRow;
 import com.jinhakapply.gradevalidation.transcript.service.MjcSourceCsvReader.BaseInfoRow;
 import com.jinhakapply.gradevalidation.transcript.service.MjcSourceCsvReader.CourseRow;
@@ -313,21 +314,32 @@ class MjcSourceImportProcessor {
             UnitKey key = new UnitKey(
                 applicant.admissionTypeName(), applicant.recruitmentUnitCode(), applicant.recruitmentUnitName());
             if (result.containsKey(key)) continue;
-            jdbcTemplate.update("""
+            jdbcTemplate.update(DatabaseDialect.upsert(jdbcTemplate, """
                 INSERT INTO admission_track (university_id, admission_year, name, active, created_at, updated_at)
                 VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
                 ON DUPLICATE KEY UPDATE active=TRUE, updated_at=CURRENT_TIMESTAMP(6)
-                """, universityId, admissionYear, key.trackName());
+                """, "university_id, admission_year, name"), universityId, admissionYear, key.trackName());
             Long trackId = jdbcTemplate.queryForObject(
                 "SELECT id FROM admission_track WHERE university_id=? AND admission_year=? AND name=?",
                 Long.class, universityId, admissionYear, key.trackName());
-            jdbcTemplate.update("""
-                INSERT INTO recruitment_unit (
-                    admission_track_id, code, name, active, created_at, updated_at
-                ) VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-                ON DUPLICATE KEY UPDATE code=VALUES(code), name=VALUES(name), active=TRUE,
-                    updated_at=CURRENT_TIMESTAMP(6)
-                """, trackId, key.unitCode(), key.unitName());
+            if (DatabaseDialect.isPostgresql(jdbcTemplate)) {
+                jdbcTemplate.update("""
+                    INSERT INTO recruitment_unit (admission_track_id, code, name, active, created_at, updated_at)
+                    VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6)) ON CONFLICT DO NOTHING
+                    """, trackId, key.unitCode(), key.unitName());
+                jdbcTemplate.update("""
+                    UPDATE recruitment_unit SET code=?, name=?, active=TRUE, updated_at=CURRENT_TIMESTAMP(6)
+                    WHERE admission_track_id=? AND (code=? OR name=?)
+                    """, key.unitCode(), key.unitName(), trackId, key.unitCode(), key.unitName());
+            } else {
+                jdbcTemplate.update("""
+                    INSERT INTO recruitment_unit (
+                        admission_track_id, code, name, active, created_at, updated_at
+                    ) VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                    ON DUPLICATE KEY UPDATE code=VALUES(code), name=VALUES(name), active=TRUE,
+                        updated_at=CURRENT_TIMESTAMP(6)
+                    """, trackId, key.unitCode(), key.unitName());
+            }
             Long unitId = jdbcTemplate.queryForObject(
                 "SELECT id FROM recruitment_unit WHERE admission_track_id=? AND code=?",
                 Long.class, trackId, key.unitCode());
@@ -355,6 +367,7 @@ class MjcSourceImportProcessor {
                 applicant_high_school_category_code=VALUES(applicant_high_school_category_code),
                 graduation_status=VALUES(graduation_status), updated_at=CURRENT_TIMESTAMP(6)
             """;
+        sql = DatabaseDialect.upsert(jdbcTemplate, sql, "university_id, admission_year, applicant_number");
         jdbcTemplate.batchUpdate(sql, applicants, BATCH_SIZE, (statement, applicant) -> {
             BaseInfoRow base = baseInfo.get(applicant.examNumber());
             statement.setLong(1, universityId);
@@ -433,6 +446,7 @@ class MjcSourceImportProcessor {
             ) VALUES (?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
             ON DUPLICATE KEY UPDATE source_import_id=VALUES(source_import_id), updated_at=CURRENT_TIMESTAMP(6)
             """;
+        sql = DatabaseDialect.upsert(jdbcTemplate, sql, "student_id, recruitment_unit_id");
         jdbcTemplate.batchUpdate(sql, applicants, BATCH_SIZE, (statement, applicant) -> {
             statement.setLong(1, studentIds.get(applicant.examNumber()));
             statement.setLong(2, importId);
@@ -467,6 +481,7 @@ class MjcSourceImportProcessor {
                 source_file_name=VALUES(source_file_name), source_row_number=VALUES(source_row_number),
                 updated_at=CURRENT_TIMESTAMP(6)
             """;
+        sql = DatabaseDialect.upsert(jdbcTemplate, sql, "student_id, source_file_name, source_row_number");
         jdbcTemplate.batchUpdate(sql, rows, BATCH_SIZE, (statement, row) -> {
             long start = System.nanoTime();
             try { bindCourse(statement, row, studentIds.get(row.examNumber()), importId, true); }
