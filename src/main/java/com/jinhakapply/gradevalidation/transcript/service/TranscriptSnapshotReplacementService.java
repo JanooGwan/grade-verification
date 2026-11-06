@@ -26,28 +26,20 @@ class TranscriptSnapshotReplacementService {
             universityId, admissionYear
         ), List::size);
         int deletedVerifications = measured(importId, "delete_verifications", () -> jdbcTemplate.update("""
-            DELETE verification
-            FROM verification_run verification
-            JOIN student ON student.id = verification.student_id
-            WHERE student.university_id = ? AND student.admission_year = ?
+            DELETE FROM verification_run
+            WHERE student_id IN (SELECT id FROM student WHERE university_id = ? AND admission_year = ?)
             """, universityId, admissionYear), Integer::intValue);
         int deletedApplications = measured(importId, "delete_applications", () -> jdbcTemplate.update("""
-            DELETE application
-            FROM student_application application
-            JOIN student ON student.id = application.student_id
-            WHERE student.university_id = ? AND student.admission_year = ?
+            DELETE FROM student_application
+            WHERE student_id IN (SELECT id FROM student WHERE university_id = ? AND admission_year = ?)
             """, universityId, admissionYear), Integer::intValue);
         int deletedCourses = measured(importId, "delete_courses", () -> jdbcTemplate.update("""
-            DELETE course
-            FROM student_transcript_course course
-            JOIN student ON student.id = course.student_id
-            WHERE student.university_id = ? AND student.admission_year = ?
+            DELETE FROM student_transcript_course
+            WHERE student_id IN (SELECT id FROM student WHERE university_id = ? AND admission_year = ?)
             """, universityId, admissionYear), Integer::intValue);
         int deletedAttendance = replaceAttendance ? measured(importId, "delete_attendance", () -> jdbcTemplate.update("""
-            DELETE attendance
-            FROM student_attendance attendance
-            JOIN student ON student.id = attendance.student_id
-            WHERE student.university_id = ? AND student.admission_year = ?
+            DELETE FROM student_attendance
+            WHERE student_id IN (SELECT id FROM student WHERE university_id = ? AND admission_year = ?)
             """, universityId, admissionYear), Integer::intValue) : 0;
         return new SnapshotScope(
             existingStudents,
